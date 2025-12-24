@@ -118,6 +118,173 @@ def ensure_token(menu_manager, keyboard_factory: Callable, get_token: Callable[[
     return result
 
 
+def show_lichess_ongoing_games(client, menu_manager, log) -> Optional[str]:
+    """Show list of ongoing Lichess games and return selected game ID.
+
+    Args:
+        client: berserk Lichess client
+        menu_manager: Menu manager for displaying menu
+        log: Logger instance
+
+    Returns:
+        Game ID if selected, None if cancelled
+    """
+    try:
+        ongoing = client.games.get_ongoing(count=10)
+
+        if not ongoing:
+            show_lichess_error(menu_manager, "No Games", "No ongoing\ngames found")
+            return None
+
+        entries = []
+        for game in ongoing:
+            game_id = game.get("gameId", "")
+            opponent = game.get("opponent", {})
+            opponent_name = opponent.get("username", "Unknown")
+            opponent_rating = opponent.get("rating", "")
+            color = "W" if game.get("color") == "white" else "B"
+
+            label = f"{opponent_name}\n({opponent_rating}) {color}"
+            entries.append(
+                IconMenuEntry(
+                    key=game_id,
+                    label=label,
+                    icon_name="lichess",
+                    enabled=True,
+                    font_size=12,
+                )
+            )
+
+        result = menu_manager.show_menu(entries)
+
+        if result.is_break or result.key == "BACK":
+            return None
+
+        return result.key
+
+    except AttributeError as e:
+        log.error(f"[Lichess] berserk API method not found: {e}")
+        show_lichess_error(
+            menu_manager,
+            "API Not Supported",
+            "Ongoing games API\nnot available.\nUpdate berserk:\npip install -U berserk",
+        )
+        return None
+    except Exception as e:
+        error_msg = str(e)
+        log.error(f"[Lichess] Error fetching ongoing games: {e}")
+        if "401" in error_msg or "unauthorized" in error_msg.lower():
+            show_lichess_error(menu_manager, "Auth Error", "Token does not have\nboard:play permission")
+        elif "network" in error_msg.lower() or "connection" in error_msg.lower():
+            show_lichess_error(menu_manager, "Network Error", "Could not connect\nto Lichess")
+        else:
+            short_error = error_msg[:40] + "..." if len(error_msg) > 40 else error_msg
+            show_lichess_error(menu_manager, "Error", f"Games failed:\n{short_error}")
+        return None
+
+
+def show_lichess_challenges(client, menu_manager, log) -> Optional[dict]:
+    """Show list of Lichess challenges and return selected challenge.
+
+    Args:
+        client: berserk Lichess client
+        menu_manager: Menu manager for displaying menu
+        log: Logger instance
+
+    Returns:
+        Dict with 'id' and 'direction' if selected, None if cancelled
+    """
+    try:
+        challenges_data = None
+        try:
+            challenges_data = client.challenges.get_mine()
+        except AttributeError:
+            try:
+                challenges_data = client.challenges.list()
+            except AttributeError:
+                pass
+
+        if challenges_data is None:
+            log.error("[Lichess] berserk library does not support challenges API")
+            show_lichess_error(
+                menu_manager,
+                "API Not Supported",
+                "Challenges require\nberserk >= 0.13\nUpdate with:\npip install -U berserk",
+            )
+            return None
+
+        incoming = list(challenges_data.get("in", []))
+        outgoing = list(challenges_data.get("out", []))
+
+        if not incoming and not outgoing:
+            show_lichess_error(menu_manager, "No Challenges", "No pending\nchallenges")
+            return None
+
+        entries = []
+
+        for challenge in incoming:
+            c_id = challenge.get("id", "")
+            challenger = challenge.get("challenger", {})
+            name = challenger.get("name", "Unknown")
+            rating = challenger.get("rating", "")
+
+            label = f"IN: {name}\n({rating})"
+            entries.append(
+                IconMenuEntry(
+                    key=f"in:{c_id}",
+                    label=label,
+                    icon_name="lichess",
+                    enabled=True,
+                    font_size=12,
+                )
+            )
+
+        for challenge in outgoing:
+            c_id = challenge.get("id", "")
+            dest = challenge.get("destUser", {})
+            name = dest.get("name", "Unknown")
+            rating = dest.get("rating", "")
+
+            label = f"OUT: {name}\n({rating})"
+            entries.append(
+                IconMenuEntry(
+                    key=f"out:{c_id}",
+                    label=label,
+                    icon_name="lichess",
+                    enabled=True,
+                    font_size=12,
+                )
+            )
+
+        result = menu_manager.show_menu(entries)
+
+        if result.is_break or result.key == "BACK":
+            return None
+
+        direction, c_id = result.key.split(":", 1)
+        return {"id": c_id, "direction": direction}
+
+    except AttributeError as e:
+        log.error(f"[Lichess] berserk API method not found: {e}")
+        show_lichess_error(
+            menu_manager,
+            "API Not Supported",
+            "Challenges require\nberserk >= 0.13\nUpdate with:\npip install -U berserk",
+        )
+        return None
+    except Exception as e:
+        error_msg = str(e)
+        log.error(f"[Lichess] Error fetching challenges: {e}")
+        if "401" in error_msg or "unauthorized" in error_msg.lower():
+            show_lichess_error(menu_manager, "Auth Error", "Token does not have\nchallenge permissions")
+        elif "network" in error_msg.lower() or "connection" in error_msg.lower():
+            show_lichess_error(menu_manager, "Network Error", "Could not connect\nto Lichess")
+        else:
+            short_error = error_msg[:40] + "..." if len(error_msg) > 40 else error_msg
+            show_lichess_error(menu_manager, "Error", f"Challenges failed:\n{short_error}")
+        return None
+
+
 @dataclass
 class LichessStartResult:
     success: bool

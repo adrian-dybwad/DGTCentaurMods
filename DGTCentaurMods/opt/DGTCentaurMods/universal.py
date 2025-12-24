@@ -66,6 +66,20 @@ from DGTCentaurMods.menus import (
     handle_bluetooth_menu,
     handle_accounts_menu,
     mask_token,
+    handle_about_menu,
+    handle_engine_manager_menu,
+    handle_engine_detail_menu,
+    show_engine_install_progress,
+    handle_display_settings,
+    handle_sound_settings,
+    handle_reset_settings,
+    handle_players_menu,
+    handle_color_selection,
+    handle_type_selection,
+    handle_hand_brain_mode_selection,
+    handle_name_input,
+    handle_analysis_mode_menu,
+    handle_analysis_engine_selection,
     handle_update_menu,
     handle_local_deb_install,
     check_and_download_update,
@@ -1710,7 +1724,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     def _on_position_game_back():
         """Handle back press for position games - signal return to positions menu.
         
-        We can't call _handle_positions_menu() directly here because we're inside
+        Cannot call handle_positions_menu() directly here because we're inside
         the key callback chain and _show_menu() would block waiting for key events
         from the same callback thread. Instead, set a flag and let the main loop handle it.
         """
@@ -2138,8 +2152,22 @@ def _handle_settings(initial_selection: str = None):
         
         elif result == "About":
             ctx.enter_menu("About", 0)
-            about_result = _handle_about_menu()
-            ctx.leave_menu()  # Pop About, restore to Settings level
+            from DGTCentaurMods.paths import get_resource_path
+            about_result = handle_about_menu(
+                ctx=ctx,
+                menu_manager=_menu_manager,
+                board=board,
+                log=log,
+                get_installed_version=_get_installed_version,
+                get_resource_path=get_resource_path,
+                update_system=centaur.UpdateSystem(),
+                handle_update_menu=handle_update_menu,
+                show_menu=_show_menu,
+                find_entry_index=find_entry_index,
+                set_active_about_widget=lambda w: globals().__setitem__('_active_about_widget', w),
+                clear_active_about_widget=lambda: globals().__setitem__('_active_about_widget', None),
+            )
+            ctx.leave_menu()
             if is_break_result(about_result):
                 ctx.clear()
                 app_state = AppState.MENU
@@ -2147,86 +2175,18 @@ def _handle_settings(initial_selection: str = None):
 
 
 def _handle_players_menu():
-    """Handle the Players submenu.
-
-    Shows Player One and Player Two configuration options.
-    Player One (bottom of board) can set color and type.
-    Player Two can set type.
-
-    Uses MenuContext for tracking selection state.
-
-    Returns:
-        "START_GAME" if configuration complete and user wants to play.
-        Break result if user triggered a break action.
-        None if user pressed BACK.
-    """
-    ctx = _get_menu_context()
-    
-    while True:
-        # Create player summary labels
-        p1_color = _player1_settings['color'].capitalize()
-        p1_type = _get_player_type_label(_player1_settings['type'])
-        p2_type = _get_player_type_label(_player2_settings['type'])
-
-        # If engine, show engine name
-        if _player1_settings['type'] == 'engine':
-            p1_type = _player1_settings['engine']
-        elif _player1_settings['type'] == 'hand_brain':
-            mode = 'N' if _player1_settings['hand_brain_mode'] == 'normal' else 'R'
-            p1_type = f"H+B {mode}"
-        if _player2_settings['type'] == 'engine':
-            p2_type = _player2_settings['engine']
-        elif _player2_settings['type'] == 'hand_brain':
-            mode = 'N' if _player2_settings['hand_brain_mode'] == 'normal' else 'R'
-            p2_type = f"H+B {mode}"
-
-        entries = [
-            IconMenuEntry(
-                key="Player1",
-                label=f"Player 1\n{p1_type} ({p1_color})",
-                icon_name="white_piece" if _player1_settings['color'] == 'white' else "black_piece",
-                enabled=True
-            ),
-            IconMenuEntry(
-                key="Player2",
-                label=f"Player 2\n{p2_type}",
-                icon_name="universal_logo",
-                enabled=True
-            ),
-            IconMenuEntry(
-                key="StartGame",
-                label="Start\nGame",
-                icon_name="play",
-                enabled=True
-            ),
-        ]
-
-        result = _show_menu(entries, initial_index=ctx.current_index())
-        ctx.update_index(find_entry_index(entries, result))
-
-        if is_break_result(result):
-            return result
-        
-        if result == "BACK":
-            return None
-        
-        if result == "Player1":
-            ctx.enter_menu("Player1", 0)
-            p1_result = _handle_player1_menu()
-            ctx.leave_menu()
-            if is_break_result(p1_result):
-                return p1_result
-        
-        elif result == "Player2":
-            ctx.enter_menu("Player2", 0)
-            p2_result = _handle_player2_menu()
-            ctx.leave_menu()
-            if is_break_result(p2_result):
-                return p2_result
-        
-        elif result == "StartGame":
-            board.beep(board.SOUND_GENERAL, event_type='key_press')
-            return "START_GAME"
+    """Handle the Players submenu - delegates to extracted menu function."""
+    return handle_players_menu(
+        get_menu_context=_get_menu_context,
+        player1_settings=_player1_settings,
+        player2_settings=_player2_settings,
+        show_menu=_show_menu,
+        find_entry_index=find_entry_index,
+        handle_player1_menu=_handle_player1_menu,
+        handle_player2_menu=_handle_player2_menu,
+        board=board,
+        log=log,
+    )
 
 
 def _handle_player1_menu():
@@ -2298,91 +2258,26 @@ def _handle_player2_menu():
 
 
 def _handle_player1_color_selection():
-    """Handle color selection for Player 1.
-    
-    Returns:
-        Break result if user triggered a break action.
-        None otherwise.
-    """
-    current_color = _player1_settings['color']
-    
-    entries = [
-        IconMenuEntry(
-            key="white",
-            label="* White" if current_color == 'white' else "White",
-            icon_name="white_piece",
-            enabled=True
-        ),
-        IconMenuEntry(
-            key="black",
-            label="* Black" if current_color == 'black' else "Black",
-            icon_name="black_piece",
-            enabled=True
-        ),
-    ]
-    
-    result = _show_menu(entries)
-    
-    if is_break_result(result):
-        return result
-    
-    if result in ["white", "black"]:
-        old_color = _player1_settings['color']
-        _save_player1_setting('color', result)
-        log.info(f"[Settings] Player1 color changed: {old_color} -> {result}")
-        board.beep(board.SOUND_GENERAL, event_type='key_press')
-    
-    return None
+    """Handle color selection for Player 1 - delegates to extracted menu function."""
+    return handle_color_selection(
+        player_settings=_player1_settings,
+        show_menu=_show_menu,
+        save_player_setting=_save_player1_setting,
+        log=log,
+        board=board,
+    )
 
 
 def _handle_player1_type_selection():
-    """Handle type selection for Player 1.
-    
-    Returns:
-        Break result if user triggered a break action.
-        None otherwise.
-    """
-    current_type = _player1_settings['type']
-    
-    entries = [
-        IconMenuEntry(
-            key="human",
-            label="* Human" if current_type == 'human' else "Human",
-            icon_name="universal_logo",
-            enabled=True
-        ),
-        IconMenuEntry(
-            key="engine",
-            label="* Engine" if current_type == 'engine' else "Engine",
-            icon_name="engine",
-            enabled=True
-        ),
-        IconMenuEntry(
-            key="lichess",
-            label="* Lichess" if current_type == 'lichess' else "Lichess",
-            icon_name="lichess",
-            enabled=True
-        ),
-        IconMenuEntry(
-            key="hand_brain",
-            label="* Hand+Brain" if current_type == 'hand_brain' else "Hand+Brain",
-            icon_name="engine",
-            enabled=True
-        ),
-    ]
-    
-    result = _show_menu(entries)
-    
-    if is_break_result(result):
-        return result
-    
-    if result in ["human", "engine", "lichess", "hand_brain"]:
-        old_type = _player1_settings['type']
-        _save_player1_setting('type', result)
-        log.info(f"[Settings] Player1 type changed: {old_type} -> {result}")
-        board.beep(board.SOUND_GENERAL, event_type='key_press')
-    
-    return None
+    """Handle type selection for Player 1 - delegates to extracted menu function."""
+    return handle_type_selection(
+        player_settings=_player1_settings,
+        show_menu=_show_menu,
+        save_player_setting=_save_player1_setting,
+        log=log,
+        board=board,
+        player_label="Player1",
+    )
 
 
 def _handle_player1_engine_selection():
@@ -2428,178 +2323,57 @@ def _handle_player1_elo_selection():
 
 
 def _handle_player1_hand_brain_mode_selection():
-    """Handle Hand+Brain mode selection for Player 1.
-    
-    Selects between Normal mode (engine suggests, human moves) and
-    Reverse mode (human suggests, engine moves).
-    Uses checkbox icons so the active mode (including Reverse) is visually clear.
-    
-    Returns:
-        Break result if user triggered a break action.
-        None otherwise.
-    """
-    current_mode = _player1_settings['hand_brain_mode']
-    
-    entries = build_hand_brain_mode_entries(current_mode)
-    
-    result = _show_menu(entries)
-    
-    if is_break_result(result):
-        return result
-    
-    if result in ["normal", "reverse"]:
-        old_mode = _player1_settings['hand_brain_mode']
-        _save_player1_setting('hand_brain_mode', result)
-        log.info(f"[Settings] Player1 hand_brain_mode changed: {old_mode} -> {result}")
-        board.beep(board.SOUND_GENERAL, event_type='key_press')
-    
-    return None
+    """Handle Hand+Brain mode selection for Player 1 - delegates to extracted menu function."""
+    return handle_hand_brain_mode_selection(
+        player_settings=_player1_settings,
+        show_menu=_show_menu,
+        save_player_setting=_save_player1_setting,
+        log=log,
+        board=board,
+        player_label="Player1",
+    )
 
 
 def _handle_player1_name_input():
-    """Handle name input for Player 1.
-    
-    Opens a keyboard widget for the user to enter their name.
-    
-    Returns:
-        Break result if user triggered a break action.
-        None otherwise.
-    """
+    """Handle name input for Player 1 - delegates to extracted menu function."""
     global _active_keyboard_widget
-    
-    log.info("[Settings] Opening keyboard for Player 1 name entry")
-    
-    # Clear display and show keyboard widget
-    board.display_manager.clear_widgets(addStatusBar=False)
-    
-    # Create keyboard widget with current name as initial text
-    current_name = _player1_settings['name']
-    keyboard = KeyboardWidget(board.display_manager.update, title="Player 1 Name", max_length=20)
-    keyboard.text = current_name if current_name else ""
-    
-    _active_keyboard_widget = keyboard
-    
-    # Add widget to display
-    promise = board.display_manager.add_widget(keyboard)
-    if promise:
-        try:
-            promise.result(timeout=2.0)
-        except Exception:
-            pass
-    
-    try:
-        # Wait for input (blocking)
-        result = keyboard.wait_for_input(timeout=300.0)
-        
-        if result is not None:
-            # User confirmed - save the name (empty string allowed to reset to default)
-            _save_player1_setting('name', result)
-            log.info(f"[Settings] Player 1 name saved: '{result or '(default)'}'")
-            board.beep(board.SOUND_GENERAL)
-        else:
-            log.info("[Settings] Player 1 name entry cancelled")
-    finally:
-        _active_keyboard_widget = None
-    
-    return None
+    return handle_name_input(
+        player_settings=_player1_settings,
+        show_menu=_show_menu,
+        save_player_setting=_save_player1_setting,
+        log=log,
+        board=board,
+        keyboard_widget_class=KeyboardWidget,
+        player_label="Player 1",
+        set_active_keyboard_widget=lambda w: globals().__setitem__('_active_keyboard_widget', w),
+    )
 
 
 def _handle_player2_name_input():
-    """Handle name input for Player 2.
-    
-    Opens a keyboard widget for the user to enter their name.
-    
-    Returns:
-        Break result if user triggered a break action.
-        None otherwise.
-    """
+    """Handle name input for Player 2 - delegates to extracted menu function."""
     global _active_keyboard_widget
-    
-    log.info("[Settings] Opening keyboard for Player 2 name entry")
-    
-    # Clear display and show keyboard widget
-    board.display_manager.clear_widgets(addStatusBar=False)
-    
-    # Create keyboard widget with current name as initial text
-    current_name = _player2_settings['name']
-    keyboard = KeyboardWidget(board.display_manager.update, title="Player 2 Name", max_length=20)
-    keyboard.text = current_name if current_name else ""
-    
-    _active_keyboard_widget = keyboard
-    
-    # Add widget to display
-    promise = board.display_manager.add_widget(keyboard)
-    if promise:
-        try:
-            promise.result(timeout=2.0)
-        except Exception:
-            pass
-    
-    try:
-        # Wait for input (blocking)
-        result = keyboard.wait_for_input(timeout=300.0)
-        
-        if result is not None:
-            # User confirmed - save the name (empty string allowed to reset to default)
-            _save_player2_setting('name', result)
-            log.info(f"[Settings] Player 2 name saved: '{result or '(default)'}'")
-            board.beep(board.SOUND_GENERAL)
-        else:
-            log.info("[Settings] Player 2 name entry cancelled")
-    finally:
-        _active_keyboard_widget = None
-    
-    return None
+    return handle_name_input(
+        player_settings=_player2_settings,
+        show_menu=_show_menu,
+        save_player_setting=_save_player2_setting,
+        log=log,
+        board=board,
+        keyboard_widget_class=KeyboardWidget,
+        player_label="Player 2",
+        set_active_keyboard_widget=lambda w: globals().__setitem__('_active_keyboard_widget', w),
+    )
 
 
 def _handle_player2_type_selection():
-    """Handle type selection for Player 2.
-    
-    Returns:
-        Break result if user triggered a break action.
-        None otherwise.
-    """
-    current_type = _player2_settings['type']
-    
-    entries = [
-        IconMenuEntry(
-            key="human",
-            label="* Human" if current_type == 'human' else "Human",
-            icon_name="universal_logo",
-            enabled=True
-        ),
-        IconMenuEntry(
-            key="engine",
-            label="* Engine" if current_type == 'engine' else "Engine",
-            icon_name="engine",
-            enabled=True
-        ),
-        IconMenuEntry(
-            key="lichess",
-            label="* Lichess" if current_type == 'lichess' else "Lichess",
-            icon_name="lichess",
-            enabled=True
-        ),
-        IconMenuEntry(
-            key="hand_brain",
-            label="* Hand+Brain" if current_type == 'hand_brain' else "Hand+Brain",
-            icon_name="engine",
-            enabled=True
-        ),
-    ]
-    
-    result = _show_menu(entries)
-    
-    if is_break_result(result):
-        return result
-    
-    if result in ["human", "engine", "lichess", "hand_brain"]:
-        old_type = _player2_settings['type']
-        _save_player2_setting('type', result)
-        log.info(f"[Settings] Player2 type changed: {old_type} -> {result}")
-        board.beep(board.SOUND_GENERAL, event_type='key_press')
-    
-    return None
+    """Handle type selection for Player 2 - delegates to extracted menu function."""
+    return handle_type_selection(
+        player_settings=_player2_settings,
+        show_menu=_show_menu,
+        save_player_setting=_save_player2_setting,
+        log=log,
+        board=board,
+        player_label="Player2",
+    )
 
 
 def _handle_player2_engine_selection():
@@ -2645,341 +2419,15 @@ def _handle_player2_elo_selection():
 
 
 def _handle_player2_hand_brain_mode_selection():
-    """Handle Hand+Brain mode selection for Player 2.
-    
-    Selects between Normal mode (engine suggests, human moves) and
-    Reverse mode (human suggests, engine moves).
-    Uses checkbox icons so the active mode (including Reverse) is visually clear.
-    
-    Returns:
-        Break result if user triggered a break action.
-        None otherwise.
-    """
-    current_mode = _player2_settings['hand_brain_mode']
-    
-    entries = build_hand_brain_mode_entries(current_mode)
-    
-    result = _show_menu(entries)
-    
-    if is_break_result(result):
-        return result
-    
-    if result in ["normal", "reverse"]:
-        old_mode = _player2_settings['hand_brain_mode']
-        _save_player2_setting('hand_brain_mode', result)
-        log.info(f"[Settings] Player2 hand_brain_mode changed: {old_mode} -> {result}")
-        board.beep(board.SOUND_GENERAL, event_type='key_press')
-    
-    return None
-
-
-def _handle_display_settings():
-    """Handle the Display settings submenu.
-    
-    Shows checkboxes for each widget that can be shown/hidden during game.
-    Settings take effect on the next game start.
-    
-    Returns:
-        Break result if user triggered a break action, None otherwise
-    """
-    global _game_settings
-    
-    while True:
-        # Build entries with current settings
-        entries = [
-            IconMenuEntry(
-                key="show_board",
-                label="Board",
-                icon_name="checkbox_checked" if _game_settings['show_board'] else "checkbox_empty",
-                enabled=True
-            ),
-            IconMenuEntry(
-                key="show_clock",
-                label="Clock",
-                icon_name="checkbox_checked" if _game_settings['show_clock'] else "checkbox_empty",
-                enabled=True
-            ),
-            IconMenuEntry(
-                key="show_analysis",
-                label="Analysis",
-                icon_name="checkbox_checked" if _game_settings['show_analysis'] else "checkbox_empty",
-                enabled=True
-            ),
-            IconMenuEntry(
-                key="show_graph",
-                label="Graph",
-                icon_name="checkbox_checked" if _game_settings['show_graph'] else "checkbox_empty",
-                enabled=_game_settings['show_analysis']  # Only enabled if analysis is on
-            ),
-        ]
-        
-        result = _show_menu(entries)
-        
-        if is_break_result(result):
-            return result
-        
-        if result == "BACK":
-            return None
-        
-        # Toggle the selected setting
-        if result in _game_settings and isinstance(_game_settings[result], bool):
-            new_value = not _game_settings[result]
-            _game_settings[result] = new_value
-            _save_game_setting(result, new_value)
-            log.info(f"[Display] {result} changed to {new_value}")
-            board.beep(board.SOUND_GENERAL, event_type='key_press')
-            # Continue loop to show updated menu
-
-
-def _handle_reset_settings():
-    """Handle reset all settings to defaults.
-    
-    Shows a confirmation dialog, then clears all entries in the [game] section
-    of centaur.ini and reloads settings with defaults.
-    
-    Returns:
-        Break result if user triggered a break action, None otherwise
-    """
-    global _game_settings
-    
-    # Confirmation menu
-    entries = [
-        IconMenuEntry(key="confirm", label="Reset All\nSettings?", icon_name="cancel", enabled=True),
-        IconMenuEntry(key="cancel", label="Cancel", icon_name="cancel", enabled=True),
-    ]
-    
-    result = _show_menu(entries)
-    
-    if is_break_result(result):
-        return result
-    
-    if result == "confirm":
-        try:
-            from DGTCentaurMods.board.settings import Settings
-            import configparser
-            
-            # Read the current config
-            config = configparser.ConfigParser()
-            config.read(Settings.configfile)
-            
-            # Clear all player and game settings sections
-            for section in [SETTINGS_SECTION, PLAYER1_SECTION, PLAYER2_SECTION]:
-                if config.has_section(section):
-                    for key in list(config.options(section)):
-                        config.remove_option(section, key)
-            Settings.write_config(config)
-            log.info("[Settings] Cleared all game/player settings from centaur.ini")
-
-            # Reset in-memory settings to defaults
-            _player1_settings['color'] = 'white'
-            _player1_settings['type'] = 'human'
-            _player1_settings['name'] = ''
-            _player1_settings['engine'] = 'stockfish'
-            _player1_settings['elo'] = 'Default'
-            
-            _player2_settings['type'] = 'engine'
-            _player2_settings['name'] = ''
-            _player2_settings['engine'] = 'stockfish'
-            _player2_settings['elo'] = 'Default'
-            
-            _game_settings['time_control'] = 0
-            _game_settings['analysis_mode'] = True
-            _game_settings['analysis_engine'] = 'stockfish'
-            _game_settings['show_board'] = True
-            _game_settings['show_clock'] = True
-            _game_settings['show_analysis'] = True
-            _game_settings['show_graph'] = True
-
-            # Reload from file (which will use defaults since sections are empty)
-            _load_game_settings()
-            
-            board.beep(board.SOUND_GENERAL, event_type='key_press')
-            log.info("[Settings] Settings reset to defaults")
-            
-        except Exception as e:
-            log.error(f"[Settings] Error resetting settings: {e}")
-            board.beep(board.SOUND_WRONG_MOVE, event_type='error')
-    
-    return None
-
-
-def _handle_positions_menu(return_to_last_position: bool = False) -> bool:
-    """Handle the Positions submenu.
-    
-    Shows categories of predefined positions, then positions within that category.
-    Loads the selected position and starts a game.
-    
-    Uses nested loops so that pressing BACK from position details returns to
-    the category menu, and pressing BACK from category menu exits entirely.
-    
-    Args:
-        return_to_last_position: If True, skip category menu and go directly to the
-                                 last selected position in the last selected category.
-    
-    Returns:
-        True if a position was loaded (caller should exit settings), False otherwise
-    """
-    global _last_position_category_index, _last_position_index, _last_position_category
-    
-    positions = _load_positions_config()
-    
-    if not positions:
-        log.warning("[Positions] No positions available")
-        board.beep(board.SOUND_WRONG_MOVE, event_type='error')
-        return False
-    
-    # Map category names to specific icons
-    category_icons = {
-        'test': 'positions_test',
-        'puzzles': 'positions_puzzles',
-        'endgames': 'positions_endgames',
-        'custom': 'positions_custom',
-    }
-    
-    # Build category entries once
-    category_entries = []
-    for category in positions.keys():
-        # Capitalize category name for display
-        display_name = category.replace('_', ' ').title()
-        count = len(positions[category])
-        # Use category-specific icon if available, otherwise default to positions
-        icon_name = category_icons.get(category, 'positions')
-        category_entries.append(IconMenuEntry(
-            key=category,
-            label=f"{display_name}\n({count})",
-            icon_name=icon_name,
-            enabled=True,
-            font_size=14,
-            height_ratio=1.5  # Taller buttons for two lines of text
-        ))
-    
-    # Use stored category index for returning from position list
-    last_category_index = _last_position_category_index
-    
-    # If returning to last position, skip category menu and go directly to positions
-    skip_category_menu = return_to_last_position and _last_position_category is not None
-    
-    # Outer loop for category menu - pressing BACK here exits positions menu
-    while True:
-        if skip_category_menu:
-            # Use stored category from last position game
-            category_result = _last_position_category
-            skip_category_menu = False  # Only skip once
-        else:
-            category_result = _show_menu(category_entries, initial_index=last_category_index)
-            
-            if is_break_result(category_result):
-                return category_result
-            if category_result in ["BACK", "SHUTDOWN", "HELP"]:
-                return False
-        
-        # Update last_category_index for when we return from position list
-        last_category_index = find_entry_index(category_entries, category_result)
-        _last_position_category_index = last_category_index
-        
-        # Show positions in selected category
-        category = category_result
-        if category not in positions:
-            continue
-        
-        # Build position entries for selected category
-        position_entries = []
-        for name, fen in positions[category].items():
-            # Format name for display - wrap text at word boundaries only if needed
-            display_name = name.replace('_', ' ').title()
-            
-            # Only wrap if text is too long to fit on one line
-            # Available width after icon is ~72px, font size 12 = ~6px/char = ~12 chars
-            # Use 11 as threshold to be safe
-            if len(display_name) <= 11:
-                # Short enough to fit on one line
-                wrapped_text = display_name
-                num_lines = 1
-            else:
-                # Need to wrap - use ~10 chars per line
-                max_line_width = 10
-                wrapped_lines = []
-                words = display_name.split()
-                current_line = ""
-                
-                for word in words:
-                    if not current_line:
-                        current_line = word
-                    elif len(current_line) + 1 + len(word) <= max_line_width:
-                        current_line += " " + word
-                    else:
-                        wrapped_lines.append(current_line)
-                        current_line = word
-                if current_line:
-                    wrapped_lines.append(current_line)
-                
-                wrapped_text = '\n'.join(wrapped_lines)
-                num_lines = len(wrapped_lines)
-            
-            # Adjust height ratio based on number of lines
-            # 1 line = 1.0, 2 lines = 1.5, 3+ lines = 2.0
-            if num_lines <= 1:
-                height_ratio = 1.0
-            elif num_lines == 2:
-                height_ratio = 1.5
-            else:
-                height_ratio = 2.0
-            
-            # Determine icon based on position name for test category, else use category icon
-            if category == 'test':
-                # Map test position names to specific icons
-                if 'en_passant' in name:
-                    position_icon = 'en_passant'
-                elif 'castling' in name:
-                    position_icon = 'castling'
-                elif 'promotion' in name:
-                    position_icon = 'promotion'
-                else:
-                    position_icon = 'positions_test'
-            else:
-                position_icon = category_icons.get(category, 'positions')
-            
-            position_entries.append(IconMenuEntry(
-                key=name,
-                label=wrapped_text,
-                icon_name=position_icon,
-                enabled=True,
-                font_size=12,
-                height_ratio=height_ratio
-            ))
-        
-        # Determine initial position index
-        # Use stored index if returning to same category, otherwise start at 0
-        if return_to_last_position and category == _last_position_category:
-            initial_position_index = _last_position_index
-        else:
-            initial_position_index = 0
-        
-        # Inner loop for position details - pressing BACK returns to category menu
-        position_result = _show_menu(position_entries, initial_index=initial_position_index)
-
-        if is_break_result(position_result):
-            return position_result
-        if position_result in ["BACK", "HELP"]:
-            # Go back to category menu (continue outer loop)
-            # last_category_index already set, so category will be pre-selected
-            # Clear last position category so we don't skip category menu next time
-            _last_position_category = None
-            continue
-        elif position_result == "SHUTDOWN":
-            return False
-        
-        # Load the selected position
-        if position_result in positions[category]:
-            fen, hint_move = positions[category][position_result]
-            display_name = position_result.replace('_', ' ').title()
-            
-            # Store the category and position for returning later
-            _last_position_category = category
-            _last_position_index = find_entry_index(position_entries, position_result)
-            
-            if _start_from_position(fen, display_name, hint_move):
-                return True
+    """Handle Hand+Brain mode selection for Player 2 - delegates to extracted menu function."""
+    return handle_hand_brain_mode_selection(
+        player_settings=_player2_settings,
+        show_menu=_show_menu,
+        save_player_setting=_save_player2_setting,
+        log=log,
+        board=board,
+        player_label="Player2",
+    )
 
 
 def _get_current_wifi_status() -> tuple:
@@ -3035,531 +2483,6 @@ def _handle_wifi_scan():
     )
 
 
-def _handle_analysis_mode_menu():
-    """Handle analysis mode settings submenu.
-    
-    Shows:
-    - Enabled checkbox (toggle analysis on/off)
-    - Engine selector (which engine to use for analysis)
-    
-    The engine selector only appears when analysis is enabled.
-    """
-    def build_entries():
-        """Build analysis mode menu entries."""
-        entries = [
-            IconMenuEntry(
-                key="enabled", label="Analysis Enabled",
-                icon_name="timer_checked" if _game_settings['analysis_mode'] else "timer",
-                enabled=True, selectable=True, height_ratio=0.8, layout="horizontal", font_size=14, bold=True
-            ),
-        ]
-        
-        # Only show engine selector if analysis is enabled
-        if _game_settings['analysis_mode']:
-            current_engine = _game_settings['analysis_engine']
-            entries.append(IconMenuEntry(
-                key="engine", label=f"Engine: {current_engine}",
-                icon_name="engine",
-                enabled=True, selectable=True, height_ratio=0.8, layout="horizontal", font_size=14
-            ))
-        
-        return entries
-    
-    def handle_selection(result: MenuSelection):
-        """Handle analysis mode setting selection."""
-        if result.key == "enabled":
-            # Toggle analysis mode
-            _game_settings['analysis_mode'] = not _game_settings['analysis_mode']
-            _save_game_setting('analysis_mode', _game_settings['analysis_mode'])
-            log.info(f"[Settings] Analysis mode set to {_game_settings['analysis_mode']}")
-            board.beep(board.SOUND_GENERAL, event_type='key_press')
-            return None  # Continue loop to refresh menu
-        elif result.key == "engine":
-            # Show engine selection submenu
-            engine_result = _handle_analysis_engine_selection()
-            if is_break_result(engine_result):
-                return engine_result
-        return None  # Continue loop
-    
-    return _menu_manager.run_menu_loop(build_entries, handle_selection, initial_index=0)
-
-
-def _handle_analysis_engine_selection():
-    """Handle engine selection for analysis mode.
-    
-    Only shows installed engines with current selection marked.
-    Use Engine Manager to install more engines.
-    
-    Returns:
-        Break result if user triggered a break action.
-        None otherwise.
-    """
-    engines = _get_installed_engines()
-    engine_entries = []
-    for engine in engines:
-        label = f"* {engine}" if engine == _game_settings['analysis_engine'] else engine
-        engine_entries.append(
-            IconMenuEntry(key=engine, label=label, icon_name="engine", enabled=True)
-        )
-    
-    result = _show_menu(engine_entries)
-    
-    if is_break_result(result):
-        return result
-    
-    if result not in ["BACK", "SHUTDOWN", "HELP"]:
-        old_engine = _game_settings['analysis_engine']
-        _game_settings['analysis_engine'] = result
-        _save_game_setting('analysis_engine', result)
-        log.info(f"[Settings] Analysis engine changed: {old_engine} -> {result}")
-        board.beep(board.SOUND_GENERAL, event_type='key_press')
-    
-    return None
-
-
-def _show_engine_install_progress(engine_manager, engine_name: str, display_name: str, estimated_minutes: int = 5) -> bool:
-    """Show a blocking progress display during engine installation.
-    
-    Polls the engine manager for progress and updates the display.
-    Creates a temporary splash screen to show installation progress messages.
-    
-    Args:
-        engine_manager: The engine manager instance
-        engine_name: Engine name being installed
-        display_name: Display name for UI
-        estimated_minutes: Estimated installation time in minutes
-        
-    Returns:
-        True if installation succeeded, False otherwise
-    """
-    install_complete = False
-    install_success = False
-    
-    def on_complete(success: bool):
-        nonlocal install_complete, install_success
-        install_complete = True
-        install_success = success
-        if success:
-            board.beep(board.SOUND_GENERAL)
-        else:
-            board.beep(board.SOUND_GENERAL, event_type='error')
-    
-    log.info(f"[EngineManager] Starting installation of {engine_name} (est. {estimated_minutes} min)")
-    engine_manager.install_async(engine_name, completion_callback=on_complete)
-    
-    # Create a splash screen for progress display with time warning
-    board.display_manager.clear_widgets(addStatusBar=False)
-    initial_msg = f"Installing\n{display_name}\n\nMay take ~{estimated_minutes} min\nPlease wait..."
-    progress_splash = SplashScreen(
-        board.display_manager.update, 
-        message=initial_msg,
-        leave_room_for_status_bar=False
-    )
-    promise = board.display_manager.add_widget(progress_splash)
-    if promise:
-        try:
-            promise.result(timeout=2.0)
-        except Exception:
-            pass
-    
-    # Poll for progress and update display
-    last_progress = ""
-    while not install_complete:
-        progress = engine_manager.get_install_progress()
-        
-        if progress != last_progress:
-            last_progress = progress
-            # Display progress on splash screen
-            progress_short = progress[:28] if progress else "Working..."
-            progress_splash.set_message(f"Installing\n{display_name}...\n\n{progress_short}")
-        
-        time.sleep(0.5)  # Poll every 500ms
-    
-    # Show result on splash screen
-    if install_success:
-        progress_splash.set_message(f"{display_name}\ninstalled!")
-        time.sleep(1.5)
-    else:
-        error = engine_manager.get_install_error()
-        error_short = error[:30] if error else "Unknown error"
-        progress_splash.set_message(f"Install failed\n\n{error_short}")
-        log.error(f"[EngineManager] Installation failed: {error}")
-        time.sleep(3)
-    
-    return install_success
-
-
-def _handle_engine_detail_menu(engine_info: dict):
-    """Handle engine detail submenu.
-    
-    Shows engine description and install/uninstall option.
-    Installation is handled with a blocking progress display.
-    
-    Args:
-        engine_info: Dict with engine info from get_engine_list()
-        
-    Returns:
-        True if engine was installed/uninstalled, None otherwise
-    """
-    from DGTCentaurMods.managers.engine_manager import get_engine_manager
-    
-    engine_manager = get_engine_manager()
-    engine_name = engine_info["name"]
-    display_name = engine_info["display_name"]
-    
-    def build_entries():
-        """Build engine detail menu entries."""
-        entries = []
-        
-        # Get current installation status
-        is_installed = engine_manager.is_installed(engine_name)
-        can_uninstall = engine_info.get("can_uninstall", True)
-        
-        # Title with summary and description below
-        entries.append(IconMenuEntry(
-            key="title",
-            label=f"{engine_info['display_name']}\n{engine_info['summary']}",
-            icon_name="engine",
-            enabled=True, selectable=False, height_ratio=2.8,
-            layout="horizontal", font_size=14, bold=True,
-            description=engine_info["description"],
-            description_font_size=11
-        ))
-        
-        # Action button based on installation status
-        est_minutes = engine_info.get("estimated_install_minutes", 5)
-        
-        if is_installed:
-            if can_uninstall:
-                entries.append(IconMenuEntry(
-                    key="uninstall",
-                    label="Uninstall",
-                    icon_name="cancel",
-                    enabled=True, selectable=True, height_ratio=1.0,
-                    layout="horizontal", font_size=14
-                ))
-            else:
-                entries.append(IconMenuEntry(
-                    key="installed_permanent",
-                    label="Installed (required)",
-                    icon_name="checkbox_checked",
-                    enabled=True, selectable=False, height_ratio=1.0,
-                    layout="horizontal", font_size=14
-                ))
-        else:
-            # Show install button with estimated time
-            install_label = f"Install (~{est_minutes} min)"
-            entries.append(IconMenuEntry(
-                key="install",
-                label=install_label,
-                icon_name="download",
-                enabled=True, selectable=True, height_ratio=1.0,
-                layout="horizontal", font_size=14
-            ))
-        
-        return entries
-    
-    def handle_selection(result: MenuSelection):
-        """Handle selection in engine detail menu."""
-        if result.key == "install":
-            # Show blocking progress display during installation
-            est_minutes = engine_info.get("estimated_install_minutes", 5)
-            _show_engine_install_progress(engine_manager, engine_name, display_name, est_minutes)
-            return None  # Return to this menu to show updated status
-        
-        if result.key == "uninstall":
-            log.info(f"[EngineManager] Uninstalling {engine_name}")
-            # Show uninstalling splash
-            board.display_manager.clear_widgets(addStatusBar=False)
-            uninstall_splash = SplashScreen(
-                board.display_manager.update,
-                message=f"Uninstalling\n{display_name}...",
-                leave_room_for_status_bar=False
-            )
-            promise = board.display_manager.add_widget(uninstall_splash)
-            if promise:
-                try:
-                    promise.result(timeout=2.0)
-                except Exception:
-                    pass
-            
-            engine_manager.uninstall_engine(engine_name)
-            board.beep(board.SOUND_GENERAL, event_type='key_press')
-            uninstall_splash.set_message(f"{display_name}\nuninstalled")
-            time.sleep(1)
-            return MenuSelection("BACK", 0)  # Return to list
-        
-        return None
-    
-    return _menu_manager.run_menu_loop(build_entries, handle_selection, initial_index=2)
-
-
-def _handle_engine_manager_menu():
-    """Handle engine manager submenu.
-    
-    Shows list of available engines with installation status and summary.
-    Selecting an engine opens its detail menu.
-    """
-    from DGTCentaurMods.managers.engine_manager import get_engine_manager
-    
-    engine_manager = get_engine_manager()
-    
-    def build_entries():
-        """Build engine manager menu entries.
-        
-        Installed engines are listed first, followed by available engines.
-        """
-        entries = []
-        engines = engine_manager.get_engine_list()
-        
-        # Sort: installed engines first, then by display name
-        engines_sorted = sorted(engines, key=lambda e: (not e["installed"], e["display_name"]))
-        
-        for engine in engines_sorted:
-            installed = engine["installed"]
-            icon = "checkbox_checked" if installed else "checkbox_empty"
-            est_minutes = engine.get("estimated_install_minutes", 5)
-            
-            # Two-line label: name + summary (with install time for non-installed)
-            if installed:
-                label = f"{engine['display_name']}\n{engine['summary']}"
-            else:
-                label = f"{engine['display_name']} (~{est_minutes}m)\n{engine['summary']}"
-            
-            entries.append(IconMenuEntry(
-                key=engine["name"],
-                label=label,
-                icon_name=icon,
-                enabled=True, selectable=True, height_ratio=1.0,
-                layout="horizontal", font_size=12
-            ))
-        
-        return entries
-    
-    def handle_selection(result: MenuSelection):
-        """Handle engine selection - open detail menu."""
-        engine_name = result.key
-        
-        engines = engine_manager.get_engine_list()
-        engine_info = next((e for e in engines if e["name"] == engine_name), None)
-        if not engine_info:
-            return None
-        
-        # Open detail submenu for this engine
-        sub_result = _handle_engine_detail_menu(engine_info)
-        if is_break_result(sub_result):
-            return sub_result
-        
-        return None  # Continue loop
-    
-    return _menu_manager.run_menu_loop(build_entries, handle_selection, initial_index=0)
-
-
-def _handle_sound_settings():
-    """Handle sound settings submenu.
-    
-    Shows individual sound settings with toggle checkboxes:
-    - Piece events (beep on piece lift/place)
-    - Game events (beep on check, checkmate, etc.)
-    - Errors (beep on invalid moves)
-    - Key press (beep on button press)
-    - Master enable (global on/off)
-    
-    Uses the sound_settings module for settings management.
-    """
-    from DGTCentaurMods.epaper import sound_settings
-    
-    def build_entries():
-        """Build sound settings menu entries."""
-        settings = sound_settings.get_sound_settings()
-        return [
-            IconMenuEntry(
-                key="piece_event", label="Piece Events",
-                icon_name="timer_checked" if settings['piece_event'] else "timer",
-                enabled=True, selectable=True, height_ratio=0.8, layout="horizontal", font_size=14
-            ),
-            IconMenuEntry(
-                key="game_event", label="Game Events",
-                icon_name="timer_checked" if settings['game_event'] else "timer",
-                enabled=True, selectable=True, height_ratio=0.8, layout="horizontal", font_size=14
-            ),
-            IconMenuEntry(
-                key="error", label="Errors",
-                icon_name="timer_checked" if settings['error'] else "timer",
-                enabled=True, selectable=True, height_ratio=0.8, layout="horizontal", font_size=14
-            ),
-            IconMenuEntry(
-                key="key_press", label="Key Press",
-                icon_name="timer_checked" if settings['key_press'] else "timer",
-                enabled=True, selectable=True, height_ratio=0.8, layout="horizontal", font_size=14
-            ),
-            IconMenuEntry(
-                key="enabled", label="Sound Enabled",
-                icon_name="timer_checked" if settings['enabled'] else "timer",
-                enabled=True, selectable=True, height_ratio=0.8, layout="horizontal", font_size=14, bold=True
-            ),
-        ]
-    
-    def handle_selection(result: MenuSelection):
-        """Handle sound setting toggle."""
-        if result.key in sound_settings.SOUND_SETTINGS:
-            new_value = sound_settings.toggle_sound_setting(result.key)
-            if new_value and result.key == 'enabled':
-                # Play beep to confirm sound is enabled
-                board.beep(board.SOUND_GENERAL)
-        return None  # Continue loop
-    
-    return _menu_manager.run_menu_loop(build_entries, handle_selection, initial_index=4)
-
-
-def _handle_chromecast_menu():
-    """Handle Chromecast menu - discover and stream to Chromecast devices.
-    
-    Discovers available Chromecast devices on the network, presents a menu
-    for selection, and starts streaming via the ChromecastService.
-    
-    The menu also shows a "Stop Streaming" option if currently streaming.
-    
-    Returns:
-        Break result if interrupted, None otherwise.
-    """
-    from DGTCentaurMods.services import get_chromecast_service
-    
-    # Get the Chromecast service singleton
-    cc_service = get_chromecast_service()
-    
-    # If currently streaming, show option to stop
-    if cc_service.is_active:
-        device = cc_service.device_name or "Unknown"
-        display_device = device[:16] if len(device) > 16 else device
-        
-        entries = [
-            IconMenuEntry(key="STOP", label=f"Stop: {display_device}", icon_name="cast", enabled=True),
-            IconMenuEntry(key="CHANGE", label="Change Device", icon_name="cast", enabled=True),
-        ]
-        
-        result = _show_menu(entries)
-        
-        if is_break_result(result):
-            return result
-        if result in ["BACK", "SHUTDOWN", "HELP"]:
-            return None
-        
-        if result == "STOP":
-            cc_service.stop_streaming()
-            log.info("[Chromecast] Streaming stopped by user")
-            board.display_manager.clear_widgets()
-            promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="Streaming\nstopped"))
-            if promise:
-                try:
-                    promise.result(timeout=2.0)
-                except Exception:
-                    pass
-            time.sleep(1)
-            board.beep(board.SOUND_GENERAL)
-            return None
-        # If "CHANGE", fall through to device discovery
-    
-    # Show discovering message
-    board.display_manager.clear_widgets()
-    promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="Discovering\nChromecasts..."))
-    if promise:
-        try:
-            promise.result(timeout=2.0)
-        except Exception:
-            pass
-    
-    # Discover Chromecasts
-    try:
-        import pychromecast
-        chromecasts, browser = pychromecast.get_chromecasts()
-    except ImportError:
-        log.error("[Chromecast] pychromecast library not installed")
-        board.display_manager.clear_widgets()
-        promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="pychromecast\nnot installed"))
-        if promise:
-            try:
-                promise.result(timeout=2.0)
-            except Exception:
-                pass
-        time.sleep(2)
-        return None
-    except Exception as e:
-        log.error(f"[Chromecast] Discovery failed: {e}")
-        board.display_manager.clear_widgets()
-        promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="Discovery\nfailed"))
-        if promise:
-            try:
-                promise.result(timeout=2.0)
-            except Exception:
-                pass
-        time.sleep(2)
-        return None
-    
-    # Build menu of available Chromecasts (cast type only, not audio devices)
-    cast_entries = []
-    for cc in chromecasts:
-        if cc.device.cast_type == 'cast':
-            friendly_name = cc.device.friendly_name
-            cast_entries.append(
-                IconMenuEntry(key=friendly_name, label=friendly_name, icon_name="cast", enabled=True)
-            )
-    
-    # Stop the browser to clean up resources
-    try:
-        browser.stop_discovery()
-    except Exception:
-        pass
-    
-    if not cast_entries:
-        log.info("[Chromecast] No Chromecast devices found")
-        board.display_manager.clear_widgets()
-        promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="No Chromecasts\nfound"))
-        if promise:
-            try:
-                promise.result(timeout=2.0)
-            except Exception:
-                pass
-        time.sleep(2)
-        return None
-    
-    log.info(f"[Chromecast] Found {len(cast_entries)} device(s)")
-    
-    # Show menu to select Chromecast
-    result = _show_menu(cast_entries)
-    
-    if is_break_result(result):
-        return result
-    if result in ["BACK", "SHUTDOWN", "HELP"]:
-        return None
-    
-    # Start streaming via the service
-    selected_name = result
-    
-    # Stop any existing stream first
-    if cc_service.is_active:
-        cc_service.stop_streaming()
-    
-    # Start streaming to selected device
-    cc_service.start_streaming(selected_name)
-    log.info(f"[Chromecast] Started streaming to: {selected_name}")
-    
-    # Show feedback
-    board.display_manager.clear_widgets()
-    # Truncate long names
-    display_name = selected_name[:18] if len(selected_name) > 18 else selected_name
-    promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message=f"Streaming to\n{display_name}"))
-    if promise:
-        try:
-            promise.result(timeout=2.0)
-        except Exception:
-            pass
-    time.sleep(2)
-    board.beep(board.SOUND_GENERAL)
-    
-    return None
-
-
 def _get_installed_version() -> str:
     """Get the installed DGTCentaurMods version from dpkg.
     
@@ -3583,125 +2506,6 @@ def _get_installed_version() -> str:
     except Exception as e:
         log.debug(f"[About] Failed to get version: {e}")
     return ""
-
-
-def _handle_about_menu():
-    """Handle About menu - show version info and update options.
-    
-    Displays version information, QR code for support, and provides
-    access to update settings.
-    
-    Uses MenuContext for tracking selection state.
-    
-    Returns:
-        Break result if interrupted, None otherwise.
-    """
-    from DGTCentaurMods.board import centaur
-    
-    ctx = _get_menu_context()
-    
-    # Get update system for status display
-    update_system = centaur.UpdateSystem()
-    
-    def build_entries():
-        """Build about menu entries with current update status."""
-        version = _get_installed_version()
-        version_label = f"Version\n{version}" if version else "Version\nUnknown"
-        
-        # Get update status for display
-        update_status = update_system.getStatus()
-        update_label = f"Updates\n{update_status.capitalize()}"
-        update_icon = "checkbox_checked" if update_status == "enabled" else "checkbox_empty"
-        
-        return [
-            IconMenuEntry(
-                key="Version",
-                label=version_label,
-                icon_name="info",
-                enabled=True,
-                selectable=False  # Just for display
-            ),
-            IconMenuEntry(
-                key="Support",
-                label="Support\nQR Code",
-                icon_name="universal_logo",
-                enabled=True
-            ),
-            IconMenuEntry(
-                key="Updates",
-                label=update_label,
-                icon_name=update_icon,
-                enabled=True
-            ),
-        ]
-    
-    def handle_selection(result: MenuSelection):
-        """Handle about menu selection."""
-        if result.key == "Support":
-            ctx.enter_menu("Support", 0)
-            # Show QR code screen
-            _show_support_qr()
-            ctx.leave_menu()
-        elif result.key == "Updates":
-            ctx.enter_menu("Updates", 0)
-            sub_result = handle_update_menu(
-                update_system=update_system,
-                show_menu=_show_menu,
-                find_entry_index=find_entry_index,
-                board=board,
-                log=log,
-                initial_index=ctx.current_index(),
-            )
-            ctx.leave_menu()
-            if is_break_result(sub_result):
-                return sub_result
-        return None  # Continue loop
-    
-    return _menu_manager.run_menu_loop(build_entries, handle_selection, initial_index=ctx.current_index())
-
-
-def _show_support_qr():
-    """Display support QR code screen using AboutWidget.
-    
-    Shows a QR code linking to the DGTCentaurMods support page.
-    Waits for user button press to dismiss (with timeout).
-    """
-    global _active_about_widget
-    
-    from PIL import Image
-    from DGTCentaurMods.paths import get_resource_path
-    from DGTCentaurMods.epaper.about_widget import AboutWidget
-    
-    version = _get_installed_version()
-    
-    # Try to load QR code image
-    qr_img = None
-    try:
-        qr_path = get_resource_path("qr-support.png")
-        if qr_path:
-            qr_img = Image.open(qr_path)
-    except Exception as e:
-        log.debug(f"[About] Failed to load QR image: {e}")
-    
-    # Create and display the AboutWidget
-    board.display_manager.clear_widgets(addStatusBar=False)
-    
-    about_widget = AboutWidget(board.display_manager.update, qr_image=qr_img, version=version)
-    _active_about_widget = about_widget
-    
-    promise = board.display_manager.add_widget(about_widget)
-    if promise:
-        try:
-            promise.result(timeout=2.0)
-        except Exception:
-            pass
-    
-    try:
-        # Wait for user to dismiss (button press handled by key_callback)
-        # The about widget will be dismissed when any button is pressed
-        about_widget.wait_for_dismiss(timeout=30.0)
-    finally:
-        _active_about_widget = None
 
 
 def _check_and_download_update(update_system):
@@ -3734,10 +2538,51 @@ def _handle_system_menu():
         game_settings=_game_settings,
         menu_manager=_menu_manager,
         create_entries=lambda: create_system_entries(board, _game_settings),
-        handle_display_settings=_handle_display_settings,
-        handle_sound_settings=_handle_sound_settings,
-        handle_analysis_mode_menu=_handle_analysis_mode_menu,
-        handle_engine_manager_menu=_handle_engine_manager_menu,
+        handle_display_settings=lambda: handle_display_settings(
+            game_settings=_game_settings,
+            show_menu=_show_menu,
+            save_game_setting=_save_game_setting,
+            log=log,
+            board=board,
+        ),
+        handle_sound_settings=lambda: handle_sound_settings(
+            menu_manager=_menu_manager,
+            board=board,
+        ),
+        handle_analysis_mode_menu=lambda: handle_analysis_mode_menu(
+            game_settings=_game_settings,
+            menu_manager=_menu_manager,
+            save_game_setting=_save_game_setting,
+            handle_analysis_engine_selection=lambda: handle_analysis_engine_selection(
+                game_settings=_game_settings,
+                show_menu=_show_menu,
+                get_installed_engines=_get_installed_engines,
+                save_game_setting=_save_game_setting,
+                log=log,
+                board=board,
+            ),
+            log=log,
+            board=board,
+        ),
+        handle_engine_manager_menu=lambda: handle_engine_manager_menu(
+            menu_manager=_menu_manager,
+            board=board,
+            log=log,
+            handle_detail_menu=lambda engine_info: handle_engine_detail_menu(
+                engine_info=engine_info,
+                menu_manager=_menu_manager,
+                board=board,
+                log=log,
+                show_install_progress=lambda em, en, dn, mins: show_engine_install_progress(
+                    engine_manager=em,
+                    engine_name=en,
+                    display_name=dn,
+                    estimated_minutes=mins,
+                    board=board,
+                    log=log,
+                ),
+            ),
+        ),
         handle_wifi_settings=lambda: handle_wifi_settings_menu(
             menu_manager=_menu_manager,
             wifi_info_module=__import__("DGTCentaurMods.epaper.wifi_info", fromlist=["get_wifi_status"]),
@@ -3775,7 +2620,18 @@ def _handle_system_menu():
             log=log,
             menu_manager=_menu_manager,
         ),
-        handle_reset_settings=_handle_reset_settings,
+        handle_reset_settings=lambda: handle_reset_settings(
+            game_settings=_game_settings,
+            player1_settings=_player1_settings,
+            player2_settings=_player2_settings,
+            show_menu=_show_menu,
+            load_game_settings=_load_game_settings,
+            log=log,
+            board=board,
+            settings_section=SETTINGS_SECTION,
+            player1_section=PLAYER1_SECTION,
+            player2_section=PLAYER2_SECTION,
+        ),
         shutdown_fn=lambda reason, reboot=False: _shutdown(reason, reboot=reboot),
         log=log,
     )
@@ -3840,7 +2696,8 @@ def _handle_lichess_menu():
                 return result
             return None
         elif result.key == "Ongoing":
-            game_id = _show_lichess_ongoing_games(client)
+            from DGTCentaurMods.services.lichess_service import show_lichess_ongoing_games
+            game_id = show_lichess_ongoing_games(client, _menu_manager, log)
             if game_id:
                 config = LichessConfig(mode=LichessGameMode.ONGOING, game_id=game_id)
                 if _start_lichess_game(config):
@@ -3848,7 +2705,8 @@ def _handle_lichess_menu():
                     return result
             return None
         elif result.key == "Challenges":
-            challenge = _show_lichess_challenges(client)
+            from DGTCentaurMods.services.lichess_service import show_lichess_challenges
+            challenge = show_lichess_challenges(client, _menu_manager, log)
             if challenge:
                 config = LichessConfig(
                     mode=LichessGameMode.CHALLENGE,
@@ -3876,174 +2734,6 @@ def _handle_lichess_menu():
         return result
     
     return game_started
-
-
-def _show_lichess_ongoing_games(client) -> str:
-    """Show list of ongoing Lichess games and return selected game ID.
-    
-    Args:
-        client: berserk Lichess client
-        
-    Returns:
-        Game ID if selected, None if cancelled
-    """
-    from DGTCentaurMods.services.lichess_service import show_lichess_error
-    
-    try:
-        ongoing = client.games.get_ongoing(count=10)
-        
-        if not ongoing:
-            show_lichess_error(_menu_manager, "No Games", "No ongoing\ngames found")
-            return None
-        
-        # Build menu entries for each game
-        entries = []
-        for game in ongoing:
-            game_id = game.get('gameId', '')
-            opponent = game.get('opponent', {})
-            opponent_name = opponent.get('username', 'Unknown')
-            opponent_rating = opponent.get('rating', '')
-            color = 'W' if game.get('color') == 'white' else 'B'
-            
-            label = f"{opponent_name}\n({opponent_rating}) {color}"
-            entries.append(IconMenuEntry(
-                key=game_id,
-                label=label,
-                icon_name="lichess",
-                enabled=True,
-                font_size=12
-            ))
-        
-        result = _menu_manager.show_menu(entries)
-        
-        if result.is_break or result.key == "BACK":
-            return None
-        
-        return result.key
-        
-    except AttributeError as e:
-        log.error(f"[Lichess] berserk API method not found: {e}")
-        show_lichess_error(
-            _menu_manager,
-            "API Not Supported",
-            "Ongoing games API\nnot available.\nUpdate berserk:\npip install -U berserk"
-        )
-        return None
-    except Exception as e:
-        error_msg = str(e)
-        log.error(f"[Lichess] Error fetching ongoing games: {e}")
-        if "401" in error_msg or "unauthorized" in error_msg.lower():
-            show_lichess_error(_menu_manager, "Auth Error", "Token does not have\nboard:play permission")
-        elif "network" in error_msg.lower() or "connection" in error_msg.lower():
-            show_lichess_error(_menu_manager, "Network Error", "Could not connect\nto Lichess")
-        else:
-            short_error = error_msg[:40] + "..." if len(error_msg) > 40 else error_msg
-            show_lichess_error(_menu_manager, "Error", f"Games failed:\n{short_error}")
-        return None
-
-
-def _show_lichess_challenges(client) -> dict:
-    """Show list of Lichess challenges and return selected challenge.
-    
-    Args:
-        client: berserk Lichess client
-        
-    Returns:
-        Dict with 'id' and 'direction' if selected, None if cancelled
-    """
-    from DGTCentaurMods.services.lichess_service import show_lichess_error
-    
-    try:
-        # Get incoming and outgoing challenges
-        # Try different berserk API versions
-        challenges_data = None
-        try:
-            # Newer berserk versions
-            challenges_data = client.challenges.get_mine()
-        except AttributeError:
-            # Older berserk versions - try alternative methods
-            try:
-                challenges_data = client.challenges.list()
-            except AttributeError:
-                pass
-        
-        if challenges_data is None:
-            log.error("[Lichess] berserk library does not support challenges API")
-            show_lichess_error(
-                _menu_manager,
-                "API Not Supported",
-                "Challenges require\nberserk >= 0.13\nUpdate with:\npip install -U berserk"
-            )
-            return None
-        
-        incoming = list(challenges_data.get('in', []))
-        outgoing = list(challenges_data.get('out', []))
-        
-        if not incoming and not outgoing:
-            show_lichess_error(_menu_manager, "No Challenges", "No pending\nchallenges")
-            return None
-        
-        # Build menu entries
-        entries = []
-        
-        for challenge in incoming:
-            c_id = challenge.get('id', '')
-            challenger = challenge.get('challenger', {})
-            name = challenger.get('name', 'Unknown')
-            rating = challenger.get('rating', '')
-            
-            label = f"IN: {name}\n({rating})"
-            entries.append(IconMenuEntry(
-                key=f"in:{c_id}",
-                label=label,
-                icon_name="lichess",
-                enabled=True,
-                font_size=12
-            ))
-        
-        for challenge in outgoing:
-            c_id = challenge.get('id', '')
-            dest = challenge.get('destUser', {})
-            name = dest.get('name', 'Unknown')
-            rating = dest.get('rating', '')
-            
-            label = f"OUT: {name}\n({rating})"
-            entries.append(IconMenuEntry(
-                key=f"out:{c_id}",
-                label=label,
-                icon_name="lichess",
-                enabled=True,
-                font_size=12
-            ))
-        
-        result = _menu_manager.show_menu(entries)
-        
-        if result.is_break or result.key == "BACK":
-            return None
-        
-        # Parse direction and ID from key
-        direction, c_id = result.key.split(':', 1)
-        return {'id': c_id, 'direction': direction}
-        
-    except AttributeError as e:
-        log.error(f"[Lichess] berserk API method not found: {e}")
-        show_lichess_error(
-            _menu_manager,
-            "API Not Supported",
-            "Challenges require\nberserk >= 0.13\nUpdate with:\npip install -U berserk"
-        )
-        return None
-    except Exception as e:
-        error_msg = str(e)
-        log.error(f"[Lichess] Error fetching challenges: {e}")
-        if "401" in error_msg or "unauthorized" in error_msg.lower():
-            show_lichess_error(_menu_manager, "Auth Error", "Token does not have\nchallenge permissions")
-        elif "network" in error_msg.lower() or "connection" in error_msg.lower():
-            show_lichess_error(_menu_manager, "Network Error", "Could not connect\nto Lichess")
-        else:
-            short_error = error_msg[:40] + "..." if len(error_msg) > 40 else error_msg
-            show_lichess_error(_menu_manager, "Error", f"Challenges failed:\n{short_error}")
-        return None
 
 
 def _start_lichess_game(lichess_config) -> bool:
@@ -4818,7 +3508,7 @@ def key_callback(key_id):
         
         if key_id == board.Key.LONG_HELP:
             # Long press HELP: Signal main thread to show display settings menu
-            # Cannot call _handle_display_settings() here because it blocks on menu selection,
+            # Cannot call handle_display_settings() here because it blocks on menu selection,
             # which would block the events thread and prevent further key events.
             global _pending_display_settings
             _pending_display_settings = True
@@ -5476,7 +4166,13 @@ def main():
                 elif _pending_display_settings:
                     _pending_display_settings = False
                     log.info("[App] Showing display settings menu from game mode")
-                    _handle_display_settings()
+                    handle_display_settings(
+                        game_settings=_game_settings,
+                        show_menu=_show_menu,
+                        save_game_setting=_save_game_setting,
+                        log=log,
+                        board=board,
+                    )
                     # Recreate widgets with updated settings
                     # _init_widgets() now preserves game state:
                     # - Uses _current_fen for board position
@@ -5492,7 +4188,20 @@ def main():
                 if _return_to_positions_menu:
                     _return_to_positions_menu = False
                     # Return directly to the last selected position in the menu
-                    position_result = _handle_positions_menu(return_to_last_position=True)
+                    ctx = _get_menu_context()
+                    position_result = handle_positions_menu(
+                        ctx=ctx,
+                        load_positions_config=_load_positions_config,
+                        start_from_position=_start_from_position,
+                        show_menu=_show_menu,
+                        find_entry_index=find_entry_index,
+                        board=board,
+                        log=log,
+                        last_position_category_index_ref=[_last_position_category_index],
+                        last_position_index_ref=[_last_position_index],
+                        last_position_category_ref=[_last_position_category],
+                        return_to_last_position=True,
+                    )
                     if is_break_result(position_result):
                         # BLE client connected during positions menu
                         _start_game_mode()

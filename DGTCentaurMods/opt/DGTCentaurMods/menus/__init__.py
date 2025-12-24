@@ -11,6 +11,11 @@ from .players_menu import (
     build_player2_menu_entries,
     handle_player1_menu,
     handle_player2_menu,
+    handle_players_menu,
+    handle_color_selection,
+    handle_type_selection,
+    handle_hand_brain_mode_selection,
+    handle_name_input,
 )
 from .hand_brain_menu import (
     build_hand_brain_mode_entries,
@@ -27,6 +32,16 @@ from .wifi_menu import handle_wifi_settings_menu
 from .wifi_menu import handle_wifi_scan_menu
 from .bluetooth_menu import handle_bluetooth_menu
 from .accounts_menu import handle_accounts_menu, mask_token
+from .about_menu import handle_about_menu, show_support_qr
+from .engine_manager_menu import (
+    handle_engine_manager_menu,
+    handle_engine_detail_menu,
+    show_engine_install_progress,
+)
+from .display_menu import handle_display_settings
+from .sound_menu import handle_sound_settings
+from .reset_menu import handle_reset_settings
+from .analysis_menu import handle_analysis_mode_menu, handle_analysis_engine_selection
 from .update_menu import (
     handle_update_menu,
     handle_local_deb_install,
@@ -77,10 +92,25 @@ __all__ = [
     "build_player2_menu_entries",
     "handle_player1_menu",
     "handle_player2_menu",
+    "handle_players_menu",
+    "handle_color_selection",
+    "handle_type_selection",
+    "handle_hand_brain_mode_selection",
+    "handle_name_input",
     "handle_engine_selection",
     "handle_elo_selection",
     "build_hand_brain_mode_entries",
     "build_hand_brain_mode_toggle_entry",
     "toggle_hand_brain_mode",
+    "handle_about_menu",
+    "show_support_qr",
+    "handle_engine_manager_menu",
+    "handle_engine_detail_menu",
+    "show_engine_install_progress",
+    "handle_display_settings",
+    "handle_sound_settings",
+    "handle_reset_settings",
+    "handle_analysis_mode_menu",
+    "handle_analysis_engine_selection",
 ]
 
