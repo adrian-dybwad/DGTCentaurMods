@@ -742,7 +742,7 @@ def _resume_game(game_data: dict) -> bool:
     Returns:
         True if game was successfully resumed, False otherwise
     """
-    global protocol_manager, app_state
+    global protocol_manager, app_state, controller_manager
     
     try:
         import chess
@@ -754,7 +754,10 @@ def _resume_game(game_data: dict) -> bool:
         # Moves will be replayed to reach the resumed position
         # Do NOT pass starting_fen here - that would skip to the final position
         # before move replay, causing move replay to fail
-        _start_game_mode()
+        # Suppress initial move requests until the saved move list has been replayed.
+        # Without this, LocalController may request a move on an incomplete board state,
+        # which can produce illegal Hand+Brain suggestions (e.g., moves onto own pieces).
+        _start_game_mode(suppress_initial_move_request=True)
         
         if protocol_manager is None or protocol_manager.game_manager is None:
             log.error("[Resume] Failed to start game mode")
@@ -812,6 +815,9 @@ def _resume_game(game_data: dict) -> bool:
                 gm._provide_correction_guidance(current_physical_state, expected_logical_state)
             else:
                 log.info("[Resume] Physical board matches resumed position")
+                # Resume is complete - re-enable move requests from LocalController.
+                if controller_manager and controller_manager.local_controller:
+                    controller_manager.local_controller.set_suppress_move_requests(False)
                 # Board is correct - trigger turn event and prompt current player
                 # Uses _switch_turn_with_event which also calls request_move on the player
                 # If engine is still initializing, the request will be queued
@@ -1149,7 +1155,11 @@ def _show_menu(entries: List[IconMenuEntry], initial_index: int = 0) -> str:
     return result.key
 
 
-def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
+def _start_game_mode(
+    starting_fen: str = None,
+    is_position_game: bool = False,
+    suppress_initial_move_request: bool = False,
+):
     """Transition from menu to game mode.
 
     Initializes game handler and display manager, shows chess widgets.
@@ -1160,6 +1170,9 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         is_position_game: If True, this is a practice position game:
                          - Database saving is disabled
                          - Back button returns directly to menu (no resign prompt)
+        suppress_initial_move_request: If True, suppresses the LocalController's initial
+                                      move request when players become ready. Used for
+                                      resume, where moves are replayed AFTER game mode starts.
     """
     global app_state, protocol_manager, display_manager, controller_manager, _is_position_game
 
@@ -1378,6 +1391,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     # Create local controller (for human/engine games)
     local_controller = controller_manager.create_local_controller()
     local_controller.set_player_manager(player_manager)
+    local_controller.set_suppress_move_requests(suppress_initial_move_request)
     
     # Wire up Hand+Brain hint display for NORMAL mode players
     # HandBrainPlayer handles its own engine - just need to wire hint callback to display

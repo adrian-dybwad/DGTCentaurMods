@@ -56,6 +56,18 @@ class LocalController(GameController):
         self._event_forward_callback: Optional[Callable] = None
         # Callback for external game event handling (reset analysis, clocks, etc.)
         self._external_event_callback: Optional[Callable] = None
+        # When True, prevent this controller from requesting moves from players.
+        # Used during resume while the saved move list is being replayed into the game state.
+        self._suppress_move_requests: bool = False
+
+    def set_suppress_move_requests(self, suppress: bool) -> None:
+        """Enable/disable move requests from this controller.
+        
+        Args:
+            suppress: If True, suppresses calls that would trigger player.request_move().
+        """
+        self._suppress_move_requests = suppress
+        log.info(f"[LocalController] suppress_move_requests set to {suppress}")
     
     def set_player_manager(self, player_manager: 'PlayerManager') -> None:
         """Set the player manager.
@@ -240,6 +252,13 @@ class LocalController(GameController):
         
         if not self._player_manager:
             return
+
+        # During resume, the saved move list is replayed AFTER _start_game_mode().
+        # Requesting a move here would pass an incomplete board state to players
+        # (notably Hand+Brain REVERSE), which can produce illegal suggestions.
+        if self._suppress_move_requests:
+            log.info("[LocalController] All players ready, but move requests are suppressed (resume in progress)")
+            return
         
         white_player = self._player_manager.get_player(chess.WHITE)
         if white_player.player_type != PlayerType.HUMAN:
@@ -255,6 +274,10 @@ class LocalController(GameController):
         For engines/Lichess, starts move computation.
         """
         if not self._player_manager:
+            return
+
+        if self._suppress_move_requests:
+            log.debug("[LocalController] Move requests suppressed, skipping _request_current_player_move")
             return
         
         if not self._player_manager.is_ready:
