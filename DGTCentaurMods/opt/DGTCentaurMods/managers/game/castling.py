@@ -186,7 +186,7 @@ def execute_rook_first_castling(
     move_state.reset()
     led.off()
     board_module.beep(board_module.SOUND_GENERAL, event_type="game_event")
-    led.single(king_dest, repeat=0)
+    led.single_fast(king_dest, repeat=1)
 
     outcome = chess_board.outcome(claim_draw=True)
     if outcome is None:
@@ -363,7 +363,7 @@ def execute_late_castling(
     king_dest = chess.parse_square(castling_uci[2:4])
     led.off()
     board_module.beep(board_module.SOUND_GENERAL, event_type="game_event")
-    led.single(king_dest, repeat=0)
+    led.single_fast(king_dest, repeat=1)
 
     if moves_to_undo > 1 and takeback_callback_fn is not None:
         log.info("[GameManager._execute_late_castling] Calling takeback callback to re-trigger engine")

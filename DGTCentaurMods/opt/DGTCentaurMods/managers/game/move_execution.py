@@ -91,7 +91,7 @@ def execute_move(ctx: MoveExecutionContext, target_square: int) -> None:
 
     ctx.led.off()
     ctx.board_module.beep(ctx.board_module.SOUND_GENERAL, event_type="game_event")
-    ctx.led.single(target_square, repeat=0)
+    ctx.led.single_fast(target_square, repeat=1)
 
     fen_after_move = str(ctx.chess_board.fen())
     late_castling_in_progress = ctx.move_state.late_castling_in_progress
