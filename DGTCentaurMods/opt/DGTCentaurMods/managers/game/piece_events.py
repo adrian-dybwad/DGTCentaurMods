@@ -245,6 +245,82 @@ def handle_piece_place(ctx: PieceEventContext, field: int, piece_color) -> None:
 
     is_current_player_piece = (ctx.chess_board.turn == chess.WHITE) == (piece_color is True)
 
+    # Forced-move "missed lift" recovery:
+    # Some boards can occasionally miss the LIFT event. When the game is waiting on a forced
+    # computer move (engine/Lichess opponent), the player may complete the move physically
+    # but only a PLACE is observed. In that case, accept the move if the *full* physical
+    # occupancy exactly matches the expected post-move occupancy computed by applying the
+    # forced move to the current logical board (supports captures and castling).
+    if (
+        ctx.move_state.is_forced_move
+        and ctx.move_state.source_square < 0
+        and isinstance(ctx.move_state.computer_move_uci, str)
+        and len(ctx.move_state.computer_move_uci) >= MIN_UCI_MOVE_LENGTH
+    ):
+        forced_uci = ctx.move_state.computer_move_uci
+        try:
+            forced_source = chess.parse_square(forced_uci[0:2])
+            forced_dest = chess.parse_square(forced_uci[2:4])
+        except ValueError:
+            forced_source = None
+            forced_dest = None
+
+        if forced_source is not None and forced_dest is not None:
+            current_state = ctx.board_module.getChessState()
+            if current_state is not None and len(current_state) == BOARD_SIZE:
+                # Compute expected post-move occupancy by applying the forced move on a board copy.
+                expected_after: Optional[bytearray] = None
+                forced_move_for_apply = forced_uci
+
+                # Promotion robustness: if forced UCI is missing the promotion piece, default to queen,
+                # mirroring the behavior in move execution for forced moves.
+                if len(forced_move_for_apply) == 4:
+                    piece_at_source = ctx.chess_board.piece_at(forced_source)
+                    if piece_at_source is not None and piece_at_source.piece_type == chess.PAWN:
+                        promotion_rank = 7 if piece_at_source.color == chess.WHITE else 0
+                        if (forced_dest // BOARD_WIDTH) == promotion_rank:
+                            forced_move_for_apply = forced_move_for_apply + "q"
+
+                try:
+                    board_copy = ctx.chess_board.copy(stack=False)
+                    board_copy.push_uci(forced_move_for_apply)
+                    expected_after = bytearray(BOARD_SIZE)
+                    for sq in range(BOARD_SIZE):
+                        expected_after[sq] = 1 if board_copy.piece_at(sq) is not None else 0
+                except Exception as e:
+                    log.debug(
+                        "[GameManager._handle_piece_place] Forced-move recovery could not compute expected_after "
+                        f"for uci={forced_move_for_apply}: {e}"
+                    )
+
+                if expected_after is not None and expected_after == current_state:
+                    # Optional guard: require that the observed PLACE is on the forced destination, except
+                    # for castling where either destination square might be the last observed PLACE.
+                    allow_accept = False
+                    if forced_uci in ("e1g1", "e1c1", "e8g8", "e8c8"):
+                        # Castling: accept completion if board matches expected_after and PLACE is on either moved piece destination.
+                        if forced_uci == "e1g1":
+                            allow_accept = field in (chess.G1, chess.F1)
+                        elif forced_uci == "e1c1":
+                            allow_accept = field in (chess.C1, chess.D1)
+                        elif forced_uci == "e8g8":
+                            allow_accept = field in (chess.G8, chess.F8)
+                        elif forced_uci == "e8c8":
+                            allow_accept = field in (chess.C8, chess.D8)
+                    else:
+                        allow_accept = field == forced_dest
+
+                    if allow_accept:
+                        log.info(
+                            "[GameManager._handle_piece_place] MISSED LIFT RECOVERY (forced move): "
+                            f"physical occupancy matches forced move {forced_uci}, observed PLACE on {chess.square_name(field)}"
+                        )
+                        ctx.move_state.source_square = forced_source
+                        ctx.move_state.source_piece_color = piece_color
+                        ctx.move_state.legal_destination_squares = [forced_source, forced_dest]
+                        ctx.execute_move_fn(field)
+                        return
+
     # Handle opponent piece placed back
     if (
         (not is_current_player_piece)
