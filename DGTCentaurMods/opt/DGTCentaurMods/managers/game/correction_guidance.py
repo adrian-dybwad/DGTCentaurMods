@@ -158,7 +158,7 @@ def provide_correction_guidance(
             get_linear_sum_assignment_fn=get_linear_sum_assignment_fn,
         )
         board_module.ledsOff()
-        board_module.ledFromTo(from_idx, to_idx, intensity=10, speed=10, repeat=0)
+        board_module.ledFromTo(from_idx, to_idx, intensity=20, speed=10, repeat=0)
         log.warning(
             "[GameManager._provide_correction_guidance] Guiding piece from "
             f"{chess.square_name(from_idx)} to {chess.square_name(to_idx)}"
