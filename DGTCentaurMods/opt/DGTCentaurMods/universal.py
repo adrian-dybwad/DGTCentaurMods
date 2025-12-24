@@ -1383,7 +1383,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
             """
             if squares:
                 # speed=1 is fast, repeat=flash_count for 3 quick flashes
-                board.ledArray(squares, speed=7, intensity=5, repeat=flash_count)
+                board.ledArray(squares, speed=10, intensity=5, repeat=flash_count)
         
         # Wire hint callback to any HandBrainPlayer in NORMAL mode
         # Wire LED callback to any HandBrainPlayer in REVERSE mode
