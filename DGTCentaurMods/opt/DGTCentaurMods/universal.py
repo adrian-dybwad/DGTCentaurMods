@@ -36,7 +36,7 @@ import signal
 import random
 import psutil
 from enum import Enum, auto
-from typing import Optional, List
+from typing import Any, Dict, Optional, List
 from dataclasses import dataclass, field
 
 # Initialize display FIRST, before board module is imported
@@ -92,6 +92,14 @@ from DGTCentaurMods.utils.wifi import (
     scan_wifi_networks,
     connect_to_wifi,
     get_wifi_password_from_board,
+)
+from DGTCentaurMods.utils.settings_persistence import (
+    MenuContext,
+)
+from DGTCentaurMods.players.settings import (
+    PlayerSettings,
+    GameSettings,
+    AllSettings,
 )
 
 # Flag set if previous shutdown was incomplete (filesystem errors detected)
@@ -494,48 +502,46 @@ client_sock = None
 # Args (stored globally after parsing for access in callbacks)
 _args = None
 
-# Game settings (user-configurable via settings menu)
-# These are loaded from centaur.ini on startup and saved when changed
-# Player settings are stored in [PlayerOne] and [PlayerTwo] sections
-_player1_settings = {
-    'color': 'white',           # Color Player 1 plays: 'white' or 'black'
-    'type': 'human',            # Player type: 'human', 'engine', 'lichess', 'hand_brain'
-    'name': '',                 # Player name (for human type, empty = use default)
-    'engine': 'stockfish',      # Engine name (for engine/human/hand_brain type)
-    'elo': 'Default',           # Engine ELO level (for engine/human/hand_brain type)
-    'hand_brain_mode': 'normal',  # Hand+Brain mode: 'normal' or 'reverse' (for hand_brain type)
-}
-
-_player2_settings = {
-    'type': 'engine',           # Player type: 'human', 'engine', 'lichess', 'hand_brain'
-    'name': '',                 # Player name (for human type, empty = use default)
-    'engine': 'stockfish',      # Engine name (for engine/human/hand_brain type)
-    'elo': 'Default',           # Engine ELO level (for engine/human/hand_brain type)
-    'hand_brain_mode': 'normal',  # Hand+Brain mode: 'normal' or 'reverse' (for hand_brain type)
-}
-
-# General game settings (stored in [game] section)
-_game_settings = {
-    # Time control
-    'time_control': 0,         # Time per player in minutes (0 = disabled/untimed)
-    # System settings (cannot be changed during a game)
-    'analysis_mode': True,     # Enable analysis engine (creates analysis widget even if hidden)
-    'analysis_engine': 'stockfish',  # Engine to use for position analysis
-    # Display settings (widgets to show during game)
-    'show_board': True,        # Show chess board widget
-    'show_clock': True,        # Show clock/turn indicator widget
-    'show_analysis': True,     # Show analysis widget (score bar + graph)
-    'show_graph': True,        # Show history graph in analysis widget
-}
-
-# Available time control options (in minutes)
-TIME_CONTROL_OPTIONS = [0, 1, 3, 5, 10, 15, 30, 60, 90]
-
 # Settings section names in centaur.ini
 SETTINGS_SECTION = 'game'
 PLAYER1_SECTION = 'PlayerOne'
 PLAYER2_SECTION = 'PlayerTwo'
 MENU_STATE_SECTION = 'MenuState'
+
+# Default settings (used for type inference and missing values)
+PLAYER1_DEFAULTS = {
+    'color': 'white',
+    'type': 'human',
+    'name': '',
+    'engine': 'stockfish',
+    'elo': 'Default',
+    'hand_brain_mode': 'normal',
+}
+
+PLAYER2_DEFAULTS = {
+    'color': 'black',  # Player 2 color (opposite of player 1)
+    'type': 'engine',
+    'name': '',
+    'engine': 'stockfish',
+    'elo': 'Default',
+    'hand_brain_mode': 'normal',
+}
+
+GAME_SETTINGS_DEFAULTS = {
+    'time_control': 0,
+    'analysis_mode': True,
+    'analysis_engine': 'stockfish',
+    'show_board': True,
+    'show_clock': True,
+    'show_analysis': True,
+    'show_graph': True,
+}
+
+# Global settings instance (populated from centaur.ini on startup)
+_settings: Optional[AllSettings] = None
+
+# Available time control options (in minutes)
+TIME_CONTROL_OPTIONS = [0, 1, 3, 5, 10, 15, 30, 60, 90]
 
 # Cached engine data
 _available_engines: List[str] = []
@@ -546,405 +552,86 @@ _engine_elo_levels: dict = {}  # engine_name -> list of ELO levels
 # Settings Persistence
 # ============================================================================
 
-def _load_game_settings():
-    """Load game settings from centaur.ini.
-    
-    Reads player settings from [PlayerOne] and [PlayerTwo] sections.
-    Reads general settings from [game] section.
-    Uses defaults if not present.
-    """
-    global _player1_settings, _player2_settings, _game_settings
-    
-    try:
-        from DGTCentaurMods.board.settings import Settings
-        
-        # Helper to load boolean settings from player sections
-        def load_player_bool_setting(section: str, key: str, default: bool = False) -> bool:
-            value = Settings.read(section, key, 'true' if default else 'false')
-            if value.lower() in ('false', '0', ''):
-                return False
-            return True
-        
-        # Player 1 settings (from [PlayerOne] section)
-        _player1_settings['color'] = Settings.read(PLAYER1_SECTION, 'color', 'white')
-        _player1_settings['type'] = Settings.read(PLAYER1_SECTION, 'type', 'human')
-        _player1_settings['name'] = Settings.read(PLAYER1_SECTION, 'name', '')
-        _player1_settings['engine'] = Settings.read(PLAYER1_SECTION, 'engine', 'stockfish')
-        _player1_settings['elo'] = Settings.read(PLAYER1_SECTION, 'elo', 'Default')
-        _player1_settings['hand_brain_mode'] = Settings.read(PLAYER1_SECTION, 'hand_brain_mode', 'normal')
-        
-        # Player 2 settings (from [PlayerTwo] section)
-        _player2_settings['type'] = Settings.read(PLAYER2_SECTION, 'type', 'engine')
-        _player2_settings['name'] = Settings.read(PLAYER2_SECTION, 'name', '')
-        _player2_settings['engine'] = Settings.read(PLAYER2_SECTION, 'engine', 'stockfish')
-        _player2_settings['elo'] = Settings.read(PLAYER2_SECTION, 'elo', 'Default')
-        _player2_settings['hand_brain_mode'] = Settings.read(PLAYER2_SECTION, 'hand_brain_mode', 'normal')
-        
-        # Time control (from [game] section)
-        time_control_str = Settings.read(SETTINGS_SECTION, 'time_control', '0')
-        try:
-            _game_settings['time_control'] = int(time_control_str)
-        except ValueError:
-            _game_settings['time_control'] = 0
-        
-        # Load display settings (booleans stored as 'true'/'false' strings)
-        # Default to 'true' if not present or if value is empty/invalid
-        def load_bool_setting(key: str) -> bool:
-            value = Settings.read(SETTINGS_SECTION, key, 'true')
-            # Treat empty string, 'false', or '0' as False; everything else as True
-            if value.lower() in ('false', '0', ''):
-                return False
-            return True
-        
-        # Load system settings (analysis mode and engine)
-        _game_settings['analysis_mode'] = load_bool_setting('analysis_mode')
-        _game_settings['analysis_engine'] = Settings.read(SETTINGS_SECTION, 'analysis_engine', 'stockfish')
-        
-        _game_settings['show_board'] = load_bool_setting('show_board')
-        _game_settings['show_clock'] = load_bool_setting('show_clock')
-        _game_settings['show_analysis'] = load_bool_setting('show_analysis')
-        _game_settings['show_graph'] = load_bool_setting('show_graph')
+def _get_settings() -> AllSettings:
+    """Get the global settings instance, loading from storage if needed.
 
-        log.info(f"[Settings] Player1: type={_player1_settings['type']}, color={_player1_settings['color']}, "
-                 f"name={_player1_settings['name'] or '(default)'}, "
-                 f"engine={_player1_settings['engine']}, elo={_player1_settings['elo']}, "
-                 f"hb_mode={_player1_settings['hand_brain_mode']}")
-        log.info(f"[Settings] Player2: type={_player2_settings['type']}, "
-                 f"name={_player2_settings['name'] or '(default)'}, "
-                 f"engine={_player2_settings['engine']}, elo={_player2_settings['elo']}, "
-                 f"hb_mode={_player2_settings['hand_brain_mode']}")
-        log.info(f"[Settings] Game: time={_game_settings['time_control']} min, "
-                 f"analysis={_game_settings['analysis_mode']}, analysis_engine={_game_settings['analysis_engine']}")
-        log.info(f"[Settings] Display: board={_game_settings['show_board']}, "
-                 f"clock={_game_settings['show_clock']}, analysis={_game_settings['show_analysis']}, "
-                 f"graph={_game_settings['show_graph']}")
-    except Exception as e:
-        log.warning(f"[Settings] Error loading game settings: {e}, using defaults")
+    Returns:
+        The global AllSettings instance
+    """
+    global _settings
+    if _settings is None:
+        _settings = AllSettings.load(
+            player1_section=PLAYER1_SECTION,
+            player2_section=PLAYER2_SECTION,
+            game_section=SETTINGS_SECTION,
+            player1_defaults=PLAYER1_DEFAULTS,
+            player2_defaults=PLAYER2_DEFAULTS,
+            game_defaults=GAME_SETTINGS_DEFAULTS,
+            log=log,
+        )
+    return _settings
+
+
+def _load_game_settings():
+    """Load game settings from centaur.ini using AllSettings."""
+    global _settings
+
+    _settings = AllSettings.load(
+        player1_section=PLAYER1_SECTION,
+        player2_section=PLAYER2_SECTION,
+        game_section=SETTINGS_SECTION,
+        player1_defaults=PLAYER1_DEFAULTS,
+        player2_defaults=PLAYER2_DEFAULTS,
+        game_defaults=GAME_SETTINGS_DEFAULTS,
+        log=log,
+    )
+    _settings.log_summary()
 
 
 def _save_player1_setting(key: str, value):
-    """Save a Player 1 setting to centaur.ini [PlayerOne] section.
-    
-    Args:
-        key: Setting key (color, type, name, hand_brain, engine, elo)
-        value: Setting value (string or boolean - booleans stored as 'true'/'false')
-    """
-    global _player1_settings
-    try:
-        from DGTCentaurMods.board.settings import Settings
-        # Convert to string for storage
-        if isinstance(value, bool):
-            str_value = 'true' if value else 'false'
-        else:
-            str_value = str(value)
-        Settings.write(PLAYER1_SECTION, key, str_value)
-        _player1_settings[key] = value
-        log.debug(f"[Settings] Saved PlayerOne.{key}={str_value}")
-    except Exception as e:
-        log.warning(f"[Settings] Error saving PlayerOne.{key}={value}: {e}")
+    """Save a Player 1 setting to centaur.ini."""
+    _get_settings().player1.set(key, value)
 
 
 def _save_player2_setting(key: str, value):
-    """Save a Player 2 setting to centaur.ini [PlayerTwo] section.
-    
-    Args:
-        key: Setting key (type, name, hand_brain, engine, elo)
-        value: Setting value (string or boolean - booleans stored as 'true'/'false')
-    """
-    global _player2_settings
-    try:
-        from DGTCentaurMods.board.settings import Settings
-        # Convert to string for storage
-        if isinstance(value, bool):
-            str_value = 'true' if value else 'false'
-        else:
-            str_value = str(value)
-        Settings.write(PLAYER2_SECTION, key, str_value)
-        _player2_settings[key] = value
-        log.debug(f"[Settings] Saved PlayerTwo.{key}={str_value}")
-    except Exception as e:
-        log.warning(f"[Settings] Error saving PlayerTwo.{key}={value}: {e}")
+    """Save a Player 2 setting to centaur.ini."""
+    _get_settings().player2.set(key, value)
 
 
 def _save_game_setting(key: str, value):
-    """Save a general game setting to centaur.ini [game] section.
-    
-    Args:
-        key: Setting key (time_control, analysis_mode, show_board, etc.)
-        value: Setting value (string or boolean - booleans stored as 'true'/'false')
-    """
-    try:
-        from DGTCentaurMods.board.settings import Settings
-        
-        # Convert to string for storage
-        if isinstance(value, bool):
-            str_value = 'true' if value else 'false'
-        else:
-            str_value = str(value)
-        
-        Settings.write(SETTINGS_SECTION, key, str_value)
-        log.debug(f"[Settings] Saved game.{key}={str_value}")
-    except Exception as e:
-        log.warning(f"[Settings] Error saving game.{key}={value}: {e}")
+    """Save a general game setting to centaur.ini."""
+    _get_settings().game.set(key, value)
 
 
-# ============================================================================
-# Menu State Persistence
-# ============================================================================
-
-@dataclass
-class MenuContext:
-    """Tracks menu navigation state with full path and index stack.
-    
-    Maintains both the menu path hierarchy (for navigation) and the selected
-    index at each level (for restoring exact cursor position). The path and
-    indices are kept in sync - each menu level has a corresponding index.
-    
-    Storage format in centaur.ini:
-        path: "Settings/Players/Player1" (slash-separated menu names)
-        indices: "2:0:1" (colon-separated indices at each level)
-    
-    Attributes:
-        path_stack: List of menu names from root to current level
-        index_stack: List of selected indices at each corresponding level
-        _nav_depth: Current navigation depth (how deep we've navigated during runtime)
-    """
-    path_stack: List[str] = field(default_factory=list)
-    index_stack: List[int] = field(default_factory=list)
-    _nav_depth: int = field(default=0, repr=False)
-    
-    def push(self, menu_name: str, index: int = 0) -> None:
-        """Push a new menu level onto the navigation stack.
-        
-        Args:
-            menu_name: Name of the menu being entered
-            index: Initial selected index in that menu (default 0)
-        """
-        self.path_stack.append(menu_name)
-        self.index_stack.append(index)
-        self.save()
-    
-    def pop(self) -> tuple:
-        """Pop the current menu level and return to parent.
-        
-        Returns:
-            Tuple of (menu_name, index) that was popped, or (None, 0) if empty
-        """
-        if not self.path_stack:
-            return (None, 0)
-        menu_name = self.path_stack.pop()
-        index = self.index_stack.pop() if self.index_stack else 0
-        self.save()
-        return (menu_name, index)
-    
-    def update_index(self, index: int) -> None:
-        """Update the selected index at the current navigation depth.
-        
-        Args:
-            index: New selected index to store
-        """
-        # Use nav_depth - 1 since nav_depth is incremented after entering a menu
-        idx = self._nav_depth - 1 if self._nav_depth > 0 else 0
-        if idx < len(self.index_stack):
-            self.index_stack[idx] = index
-            self.save()
-    
-    def current_index(self) -> int:
-        """Get the selected index at the current navigation depth.
-        
-        Returns:
-            Current level's index, or 0 if at invalid depth
-        """
-        # Use nav_depth - 1 since nav_depth is incremented after entering a menu
-        idx = self._nav_depth - 1 if self._nav_depth > 0 else 0
-        if idx < len(self.index_stack):
-            return self.index_stack[idx]
-        return 0
-    
-    def current_menu(self) -> Optional[str]:
-        """Get the name of the current menu.
-        
-        Returns:
-            Current menu name, or None if at root
-        """
-        return self.path_stack[-1] if self.path_stack else None
-    
-    def depth(self) -> int:
-        """Get the current navigation depth.
-        
-        Returns:
-            Number of menus in the stack (0 = at main menu)
-        """
-        return len(self.path_stack)
-    
-    def path_str(self) -> str:
-        """Get the path as a slash-separated string.
-        
-        Returns:
-            Path string like "Settings/Players/Player1"
-        """
-        return '/'.join(self.path_stack)
-    
-    def indices_str(self) -> str:
-        """Get the index stack as a colon-separated string.
-        
-        Returns:
-            Indices string like "2:0:1"
-        """
-        return ':'.join(str(i) for i in self.index_stack) if self.index_stack else '0'
-    
-    def clear(self) -> None:
-        """Clear the navigation stack (return to main menu)."""
-        self.path_stack.clear()
-        self.index_stack.clear()
-        self._nav_depth = 0
-        self.save()
-    
-    def save(self) -> None:
-        """Persist the current state to centaur.ini."""
-        try:
-            from DGTCentaurMods.board.settings import Settings
-            
-            path = self.path_str()
-            indices = self.indices_str()
-            
-            if not path:
-                Settings.write(MENU_STATE_SECTION, 'path', '')
-                Settings.write(MENU_STATE_SECTION, 'indices', '0')
-                log.debug("[MenuContext] Cleared menu state")
-            else:
-                Settings.write(MENU_STATE_SECTION, 'path', path)
-                Settings.write(MENU_STATE_SECTION, 'indices', indices)
-                log.debug(f"[MenuContext] Saved: path={path}, indices={indices}")
-        except Exception as e:
-            log.warning(f"[MenuContext] Error saving state: {e}")
-    
-    @classmethod
-    def load(cls) -> 'MenuContext':
-        """Load menu state from centaur.ini.
-        
-        Returns:
-            MenuContext with restored path and index stacks
-        """
-        try:
-            from DGTCentaurMods.board.settings import Settings
-            
-            path = Settings.read(MENU_STATE_SECTION, 'path', '')
-            indices_str = Settings.read(MENU_STATE_SECTION, 'indices', '0')
-            
-            # Parse path
-            path_stack = path.split('/') if path else []
-            
-            # Parse indices
-            if indices_str:
-                try:
-                    index_stack = [int(x) for x in indices_str.split(':') if x]
-                except ValueError:
-                    index_stack = [0] * len(path_stack)
-            else:
-                index_stack = [0] * len(path_stack)
-            
-            # Ensure stacks are same length
-            while len(index_stack) < len(path_stack):
-                index_stack.append(0)
-            while len(index_stack) > len(path_stack):
-                index_stack.pop()
-            
-            ctx = cls(path_stack=path_stack, index_stack=index_stack)
-            
-            if path:
-                log.info(f"[MenuContext] Loaded: path={path}, indices={indices_str}")
-            else:
-                log.debug("[MenuContext] No saved menu state")
-            
-            return ctx
-        except Exception as e:
-            log.warning(f"[MenuContext] Error loading state: {e}")
-            return cls()
-    
-    def get_restore_path(self) -> List[tuple]:
-        """Get the full restoration path as a list of (menu_name, index) tuples.
-        
-        Useful for programmatically navigating to a saved position.
-        
-        Returns:
-            List of (menu_name, index) tuples from root to current position
-        """
-        return list(zip(self.path_stack, self.index_stack))
-    
-    def enter_menu(self, menu_name: str, default_index: int = 0) -> int:
-        """Enter a submenu, handling both fresh navigation and restoration.
-        
-        Uses _nav_depth to track current position in the navigation hierarchy.
-        If the saved path at _nav_depth matches menu_name, we're restoring and
-        return the saved index. Otherwise, we truncate the saved path and start
-        fresh navigation from this point.
-        
-        This method should be called instead of push() when entering submenus to
-        properly support menu state restoration.
-        
-        Args:
-            menu_name: Name of the menu being entered
-            default_index: Index to use if not restoring (default 0)
-            
-        Returns:
-            The index to use for initial selection in the submenu
-        """
-        current_depth = self._nav_depth
-        
-        # Check if saved path has this menu at the current depth (restoration mode)
-        if (current_depth < len(self.path_stack) and 
-            self.path_stack[current_depth] == menu_name):
-            # Restoring - use saved index, advance nav depth
-            saved_index = self.index_stack[current_depth] if current_depth < len(self.index_stack) else 0
-            self._nav_depth += 1
-            log.debug(f"[MenuContext] Restoring to {menu_name} with saved index {saved_index} (depth now {self._nav_depth})")
-            return saved_index
-        else:
-            # Fresh navigation or path diverged - truncate saved state and push new menu
-            # Remove anything beyond current depth
-            self.path_stack = self.path_stack[:current_depth]
-            self.index_stack = self.index_stack[:current_depth]
-            
-            # Push the new menu
-            self.path_stack.append(menu_name)
-            self.index_stack.append(default_index)
-            self._nav_depth += 1
-            self.save()
-            log.debug(f"[MenuContext] Fresh nav to {menu_name} with index {default_index} (depth now {self._nav_depth})")
-            return default_index
-    
-    def leave_menu(self) -> None:
-        """Leave the current submenu.
-        
-        Decrements navigation depth. If we were in fresh navigation mode
-        (nav_depth at end of path), also pops from the stacks.
-        """
-        if self._nav_depth <= 0:
-            return
-        
-        self._nav_depth -= 1
-        
-        # If we're leaving a menu that was at the end of the path, pop it
-        if self._nav_depth >= len(self.path_stack) - 1 and self.path_stack:
-            self.pop()
-        
-        log.debug(f"[MenuContext] Left menu, depth now {self._nav_depth}")
+# Dict accessors for compatibility with menu functions that expect dicts
+def _player1_settings_dict() -> Dict[str, Any]:
+    """Get Player 1 settings as a dict."""
+    return _get_settings().player1.to_dict()
 
 
-# Global menu context instance
+def _player2_settings_dict() -> Dict[str, Any]:
+    """Get Player 2 settings as a dict."""
+    return _get_settings().player2.to_dict()
+
+
+def _game_settings_dict() -> Dict[str, Any]:
+    """Get game settings as a dict."""
+    return _get_settings().game.to_dict()
+
+
+# Global menu context instance (MenuContext imported from utils/settings_persistence.py)
 _menu_context: Optional[MenuContext] = None
 
 
 def _get_menu_context() -> MenuContext:
     """Get the global menu context, loading from storage if needed.
-    
+
     Returns:
         The global MenuContext instance
     """
     global _menu_context
     if _menu_context is None:
-        _menu_context = MenuContext.load()
+        _menu_context = MenuContext.load(section=MENU_STATE_SECTION, log=log)
     return _menu_context
 
 
@@ -1538,7 +1225,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     """Transition from menu to game mode.
 
     Initializes game handler and display manager, shows chess widgets.
-    Uses settings from _game_settings (configurable via Settings menu).
+    Uses settings from AllSettings (configurable via Settings menu).
     
     Args:
         starting_fen: FEN string for initial position. If None, uses standard starting position.
@@ -1546,7 +1233,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
                          - Database saving is disabled
                          - Back button returns directly to menu (no resign prompt)
     """
-    global app_state, protocol_manager, display_manager, controller_manager, _game_settings, _is_position_game
+    global app_state, protocol_manager, display_manager, controller_manager, _is_position_game
 
     log.info(f"[App] Transitioning to GAME mode (position_game={is_position_game})")
     
@@ -1560,22 +1247,13 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     save_to_database = not is_position_game
     
     # Get player settings
-    player1_color = _player1_settings['color']
-    player1_type = _player1_settings['type']
-    player1_name = _player1_settings['name']
-    player1_engine = _player1_settings['engine']
-    player1_elo = _player1_settings['elo']
-    player1_hb_mode = _player1_settings['hand_brain_mode']
-
-    player2_type = _player2_settings['type']
-    player2_name = _player2_settings['name']
-    player2_engine = _player2_settings['engine']
-    player2_elo = _player2_settings['elo']
-    player2_hb_mode = _player2_settings['hand_brain_mode']
+    settings = _get_settings()
+    p1 = settings.player1
+    p2 = settings.player2
 
     # Player 1 is at the bottom of the board
     # Determine which color each player plays
-    player1_is_white = (player1_color == 'white')
+    player1_is_white = (p1.color == 'white')
 
     # Create players based on settings
     from DGTCentaurMods.players import (
@@ -1583,105 +1261,95 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         LichessPlayer, LichessPlayerConfig, LichessGameMode,
         HandBrainPlayer, HandBrainConfig, HandBrainMode
     )
+    from DGTCentaurMods.players.settings import PlayerSettings
 
-    def create_player(player_type: str, color: chess.Color, player_name: str,
-                       engine_name: str, engine_elo: str, hand_brain_mode: str):
-        """Create a player based on type and color.
+    def create_player(ps: PlayerSettings, color: chess.Color):
+        """Create a player based on PlayerSettings and color.
 
         Args:
-            player_type: 'human', 'engine', 'lichess', or 'hand_brain'
+            ps: PlayerSettings object with type, name, engine, elo, hand_brain_mode
             color: chess.WHITE or chess.BLACK
-            player_name: Custom name for human players (empty string uses default)
-            engine_name: Engine name (for all player types except lichess)
-            engine_elo: Engine ELO level (for all player types except lichess)
-            hand_brain_mode: 'normal' or 'reverse' (for hand_brain type)
         """
-        if player_type == 'human':
-            # Use custom name if provided, otherwise default to 'Human'
-            name = player_name if player_name else "Human"
+        if ps.type == 'human':
+            name = ps.name if ps.name else "Human"
             config = HumanPlayerConfig(
                 name=name, color=color,
-                engine=engine_name, elo=engine_elo
+                engine=ps.engine, elo=ps.elo
             )
             return HumanPlayer(config)
-        elif player_type == 'engine':
+        elif ps.type == 'engine':
             config = EnginePlayerConfig(
-                name=f"{engine_name} ({engine_elo})",
+                name=f"{ps.engine} ({ps.elo})",
                 color=color,
-                engine_name=engine_name,
-                elo_section=engine_elo,
+                engine_name=ps.engine,
+                elo_section=ps.elo,
                 time_limit_seconds=5.0
             )
             return EnginePlayer(config)
-        elif player_type == 'lichess':
-            # Name will be updated after Lichess authentication
+        elif ps.type == 'lichess':
             config = LichessPlayerConfig(
                 name="Lichess",
                 color=color,
                 mode=LichessGameMode.NEW,
             )
             return LichessPlayer(config)
-        elif player_type == 'hand_brain':
-            # Hand+Brain: engine and human collaborate
-            mode = HandBrainMode.NORMAL if hand_brain_mode == 'normal' else HandBrainMode.REVERSE
+        elif ps.type == 'hand_brain':
+            mode = HandBrainMode.NORMAL if ps.hand_brain_mode == 'normal' else HandBrainMode.REVERSE
             mode_str = 'N' if mode == HandBrainMode.NORMAL else 'R'
             config = HandBrainConfig(
-                name=f"H+B {mode_str} ({engine_name})",
+                name=f"H+B {mode_str} ({ps.engine})",
                 color=color,
                 mode=mode,
-                engine_name=engine_name,
-                elo_section=engine_elo,
+                engine_name=ps.engine,
+                elo_section=ps.elo,
                 time_limit_seconds=2.0
             )
             return HandBrainPlayer(config)
         else:
-            log.warning(f"[App] Unknown player type: {player_type}, defaulting to human")
+            log.warning(f"[App] Unknown player type: {ps.type}, defaulting to human")
             return HumanPlayer()
     
     # Create White and Black players
     if player1_is_white:
-        white_player = create_player(player1_type, chess.WHITE, player1_name, 
-                                     player1_engine, player1_elo, player1_hb_mode)
-        black_player = create_player(player2_type, chess.BLACK, player2_name, 
-                                     player2_engine, player2_elo, player2_hb_mode)
+        white_player = create_player(p1, chess.WHITE)
+        black_player = create_player(p2, chess.BLACK)
     else:
-        white_player = create_player(player2_type, chess.WHITE, player2_name, 
-                                     player2_engine, player2_elo, player2_hb_mode)
-        black_player = create_player(player1_type, chess.BLACK, player1_name, 
-                                     player1_engine, player1_elo, player1_hb_mode)
+        white_player = create_player(p2, chess.WHITE)
+        black_player = create_player(p1, chess.BLACK)
     
     log.info(f"[App] Created players: {white_player.name} (White) vs {black_player.name} (Black)")
     
     # Check for special modes
-    is_two_player = (player1_type == 'human' and player2_type == 'human')
+    is_two_player = (p1.type == 'human' and p2.type == 'human')
     # Hand-brain mode is enabled if either player is a hand_brain player
-    is_hand_brain = (player1_type == 'hand_brain' or player2_type == 'hand_brain')
+    is_hand_brain = (p1.type == 'hand_brain' or p2.type == 'hand_brain')
 
     # Get analysis engine path (only if analysis mode is enabled)
     from DGTCentaurMods.paths import get_engine_path
-    analysis_mode = _game_settings['analysis_mode']
-    analysis_engine_path = get_engine_path(_game_settings['analysis_engine']) if analysis_mode else None
+    game = settings.game
+    analysis_mode = game.analysis_mode
+    analysis_engine_path = get_engine_path(game.analysis_engine) if analysis_mode else None
 
     # Create DisplayManager - handles all game widgets (chess board, analysis, clock)
     # Analysis runs in a background thread so it doesn't block move processing
     # Hand-brain hints are set per-player via display_manager.set_brain_hint()
     display_manager = DisplayManager(
         flip_board=False,
-        show_analysis=_game_settings['show_analysis'],
+        show_analysis=game.show_analysis,
         analysis_engine_path=analysis_engine_path,
         on_exit=lambda: _return_to_menu("Menu exit"),
         initial_fen=starting_fen,
-        time_control=_game_settings['time_control'],
-        show_board=_game_settings['show_board'],
-        show_clock=_game_settings['show_clock'],
-        show_graph=_game_settings['show_graph'],
+        time_control=game.time_control,
+        show_board=game.show_board,
+        show_clock=game.show_clock,
+        show_graph=game.show_graph,
         analysis_mode=analysis_mode
     )
-    log.info(f"[App] DisplayManager initialized (time_control={_game_settings['time_control']} min, "
+    log.info(f"[App] DisplayManager initialized (time_control={game.time_control} min, "
              f"analysis_mode={analysis_mode}, "
-             f"board={_game_settings['show_board']}, clock={_game_settings['show_clock']}, "
-             f"analysis={_game_settings['show_analysis']}, "
-             f"graph={_game_settings['show_graph']})")
+             f"board={game.show_board}, clock={game.show_clock}, "
+             f"analysis={game.show_analysis}, "
+             f"graph={game.show_graph})")
 
     # Back menu result handler
     def _on_back_menu_result(result: str):
@@ -2029,7 +1697,7 @@ def _handle_settings(initial_selection: str = None):
         initial_selection: If provided, immediately navigate to this submenu
                           (used when restoring menu state on startup).
     """
-    global app_state, _game_settings
+    global app_state
     from DGTCentaurMods.board import centaur
     
     app_state = AppState.SETTINGS
@@ -2042,7 +1710,7 @@ def _handle_settings(initial_selection: str = None):
     pending_selection = initial_selection
     
     while app_state == AppState.SETTINGS:
-        entries = create_settings_entries(_game_settings, _player1_settings, _player2_settings)
+        entries = create_settings_entries(_game_settings_dict(), _player1_settings_dict(), _player2_settings_dict())
         
         # If we have a pending selection from state restoration, use it
         if pending_selection:
@@ -2091,7 +1759,7 @@ def _handle_settings(initial_selection: str = None):
         elif result == "TimeControl":
             time_result = handle_time_control_menu(
                 ctx=ctx,
-                game_settings=_game_settings,
+                game_settings=_game_settings_dict(),
                 time_control_options=TIME_CONTROL_OPTIONS,
                 show_menu=_show_menu,
                 find_entry_index=find_entry_index,
@@ -2178,8 +1846,8 @@ def _handle_players_menu():
     """Handle the Players submenu - delegates to extracted menu function."""
     return handle_players_menu(
         get_menu_context=_get_menu_context,
-        player1_settings=_player1_settings,
-        player2_settings=_player2_settings,
+        player1_settings=_player1_settings_dict(),
+        player2_settings=_player2_settings_dict(),
         show_menu=_show_menu,
         find_entry_index=find_entry_index,
         handle_player1_menu=_handle_player1_menu,
@@ -2207,7 +1875,7 @@ def _handle_player1_menu():
     
     return handle_player1_menu(
         ctx=ctx,
-        player1_settings=_player1_settings,
+        player1_settings=_player1_settings_dict(),
         show_menu=_show_menu,
         find_entry_index=find_entry_index,
         is_break_result=is_break_result,
@@ -2241,7 +1909,7 @@ def _handle_player2_menu():
     
     return handle_player2_menu(
         ctx=ctx,
-        player2_settings=_player2_settings,
+        player2_settings=_player2_settings_dict(),
         show_menu=_show_menu,
         find_entry_index=find_entry_index,
         is_break_result=is_break_result,
@@ -2260,7 +1928,7 @@ def _handle_player2_menu():
 def _handle_player1_color_selection():
     """Handle color selection for Player 1 - delegates to extracted menu function."""
     return handle_color_selection(
-        player_settings=_player1_settings,
+        player_settings=_player1_settings_dict(),
         show_menu=_show_menu,
         save_player_setting=_save_player1_setting,
         log=log,
@@ -2271,7 +1939,7 @@ def _handle_player1_color_selection():
 def _handle_player1_type_selection():
     """Handle type selection for Player 1 - delegates to extracted menu function."""
     return handle_type_selection(
-        player_settings=_player1_settings,
+        player_settings=_player1_settings_dict(),
         show_menu=_show_menu,
         save_player_setting=_save_player1_setting,
         log=log,
@@ -2291,7 +1959,7 @@ def _handle_player1_engine_selection():
         None otherwise.
     """
     return handle_engine_selection(
-        player_settings=_player1_settings,
+        player_settings=_player1_settings_dict(),
         show_menu=_show_menu,
         is_break_result=is_break_result,
         get_installed_engines=_get_installed_engines,
@@ -2312,7 +1980,7 @@ def _handle_player1_elo_selection():
         None otherwise.
     """
     return handle_elo_selection(
-        player_settings=_player1_settings,
+        player_settings=_player1_settings_dict(),
         show_menu=_show_menu,
         is_break_result=is_break_result,
         get_engine_elo_levels=_get_engine_elo_levels,
@@ -2325,7 +1993,7 @@ def _handle_player1_elo_selection():
 def _handle_player1_hand_brain_mode_selection():
     """Handle Hand+Brain mode selection for Player 1 - delegates to extracted menu function."""
     return handle_hand_brain_mode_selection(
-        player_settings=_player1_settings,
+        player_settings=_player1_settings_dict(),
         show_menu=_show_menu,
         save_player_setting=_save_player1_setting,
         log=log,
@@ -2338,7 +2006,7 @@ def _handle_player1_name_input():
     """Handle name input for Player 1 - delegates to extracted menu function."""
     global _active_keyboard_widget
     return handle_name_input(
-        player_settings=_player1_settings,
+        player_settings=_player1_settings_dict(),
         show_menu=_show_menu,
         save_player_setting=_save_player1_setting,
         log=log,
@@ -2353,7 +2021,7 @@ def _handle_player2_name_input():
     """Handle name input for Player 2 - delegates to extracted menu function."""
     global _active_keyboard_widget
     return handle_name_input(
-        player_settings=_player2_settings,
+        player_settings=_player2_settings_dict(),
         show_menu=_show_menu,
         save_player_setting=_save_player2_setting,
         log=log,
@@ -2367,7 +2035,7 @@ def _handle_player2_name_input():
 def _handle_player2_type_selection():
     """Handle type selection for Player 2 - delegates to extracted menu function."""
     return handle_type_selection(
-        player_settings=_player2_settings,
+        player_settings=_player2_settings_dict(),
         show_menu=_show_menu,
         save_player_setting=_save_player2_setting,
         log=log,
@@ -2387,7 +2055,7 @@ def _handle_player2_engine_selection():
         None otherwise.
     """
     return handle_engine_selection(
-        player_settings=_player2_settings,
+        player_settings=_player2_settings_dict(),
         show_menu=_show_menu,
         is_break_result=is_break_result,
         get_installed_engines=_get_installed_engines,
@@ -2408,7 +2076,7 @@ def _handle_player2_elo_selection():
         None otherwise.
     """
     return handle_elo_selection(
-        player_settings=_player2_settings,
+        player_settings=_player2_settings_dict(),
         show_menu=_show_menu,
         is_break_result=is_break_result,
         get_engine_elo_levels=_get_engine_elo_levels,
@@ -2421,7 +2089,7 @@ def _handle_player2_elo_selection():
 def _handle_player2_hand_brain_mode_selection():
     """Handle Hand+Brain mode selection for Player 2 - delegates to extracted menu function."""
     return handle_hand_brain_mode_selection(
-        player_settings=_player2_settings,
+        player_settings=_player2_settings_dict(),
         show_menu=_show_menu,
         save_player_setting=_save_player2_setting,
         log=log,
@@ -2535,11 +2203,11 @@ def _handle_system_menu():
     return handle_system_menu(
         ctx=ctx,
         board=board,
-        game_settings=_game_settings,
+        game_settings=_game_settings_dict(),
         menu_manager=_menu_manager,
-        create_entries=lambda: create_system_entries(board, _game_settings),
+        create_entries=lambda: create_system_entries(board, _game_settings_dict()),
         handle_display_settings=lambda: handle_display_settings(
-            game_settings=_game_settings,
+            game_settings=_game_settings_dict(),
             show_menu=_show_menu,
             save_game_setting=_save_game_setting,
             log=log,
@@ -2550,11 +2218,11 @@ def _handle_system_menu():
             board=board,
         ),
         handle_analysis_mode_menu=lambda: handle_analysis_mode_menu(
-            game_settings=_game_settings,
+            game_settings=_game_settings_dict(),
             menu_manager=_menu_manager,
             save_game_setting=_save_game_setting,
             handle_analysis_engine_selection=lambda: handle_analysis_engine_selection(
-                game_settings=_game_settings,
+                game_settings=_game_settings_dict(),
                 show_menu=_show_menu,
                 get_installed_engines=_get_installed_engines,
                 save_game_setting=_save_game_setting,
@@ -2621,9 +2289,6 @@ def _handle_system_menu():
             menu_manager=_menu_manager,
         ),
         handle_reset_settings=lambda: handle_reset_settings(
-            game_settings=_game_settings,
-            player1_settings=_player1_settings,
-            player2_settings=_player2_settings,
             show_menu=_show_menu,
             load_game_settings=_load_game_settings,
             log=log,
@@ -2682,8 +2347,9 @@ def _handle_lichess_menu():
     def handle_selection(result: MenuSelection):
         nonlocal game_started
         if result.key == "NewGame":
-            color = _player1_settings["color"]
-            time_minutes = _game_settings["time_control"] or 10
+            settings = _get_settings()
+            color = settings.player1.color
+            time_minutes = settings.game.time_control or 10
             config = LichessConfig(
                 mode=LichessGameMode.NEW,
                 time_minutes=time_minutes,
@@ -2757,7 +2423,7 @@ def _start_lichess_game(lichess_config) -> bool:
     
     result = start_lichess_game_service(
         lichess_config=lichess_config,
-        game_settings=_game_settings,
+        game_settings=_game_settings_dict(),
         board=board,
         log=log,
         menu_manager=_menu_manager,
@@ -4167,7 +3833,7 @@ def main():
                     _pending_display_settings = False
                     log.info("[App] Showing display settings menu from game mode")
                     handle_display_settings(
-                        game_settings=_game_settings,
+                        game_settings=_game_settings_dict(),
                         show_menu=_show_menu,
                         save_game_setting=_save_game_setting,
                         log=log,

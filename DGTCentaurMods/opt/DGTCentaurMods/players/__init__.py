@@ -26,6 +26,7 @@ from .hand_brain import (
     create_hand_brain_player
 )
 from .manager import PlayerManager
+from .settings import PlayerSettings, GameSettings, AllSettings
 
 __all__ = [
     # Base classes
@@ -53,4 +54,8 @@ __all__ = [
     'create_hand_brain_player',
     # Manager
     'PlayerManager',
+    # Settings
+    'PlayerSettings',
+    'GameSettings',
+    'AllSettings',
 ]
