@@ -41,6 +41,7 @@ from DGTCentaurMods.state.chess_game import ChessGameState
 from DGTCentaurMods.services import get_chess_clock_service
 
 from .correction_mode import CorrectionMode
+from DGTCentaurMods.utils.led import LedCallbacks
 from .deferred_imports import (
     _get_create_engine,
     _get_linear_sum_assignment,
@@ -185,6 +186,11 @@ class GameManager:
         # Must be set via set_player_manager() before game starts.
         # Provides: get_player(color), request_move(), on_move_made(), on_piece_event()
         self._player_manager = None
+        
+        # LED callbacks - must be set via set_led_callbacks() before game starts.
+        # All LED operations should go through these callbacks for consistent
+        # speed and intensity settings.
+        self._led: Optional[LedCallbacks] = None
         
         # Thread control
         self.should_stop = False
@@ -396,7 +402,7 @@ class GameManager:
         # Check if current board state matches previous state
         if ChessGameState.states_match(current_state, previous_state):
             log.info("[GameManager._check_takeback] Takeback detected - board state matches previous state")
-            board.ledsOff()
+            self.led.off()
             
             # Preserve forced move info before callback (which may reset move state)
             forced_move_uci = self.move_state.computer_move_uci if self.move_state.is_forced_move else None
@@ -424,7 +430,7 @@ class GameManager:
                         # Reapply LEDs for the forced move
                         from_sq, to_sq = self._uci_to_squares(forced_move_uci)
                         if from_sq is not None and to_sq is not None:
-                            board.ledFromTo(from_sq, to_sq, repeat=0)
+                            self.led.from_to(from_sq, to_sq, repeat=0)
                             log.info(f"[GameManager._check_takeback] Reapplied LEDs for forced move {forced_move_uci} after takeback")
                         else:
                             log.warning(f"[GameManager._check_takeback] Could not convert forced move {forced_move_uci} to squares")
@@ -494,7 +500,7 @@ class GameManager:
         log.warning("[GameManager._exit_correction_mode] Exited correction mode")
         
         # Turn off correction LEDs first
-        board.ledsOff()
+        self.led.off()
         
         # Reset move state variables
         self.move_state.source_square = INVALID_SQUARE
@@ -520,12 +526,12 @@ class GameManager:
             if len(self.move_state.computer_move_uci) >= MIN_UCI_MOVE_LENGTH:
                 from_sq, to_sq = self._uci_to_squares(self.move_state.computer_move_uci)
                 if from_sq is not None and to_sq is not None:
-                    board.ledFromTo(from_sq, to_sq, repeat=0)
+                    self.led.from_to(from_sq, to_sq, repeat=0)
                     log.info(f"[GameManager._exit_correction_mode] Restored forced move LEDs: {self.move_state.computer_move_uci}")
         # Apply pending hint move if set (from position loading)
         elif self._pending_hint_squares is not None:
             from_sq, to_sq = self._pending_hint_squares
-            board.ledFromTo(from_sq, to_sq, repeat=0)
+            self.led.from_to_hint(from_sq, to_sq, repeat=0)
             log.info(f"[GameManager._exit_correction_mode] Showing hint LEDs: {chess.square_name(from_sq)} -> {chess.square_name(to_sq)}")
             # Clear the hint after showing it once
             self._pending_hint_squares = None
@@ -550,13 +556,14 @@ class GameManager:
 
         def _on_kings_in_center_detected():
             self._exit_correction_mode()
-            board.ledsOff()
+            self.led.off()
             self.move_state.reset()
             self._kings_in_center_menu_active = True
             self.on_kings_in_center()
 
         provide_correction_guidance(
             board_module=board,
+            led=self.led,
             chess_board=self.chess_board,
             current_state=current_state,
             expected_state=expected_state,
@@ -634,6 +641,7 @@ class GameManager:
             correction_mode=self.correction_mode,
             player_manager=self._player_manager,
             board_module=board,
+            led=self.led,
             get_expected_state_fn=lambda: self._chess_board_to_state(self.chess_board),
             enter_correction_mode_fn=self._enter_correction_mode,
             provide_correction_guidance_fn=self._provide_correction_guidance,
@@ -655,6 +663,7 @@ class GameManager:
             correction_mode=self.correction_mode,
             player_manager=self._player_manager,
             board_module=board,
+            led=self.led,
             get_expected_state_fn=lambda: self._chess_board_to_state(self.chess_board),
             enter_correction_mode_fn=self._enter_correction_mode,
             provide_correction_guidance_fn=self._provide_correction_guidance,
@@ -676,6 +685,7 @@ class GameManager:
             chess_board=self.chess_board,
             push_move_fn=self._game_state.push_move,
             board_module=board,
+            led=self.led,
             enter_correction_mode_fn=self._enter_correction_mode,
             chess_board_to_state_fn=self._chess_board_to_state,
             provide_correction_guidance_fn=self._provide_correction_guidance,
@@ -699,6 +709,7 @@ class GameManager:
             pop_move_fn=self._game_state.pop_move,
             push_move_fn=self._game_state.push_move,
             board_module=board,
+            led=self.led,
             database_session=self.database_session,
             game_db_id=self.game_db_id,
             get_clock_times_for_db_fn=self._get_clock_times_for_db,
@@ -719,6 +730,7 @@ class GameManager:
             game_state=self._game_state,
             move_state=self.move_state,
             board_module=board,
+            led=self.led,
             handle_promotion_fn=self._handle_promotion,
             switch_turn_with_event_fn=self._switch_turn_with_event,
             enqueue_post_move_tasks_fn=self._enqueue_post_move_tasks,
@@ -880,7 +892,7 @@ class GameManager:
         if expected_state is not None and current_state is not None:
             if ChessGameState.states_match(current_state, expected_state):
                 log.debug("[GameManager._handle_piece_event_without_player] Board matches game state")
-                board.ledsOff()
+                self.led.off()
                 return
         
         # Board doesn't match - enter correction mode
@@ -954,6 +966,25 @@ class GameManager:
         """Get the player manager for this game."""
         return self._player_manager
     
+    def set_led_callbacks(self, led_callbacks: LedCallbacks) -> None:
+        """Set the LED callbacks for this game.
+        
+        All LED operations should go through these callbacks for consistent
+        speed and intensity settings.
+        
+        Args:
+            led_callbacks: LedCallbacks instance with LED control functions.
+        """
+        self._led = led_callbacks
+        log.info("[GameManager] LED callbacks set")
+    
+    @property
+    def led(self) -> LedCallbacks:
+        """Get LED callbacks. Must be set before use."""
+        if self._led is None:
+            raise RuntimeError("LED callbacks not set. Call set_led_callbacks() before starting game.")
+        return self._led
+    
     def _execute_complete_move(self, move: chess.Move) -> None:
         """Execute a complete move submitted by a player (delegates to player_moves)."""
         ctx = self._build_player_move_context()
@@ -987,6 +1018,7 @@ class GameManager:
             game_state=self._game_state,
             move_state=self.move_state,
             board_module=board,
+            led=self.led,
             get_game_db_id_fn=lambda: self.game_db_id,
             switch_turn_with_event_fn=self._switch_turn_with_event,
             enqueue_post_move_tasks_fn=self._enqueue_post_move_tasks,
@@ -1020,9 +1052,9 @@ class GameManager:
                 pending = self._player_manager.get_current_pending_move(self.chess_board)
                 if pending:
                     log.debug(f"[GameManager._on_player_error] Re-displaying pending move: {pending.uci()}")
-                    board.ledFromTo(pending.from_square, pending.to_square, repeat=0)
+                    self.led.from_to(pending.from_square, pending.to_square, repeat=0)
                     return
-            board.ledsOff()
+            self.led.off()
             return
         
         if error_type == "place_without_lift":
@@ -1039,7 +1071,7 @@ class GameManager:
                 if is_takeback:
                     log.info("[GameManager._on_player_error] Takeback detected")
                     self.move_state.reset()
-                    board.ledsOff()
+                    self.led.off()
                     return
             
             # Not starting position or takeback - extra piece, enter correction mode
@@ -1080,7 +1112,7 @@ class GameManager:
         
         try:
             log.debug(f"[GameManager._on_pending_move] Calling ledFromTo({move.from_square}, {move.to_square})")
-            board.ledFromTo(move.from_square, move.to_square, repeat=0)
+            self.led.from_to(move.from_square, move.to_square, repeat=0)
             log.debug(f"[GameManager._on_pending_move] ledFromTo completed")
         except Exception as e:
             log.error(f"[GameManager._on_pending_move] Error calling ledFromTo: {e}")
@@ -1138,7 +1170,7 @@ class GameManager:
         
         # Play sound and turn off LEDs
         board.beep(board.SOUND_GENERAL, event_type='game_event')
-        board.ledsOff()
+        self.led.off()
     
     def reset_kings_in_center_menu(self) -> None:
         """Reset the kings-in-center menu flag.
@@ -1169,7 +1201,7 @@ class GameManager:
         
         # Play sound and turn off LEDs
         board.beep(board.SOUND_GENERAL, event_type='game_event')
-        board.ledsOff()
+        self.led.off()
     
     def handle_flag(self, flagged_color: chess.Color) -> None:
         """Handle time expiration (flag) for a player.
@@ -1192,7 +1224,7 @@ class GameManager:
 
         # Play sound and turn off LEDs
         board.beep(board.SOUND_GENERAL, event_type='game_event')
-        board.ledsOff()
+        self.led.off()
         
         # Trigger event callback to show game over widget
         if self.event_callback:
@@ -1254,7 +1286,7 @@ class GameManager:
             # Note: Clock is managed by DisplayManager, reset via EVENT_NEW_GAME callback
             # Note: Alert clearing is handled automatically by ChessGameState.reset()
             #       which notifies observers (AlertWidget hides itself)
-            board.ledsOff()
+            self.led.off()
             
             # Step 8: Reset game_db_id to -1 to indicate no active game in database
             # New game will be created when first move is made
@@ -1284,7 +1316,7 @@ class GameManager:
                 self.move_state.reset()
                 self._game_state.reset()  # Reset via game state
                 self.game_db_id = -1
-                board.ledsOff()
+                self.led.off()
                 if self.correction_mode.is_active:
                     self._exit_correction_mode()
             except Exception:
@@ -1307,7 +1339,7 @@ class GameManager:
         else:
             log.info(f"[GameManager._game_thread] Database disabled for this game (position mode) in thread {thread_id}")
         
-        board.ledsOff()
+        self.led.off()
         log.info("[GameManager._game_thread] Ready to receive events from app coordinator")
         
         # Notify observers of initial position
@@ -1407,7 +1439,7 @@ class GameManager:
         # Light up LEDs to indicate the move
         from_sq, to_sq = self._uci_to_squares(uci_move)
         if from_sq is not None and to_sq is not None:
-            board.ledFromTo(from_sq, to_sq, repeat=0)
+            self.led.from_to(from_sq, to_sq, repeat=0)
     
     def restore_pending_move_leds(self) -> None:
         """Restore LEDs for pending computer move.
@@ -1420,7 +1452,7 @@ class GameManager:
             if len(uci_move) >= MIN_UCI_MOVE_LENGTH:
                 from_sq, to_sq = self._uci_to_squares(uci_move)
                 if from_sq is not None and to_sq is not None:
-                    board.ledFromTo(from_sq, to_sq, repeat=0)
+                    self.led.from_to(from_sq, to_sq, repeat=0)
                     log.info(f"[GameManager.restore_pending_move_leds] Restored LEDs for {uci_move}")
     
     def resign_game(self, side_resigning: int):
@@ -1515,7 +1547,7 @@ class GameManager:
         """Stop the game manager."""
         self.should_stop = True
         self._stop_event.set()  # Signal the event to wake up any sleeping thread
-        board.ledsOff()
+        self.led.off()
         # Note: Clock is managed by DisplayManager, cleaned up when display manager is destroyed
         
         # Reset ready state

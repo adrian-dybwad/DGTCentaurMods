@@ -99,7 +99,9 @@ class DisplayManager:
                  initial_fen: str = None,
                  time_control: int = 0, show_board: bool = True,
                  show_clock: bool = True,
-                 show_graph: bool = True, analysis_mode: bool = True):
+                 show_graph: bool = True, analysis_mode: bool = True,
+                 led_from_to_hint_callback: callable = None,
+                 led_off_callback: callable = None):
         """Initialize the display controller.
         
         Args:
@@ -113,11 +115,17 @@ class DisplayManager:
             show_clock: If True, show the clock/turn indicator widget
             show_graph: If True, show the history graph in analysis widget
             analysis_mode: If True, create analysis engine/widget (may be hidden by show_analysis)
+            led_from_to_hint_callback: LED callback (from_sq, to_sq, repeat) for hint-style
+                                       LEDs (slow speed, dim intensity). Used for check/queen alerts.
+            led_off_callback: LED callback () to turn off all LEDs. Used for pause.
         
         Note: Player names are read from PlayersState by the clock widget.
               Hand-brain hints are set per-player via set_brain_hint().
         """
         _load_widgets()
+        
+        self._led_from_to_hint = led_from_to_hint_callback
+        self._led_off = led_off_callback
         
         self._flip_board = flip_board
         self._show_analysis = show_analysis
@@ -355,7 +363,10 @@ class DisplayManager:
         
         # Create alert widget for CHECK/QUEEN warnings (y=144, overlays clock widget)
         # Alert widget is hidden by default and shown when check or queen threat occurs
-        self.alert_widget = _AlertWidget(0, 144, 128, 40, board.display_manager.update)
+        self.alert_widget = _AlertWidget(
+            0, 144, 128, 40, board.display_manager.update,
+            led_from_to_hint_callback=self._led_from_to_hint
+        )
         board.display_manager.add_widget(self.alert_widget)
         log.info("[DisplayManager] Alert widget initialized (hidden)")
         
@@ -365,7 +376,8 @@ class DisplayManager:
         # - Hides on position_change when game is no longer over (new game started)
         # ChessClockWidget also observes game_over and manages its own visibility.
         self.game_over_widget = _GameOverWidget(
-            0, 144, 128, 72, board.display_manager.update
+            0, 144, 128, 72, board.display_manager.update,
+            led_off_callback=self._led_off
         )
         board.display_manager.add_widget(self.game_over_widget)
         log.info("[DisplayManager] Game over widget initialized (hidden, observes game state)")
@@ -494,8 +506,11 @@ class DisplayManager:
         self._is_paused = True
         self._clock.pause()
         
-        # Turn off LEDs
-        board.ledsOff()
+        # Turn off LEDs via callback
+        if self._led_off:
+            self._led_off()
+        else:
+            log.warning("[DisplayManager] LED off callback not set, skipping LED off")
         
         # Show pause widget (centered on screen)
         # Import here to avoid circular imports

@@ -17,6 +17,7 @@ from typing import Callable, Dict, Optional
 import chess
 
 from DGTCentaurMods.board.logging import log
+from DGTCentaurMods.utils.led import LedCallbacks
 
 from .deferred_imports import _get_models
 from .move_persistence import persist_move_and_maybe_create_game
@@ -80,6 +81,7 @@ def execute_rook_first_castling(
     chess_board: chess.Board,
     push_move_fn: Callable[[chess.Move], None],
     board_module,
+    led: LedCallbacks,
     enter_correction_mode_fn: Callable[[], None],
     chess_board_to_state_fn: Callable[[chess.Board], Optional[bytearray]],
     provide_correction_guidance_fn: Callable[[Optional[bytearray], Optional[bytearray]], None],
@@ -105,7 +107,7 @@ def execute_rook_first_castling(
             f"Result: {chess_board.result()}"
         )
         board_module.beep(board_module.SOUND_WRONG_MOVE, event_type="error")
-        board_module.ledsOff()
+        led.off()
         move_state.reset()
         return game_db_id
 
@@ -182,9 +184,9 @@ def execute_rook_first_castling(
             log.error(f"[GameManager._execute_castling_move] Error in move callback: {e}")
 
     move_state.reset()
-    board_module.ledsOff()
+    led.off()
     board_module.beep(board_module.SOUND_GENERAL, event_type="game_event")
-    board_module.led(king_dest)
+    led.single(king_dest, repeat=0)
 
     outcome = chess_board.outcome(claim_draw=True)
     if outcome is None:
@@ -224,6 +226,7 @@ def execute_late_castling(
     pop_move_fn: Callable[[], Optional[chess.Move]],
     push_move_fn: Callable[[chess.Move], None],
     board_module,
+    led: LedCallbacks,
     database_session,
     game_db_id: int,
     get_clock_times_for_db_fn: Callable[[], tuple],
@@ -358,9 +361,9 @@ def execute_late_castling(
     move_state.reset()
 
     king_dest = chess.parse_square(castling_uci[2:4])
-    board_module.ledsOff()
+    led.off()
     board_module.beep(board_module.SOUND_GENERAL, event_type="game_event")
-    board_module.led(king_dest)
+    led.single(king_dest, repeat=0)
 
     if moves_to_undo > 1 and takeback_callback_fn is not None:
         log.info("[GameManager._execute_late_castling] Calling takeback callback to re-trigger engine")

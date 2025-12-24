@@ -44,7 +44,8 @@ class GameOverWidget(Widget):
     DEFAULT_HEIGHT = 72
     
     def __init__(self, x: int, y: int, width: int, height: int, update_callback,
-                 game_state=None):
+                 game_state=None,
+                 led_off_callback: callable = None):
         """
         Initialize game over widget.
         
@@ -58,8 +59,10 @@ class GameOverWidget(Widget):
             height: Widget height
             update_callback: Callback to trigger display updates. Must not be None.
             game_state: Optional ChessGameState to observe. If None, uses singleton.
+            led_off_callback: LED callback () to turn off all LEDs. Used on game over.
         """
         super().__init__(x, y, width, height, update_callback)
+        self._led_off = led_off_callback
         
         self.result = ""           # "1-0", "0-1", "1/2-1/2"
         self.winner = ""           # "White wins", "Black wins", "Draw"
@@ -222,12 +225,11 @@ class GameOverWidget(Widget):
         When the game ends, any pending move or check/threat LEDs
         should be turned off to indicate the game is finished.
         """
-        try:
-            from DGTCentaurMods.board import board
-            board.ledsOff()
+        if self._led_off:
+            self._led_off()
             log.debug("[GameOverWidget] LEDs turned off on game over")
-        except Exception as e:
-            log.error(f"[GameOverWidget] Error turning off LEDs: {e}")
+        else:
+            log.warning("[GameOverWidget] LED off callback not set, skipping LED off")
         
         super().show()
     

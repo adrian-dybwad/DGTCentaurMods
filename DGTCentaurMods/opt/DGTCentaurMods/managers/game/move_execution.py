@@ -13,6 +13,7 @@ from typing import Callable, Optional
 import chess
 
 from DGTCentaurMods.board.logging import log
+from DGTCentaurMods.utils.led import LedCallbacks
 
 from .move_state import BOARD_WIDTH, INVALID_SQUARE, MIN_UCI_MOVE_LENGTH, PROMOTION_ROW_BLACK, PROMOTION_ROW_WHITE
 
@@ -23,6 +24,7 @@ class MoveExecutionContext:
     game_state: object
     move_state: object
     board_module: object
+    led: LedCallbacks  # LED control callbacks
 
     # GameManager callbacks / helpers
     handle_promotion_fn: Callable[[int, str, bool], str]
@@ -42,7 +44,7 @@ def execute_move(ctx: MoveExecutionContext, target_square: int) -> None:
             f"Result: {ctx.chess_board.result()}, Termination: {outcome.termination}"
         )
         ctx.board_module.beep(ctx.board_module.SOUND_WRONG_MOVE, event_type="error")
-        ctx.board_module.ledsOff()
+        ctx.led.off()
         ctx.move_state.reset()
         return
 
@@ -71,7 +73,7 @@ def execute_move(ctx: MoveExecutionContext, target_square: int) -> None:
     except ValueError as e:
         log.error(f"[GameManager._execute_move] Invalid move UCI format: {move_uci}. Error: {e}")
         ctx.board_module.beep(ctx.board_module.SOUND_WRONG_MOVE, event_type="error")
-        ctx.board_module.ledsOff()
+        ctx.led.off()
         ctx.move_state.reset()
         return
 
@@ -83,13 +85,13 @@ def execute_move(ctx: MoveExecutionContext, target_square: int) -> None:
     except (ValueError, AssertionError) as e:
         log.error(f"[GameManager._execute_move] Illegal move or chess engine push failed: {move_uci}. Error: {e}")
         ctx.board_module.beep(ctx.board_module.SOUND_WRONG_MOVE, event_type="error")
-        ctx.board_module.ledsOff()
+        ctx.led.off()
         ctx.move_state.reset()
         return
 
-    ctx.board_module.ledsOff()
+    ctx.led.off()
     ctx.board_module.beep(ctx.board_module.SOUND_GENERAL, event_type="game_event")
-    ctx.board_module.led(target_square)
+    ctx.led.single(target_square, repeat=0)
 
     fen_after_move = str(ctx.chess_board.fen())
     late_castling_in_progress = ctx.move_state.late_castling_in_progress

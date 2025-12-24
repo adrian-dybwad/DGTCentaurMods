@@ -133,6 +133,7 @@ class GameSettings:
         show_clock: Show clock/turn indicator widget
         show_analysis: Show analysis widget
         show_graph: Show history graph in analysis widget
+        led_brightness: LED brightness level (1-10, default 5)
     """
 
     section: str
@@ -143,6 +144,7 @@ class GameSettings:
     show_clock: bool = True
     show_analysis: bool = True
     show_graph: bool = True
+    led_brightness: int = 5  # LED brightness 1-10
     _log: Optional[Any] = field(default=None, repr=False)
 
     def save(self, key: str) -> None:
@@ -183,6 +185,7 @@ class GameSettings:
             "show_clock": self.show_clock,
             "show_analysis": self.show_analysis,
             "show_graph": self.show_graph,
+            "led_brightness": self.led_brightness,
         }
 
     @classmethod
@@ -212,6 +215,7 @@ class GameSettings:
             show_clock=data.get("show_clock", defaults.get("show_clock", True)),
             show_analysis=data.get("show_analysis", defaults.get("show_analysis", True)),
             show_graph=data.get("show_graph", defaults.get("show_graph", True)),
+            led_brightness=data.get("led_brightness", defaults.get("led_brightness", 5)),
             _log=log,
         )
 
@@ -226,7 +230,7 @@ class GameSettings:
             self._log.info(
                 f"[Settings] Display: board={self.show_board}, "
                 f"clock={self.show_clock}, analysis={self.show_analysis}, "
-                f"graph={self.show_graph}"
+                f"graph={self.show_graph}, led_brightness={self.led_brightness}"
             )
 
 

@@ -99,8 +99,11 @@ class TestGameOverWidgetObserver(unittest.TestCase):
         self.game_state = reset_chess_game()
         mock_board.ledsOff.reset_mock()
 
-    def _create_widget(self):
+    def _create_widget(self, led_off_callback=None):
         """Create a GameOverWidget with test game state.
+            
+        Args:
+            led_off_callback: Optional LED off callback. If None, uses mock_board.ledsOff.
             
         Returns:
             GameOverWidget instance subscribed to test game state.
@@ -110,7 +113,8 @@ class TestGameOverWidgetObserver(unittest.TestCase):
         return GameOverWidget(
             0, 144, 128, 72,
             update_callback=MagicMock(),
-            game_state=self.game_state
+            game_state=self.game_state,
+            led_off_callback=led_off_callback or mock_board.ledsOff
         )
 
     def test_widget_starts_hidden(self):

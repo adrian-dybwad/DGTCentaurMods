@@ -15,6 +15,7 @@ from typing import Callable, Optional
 import chess
 
 from DGTCentaurMods.board.logging import log
+from DGTCentaurMods.utils.led import LedCallbacks
 
 BOARD_SIZE = 64
 
@@ -25,6 +26,7 @@ class PlayerMoveContext:
     game_state: object
     move_state: object
     board_module: object
+    led: LedCallbacks  # LED control callbacks
 
     # State accessors
     get_game_db_id_fn: Callable[[], int]
@@ -55,7 +57,7 @@ def execute_complete_move(ctx: PlayerMoveContext, move: chess.Move) -> None:
             f"Result: {ctx.chess_board.result()}, Termination: {outcome.termination}"
         )
         ctx.board_module.beep(ctx.board_module.SOUND_WRONG_MOVE, event_type="error")
-        ctx.board_module.ledsOff()
+        ctx.led.off()
         return
 
     move_uci = move.uci()
@@ -69,12 +71,12 @@ def execute_complete_move(ctx: PlayerMoveContext, move: chess.Move) -> None:
     except (ValueError, AssertionError) as e:
         log.error(f"[GameManager._execute_complete_move] Chess engine push failed: {move_uci}. Error: {e}")
         ctx.board_module.beep(ctx.board_module.SOUND_WRONG_MOVE, event_type="error")
-        ctx.board_module.ledsOff()
+        ctx.led.off()
         return
 
-    ctx.board_module.ledsOff()
+    ctx.led.off()
     ctx.board_module.beep(ctx.board_module.SOUND_GENERAL, event_type="game_event")
-    ctx.board_module.led(target_square)
+    ctx.led.single(target_square, repeat=0)
 
     fen_after_move = str(ctx.chess_board.fen())
 

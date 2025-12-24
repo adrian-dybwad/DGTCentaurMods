@@ -566,10 +566,54 @@ class IconButtonWidget(Widget):
             self._draw_info_icon(draw, x, y, size, line_color)
         elif icon_name == "download":
             self._draw_download_icon(draw, x, y, size, line_color)
+        elif icon_name == "star":
+            self._draw_star_icon(draw, x, y, size, line_color)
         else:
             # Default: simple square placeholder
             draw.rectangle([left + 4, top + 4, right - 4, bottom - 4],
                           outline=line_color, width=2)
+
+    def _draw_star_icon(self, draw: ImageDraw.Draw, x: int, y: int, size: int, line_color: int) -> None:
+        """Draw a 5-point star icon.
+
+        Used for LED brightness indication.
+
+        Args:
+            draw: ImageDraw object.
+            x: X center position.
+            y: Y center position.
+            size: Icon size in pixels.
+            line_color: Line color (0 black, 255 white).
+        """
+        import math
+
+        # Use an outer radius that fits in the icon bounds, leaving a small margin.
+        r_outer = max(2, int(size * 0.45))
+        r_inner = max(1, int(r_outer * 0.45))
+
+        points = []
+        # Start at -90° so a point faces up.
+        start_angle = -math.pi / 2.0
+        for i in range(10):
+            r = r_outer if i % 2 == 0 else r_inner
+            angle = start_angle + i * (math.pi / 5.0)
+            px = x + int(round(r * math.cos(angle)))
+            py = y + int(round(r * math.sin(angle)))
+            points.append((px, py))
+
+        # Outline + small fill to read well on e-paper
+        draw.polygon(points, outline=line_color, fill=None)
+        # Add a subtle inner fill by drawing a smaller star inside
+        r_outer2 = max(1, int(r_outer * 0.75))
+        r_inner2 = max(1, int(r_inner * 0.75))
+        points2 = []
+        for i in range(10):
+            r = r_outer2 if i % 2 == 0 else r_inner2
+            angle = start_angle + i * (math.pi / 5.0)
+            px = x + int(round(r * math.cos(angle)))
+            py = y + int(round(r * math.sin(angle)))
+            points2.append((px, py))
+        draw.polygon(points2, outline=None, fill=line_color)
     
     def _draw_knight_icon(self, draw: ImageDraw.Draw, x: int, y: int,
                           size: int, line_color: int, selected: bool,

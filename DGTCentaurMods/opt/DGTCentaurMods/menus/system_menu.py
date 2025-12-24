@@ -4,6 +4,7 @@ from typing import Dict, List, Callable, Optional
 
 from DGTCentaurMods.epaper.icon_menu import IconMenuEntry
 from DGTCentaurMods.managers.menu import MenuSelection, is_break_result
+from DGTCentaurMods.utils.led import LED_SPEED_NORMAL, LED_INTENSITY_DEFAULT
 
 
 def create_system_entries(board_module, game_settings: Dict[str, object]) -> List[IconMenuEntry]:
@@ -123,7 +124,8 @@ def handle_system_menu(
             ctx.clear()
             try:
                 for i in range(0, 8):
-                    board.led(i, repeat=0)
+                    board.led(i, intensity=LED_INTENSITY_DEFAULT,
+                              speed=LED_SPEED_NORMAL, repeat=0)
                     import time as _time
                     _time.sleep(0.2)
             except Exception:

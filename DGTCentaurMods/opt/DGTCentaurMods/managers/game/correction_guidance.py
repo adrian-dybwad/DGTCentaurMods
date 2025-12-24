@@ -16,6 +16,7 @@ from typing import Callable, List, Optional, Sequence, Tuple
 import chess
 
 from DGTCentaurMods.board.logging import log
+from DGTCentaurMods.utils.led import LedCallbacks
 
 from .move_state import CENTER_SQUARES, BOARD_WIDTH
 
@@ -116,6 +117,7 @@ def choose_guidance_pair(
 def provide_correction_guidance(
     *,
     board_module,
+    led: LedCallbacks,
     chess_board: chess.Board,
     current_state: Sequence[int],
     expected_state: Sequence[int],
@@ -134,7 +136,7 @@ def provide_correction_guidance(
     )
 
     if not missing_squares and not extra_squares:
-        board_module.ledsOff()
+        led.off()
         return
 
     if on_kings_in_center is not None and check_kings_in_center_from_state(
@@ -157,8 +159,8 @@ def provide_correction_guidance(
             missing_squares=missing_squares,
             get_linear_sum_assignment_fn=get_linear_sum_assignment_fn,
         )
-        board_module.ledsOff()
-        board_module.ledFromTo(from_idx, to_idx, intensity=5, speed=10, repeat=0)
+        led.off()
+        led.from_to_fast(from_idx, to_idx, repeat=0)
         log.warning(
             "[GameManager._provide_correction_guidance] Guiding piece from "
             f"{chess.square_name(from_idx)} to {chess.square_name(to_idx)}"
@@ -167,9 +169,9 @@ def provide_correction_guidance(
 
     # Only pieces missing or only extra pieces
     if missing_squares:
-        board_module.ledsOff()
+        led.off()
         for idx in missing_squares:
-            board_module.led(idx, repeat=0)
+            led.single_fast(idx, repeat=0)
         log.warning(
             "[GameManager._provide_correction_guidance] Pieces missing at: "
             f"{[chess.square_name(sq) for sq in missing_squares]}"
@@ -177,8 +179,8 @@ def provide_correction_guidance(
         return
 
     if extra_squares:
-        board_module.ledsOff()
-        board_module.ledArray(extra_squares, speed=10, intensity=5, repeat=0)
+        led.off()
+        led.array_fast(extra_squares, repeat=0)
         log.warning(
             "[GameManager._provide_correction_guidance] Extra pieces at: "
             f"{[chess.square_name(sq) for sq in extra_squares]}"

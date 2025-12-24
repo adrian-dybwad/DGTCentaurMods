@@ -33,6 +33,11 @@ _logger.debug(f"[chessnut import] logging: {(_t.time() - _s)*1000:.0f}ms"); _s =
 from DGTCentaurMods.managers.events import EVENT_LIFT_PIECE, EVENT_PLACE_PIECE
 _logger.debug(f"[chessnut import] events: {(_t.time() - _s)*1000:.0f}ms")
 
+from DGTCentaurMods.utils.led import (
+    LED_SPEED_NORMAL,
+    get_led_intensity_from_settings,
+)
+
 
 # Chessnut Air command bytes
 CMD_INIT = 0x0b              # Init/config (no response)
@@ -332,7 +337,11 @@ class Chessnut:
             log.info(f"[Chessnut] LED command: lighting squares {squares_to_light}")
             try:
                 # Use ledArray with repeat=0 so LEDs stay on until next command
-                board.ledArray(squares_to_light, speed=3, intensity=5, repeat=0)
+                intensity = get_led_intensity_from_settings()
+                board.ledArray(squares_to_light,
+                               speed=LED_SPEED_NORMAL,
+                               intensity=intensity,
+                               repeat=0)
             except Exception as e:
                 log.error(f"[Chessnut] Error setting LEDs: {e}")
         else:

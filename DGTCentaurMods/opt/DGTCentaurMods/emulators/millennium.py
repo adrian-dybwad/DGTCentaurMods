@@ -23,6 +23,11 @@ _logger.debug(f"[millennium import] logging: {(_t.time() - _s)*1000:.0f}ms"); _s
 from DGTCentaurMods.managers.events import EVENT_LIFT_PIECE, EVENT_PLACE_PIECE
 _logger.debug(f"[millennium import] events: {(_t.time() - _s)*1000:.0f}ms")
 
+from DGTCentaurMods.utils.led import (
+    LED_SPEED_NORMAL,
+    get_led_intensity_from_settings,
+)
+
 # LED commands -> Patterns seen from Android chess with an original millennium:
 # AA = slow flash - used to indicate the start of a game on two bottom corner LEDS.
 # Forced moves: FF and AA - indicating FROM and TO squares. Shared sides use AA.
@@ -625,10 +630,17 @@ class Millennium:
             lit_squares = self.fully_lit_squares_from_led_array(led)
             chess_indexes = [self.square_to_index(square) for square in lit_squares]
             log.info(f"[Millennium] L packet: chess_indexes={chess_indexes}")
+            intensity = get_led_intensity_from_settings()
             if len(chess_indexes) == 2:
-                board.ledFromTo(chess_indexes[0], chess_indexes[1], repeat=0)
+                board.ledFromTo(chess_indexes[0], chess_indexes[1],
+                                intensity=intensity,
+                                speed=LED_SPEED_NORMAL,
+                                repeat=0)
             elif len(chess_indexes) > 2:
-                board.ledArray(chess_indexes, repeat=0)
+                board.ledArray(chess_indexes,
+                               intensity=intensity,
+                               speed=LED_SPEED_NORMAL,
+                               repeat=0)
             else:
                 board.ledsOff()
 

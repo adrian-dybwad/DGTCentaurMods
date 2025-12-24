@@ -16,6 +16,7 @@ from typing import Callable, Optional
 import chess
 
 from DGTCentaurMods.board.logging import log
+from DGTCentaurMods.utils.led import LedCallbacks
 
 from .move_state import (
     BOARD_WIDTH,
@@ -40,6 +41,7 @@ class PieceEventContext:
     correction_mode: object
     player_manager: object
     board_module: object
+    led: LedCallbacks  # LED control callbacks
 
     # GameManager helper callbacks
     get_expected_state_fn: Callable[[], Optional[bytearray]]
@@ -225,7 +227,7 @@ def handle_piece_place(ctx: PieceEventContext, field: int, piece_color) -> None:
                 f"King returned to {chess.square_name(field)}"
             )
             ctx.move_state.reset()
-            ctx.board_module.ledsOff()
+            ctx.led.off()
             return
         else:
             log.warning(
@@ -249,7 +251,7 @@ def handle_piece_place(ctx: PieceEventContext, field: int, piece_color) -> None:
         and ctx.move_state.opponent_source_square >= 0
         and field == ctx.move_state.opponent_source_square
     ):
-        ctx.board_module.ledsOff()
+        ctx.led.off()
         ctx.move_state.opponent_source_square = INVALID_SQUARE
         return
 
@@ -363,7 +365,7 @@ def handle_piece_place(ctx: PieceEventContext, field: int, piece_color) -> None:
 
     # Legal placement
     if field == ctx.move_state.source_square:
-        ctx.board_module.ledsOff()
+        ctx.led.off()
         ctx.move_state.source_square = INVALID_SQUARE
         ctx.move_state.legal_destination_squares = []
         ctx.move_state.source_piece_color = None

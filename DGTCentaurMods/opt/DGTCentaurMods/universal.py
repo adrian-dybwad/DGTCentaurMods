@@ -937,7 +937,12 @@ def _start_from_position(fen: str, position_name: str, hint_move: str = None) ->
                     # Show hint LEDs if provided
                     if hint_from_sq is not None and hint_to_sq is not None:
                         log.info(f"[Positions] Showing hint LEDs: {hint_move} ({hint_from_sq} -> {hint_to_sq})")
-                        board.ledFromTo(hint_from_sq, hint_to_sq, repeat=0)
+                        from DGTCentaurMods.utils.led import LED_SPEED_SLOW, LED_INTENSITY_DEFAULT
+                        # Use slow speed (hint-style) and standard intensity for position hints
+                        board.ledFromTo(hint_from_sq, hint_to_sq,
+                                        intensity=LED_INTENSITY_DEFAULT,
+                                        speed=LED_SPEED_SLOW,
+                                        repeat=0)
                     
                     # Board is correct - trigger turn event
                     if gm.event_callback is not None:
@@ -1255,6 +1260,14 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     analysis_mode = game.analysis_mode
     analysis_engine_path = get_engine_path(game.analysis_engine) if analysis_mode else None
 
+    # Create LED controller with configurable intensity
+    # LED brightness can be set in display settings (1-10, default 5)
+    from DGTCentaurMods.utils.led import LedController
+    led_intensity = game.led_brightness
+    led_controller = LedController(board, intensity=led_intensity)
+    led_callbacks = led_controller.get_callbacks()
+    log.info(f"[App] LED controller initialized (intensity={led_intensity})")
+
     # Create DisplayManager - handles all game widgets (chess board, analysis, clock)
     # Analysis runs in a background thread so it doesn't block move processing
     # Hand-brain hints are set per-player via display_manager.set_brain_hint()
@@ -1268,7 +1281,9 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         show_board=game.show_board,
         show_clock=game.show_clock,
         show_graph=game.show_graph,
-        analysis_mode=analysis_mode
+        analysis_mode=analysis_mode,
+        led_from_to_hint_callback=led_callbacks.from_to_hint,
+        led_off_callback=led_callbacks.off
     )
     log.info(f"[App] DisplayManager initialized (time_control={game.time_control} min, "
              f"analysis_mode={analysis_mode}, "
@@ -1337,9 +1352,10 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         get_analysis_service().remove_last_score()
         log.debug("[App] Takeback: removed last analysis score")
     
-    # Create GameManager
+    # Create GameManager and set LED callbacks
     from DGTCentaurMods.managers.game import GameManager
     game_manager = GameManager(save_to_database=save_to_database)
+    game_manager.set_led_callbacks(led_callbacks)
     
     # Create ProtocolManager with GameManager dependency
     protocol_manager = ProtocolManager(game_manager=game_manager)
@@ -1371,19 +1387,16 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
             display_manager.set_brain_hint(color, piece_symbol)
         
         def _on_piece_squares_led(squares: List[int]) -> None:
-            """Light up squares for piece type selection (REVERSE mode)."""
-            if squares:
-                board.ledArray(squares, speed=3, intensity=5, repeat=0)
+            """Light up squares for piece type selection (REVERSE mode).
+            Uses standard LED speed/intensity.
+            """
+            led_callbacks.array(squares, repeat=0)
         
         def _on_invalid_selection_flash(squares: List[int], flash_count: int) -> None:
             """Flash squares rapidly to indicate invalid piece selection (REVERSE mode).
-            
-            Flashes the given squares at high speed the specified number of times,
-            then turns LEDs off.
+            Uses fast LED speed for urgent feedback.
             """
-            if squares:
-                # speed=1 is fast, repeat=flash_count for 3 quick flashes
-                board.ledArray(squares, speed=10, intensity=5, repeat=flash_count)
+            led_callbacks.array_fast(squares, repeat=flash_count)
         
         # Wire hint callback to any HandBrainPlayer in NORMAL mode
         # Wire LED callback to any HandBrainPlayer in REVERSE mode
@@ -2576,7 +2589,11 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
                 
                 # All LEDs for update install
                 try:
-                    board.ledArray([0,1,2,3,4,5,6,7], intensity=6, repeat=0)
+                    from DGTCentaurMods.utils.led import LED_SPEED_NORMAL, LED_INTENSITY_DEFAULT
+                    board.ledArray([0,1,2,3,4,5,6,7],
+                                   intensity=LED_INTENSITY_DEFAULT,
+                                   speed=LED_SPEED_NORMAL,
+                                   repeat=0)
                 except Exception:
                     pass
                 
@@ -2610,8 +2627,10 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
             log.info("[Cleanup] Performing LED cascade...")
             try:
                 import time as _time
+                from DGTCentaurMods.utils.led import LED_SPEED_NORMAL, LED_INTENSITY_DEFAULT
                 for i in range(7, -1, -1):
-                    board.led(i, repeat=1)
+                    board.led(i, intensity=LED_INTENSITY_DEFAULT,
+                              speed=LED_SPEED_NORMAL, repeat=1)
                     _time.sleep(0.2)
             except Exception as e:
                 log.error(f"[Cleanup] LED pattern failed: {e}")

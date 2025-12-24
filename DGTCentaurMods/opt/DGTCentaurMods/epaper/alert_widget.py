@@ -12,7 +12,7 @@ Uses TextWidget for all text rendering.
 from PIL import Image, ImageDraw
 from .framework.widget import Widget
 from .text import TextWidget, Justify
-from typing import TYPE_CHECKING
+from typing import Callable, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from DGTCentaurMods.state.chess_game import ChessGameState
@@ -43,7 +43,8 @@ class AlertWidget(Widget):
     ALERT_HINT = "hint"
     
     def __init__(self, x: int, y: int, width: int, height: int, update_callback,
-                 game_state: 'ChessGameState' = None):
+                 game_state: 'ChessGameState' = None,
+                 led_from_to_hint_callback: Optional[Callable[[int, int, int], None]] = None):
         """
         Initialize alert widget.
         
@@ -54,6 +55,9 @@ class AlertWidget(Widget):
             height: Widget height
             update_callback: Callback to trigger display updates. Must not be None.
             game_state: ChessGameState to observe. If None, uses singleton.
+            led_from_to_hint_callback: Callback for LED hint display (from_sq, to_sq, repeat).
+                                       Uses slow speed and dim intensity. If None, LED
+                                       flashing is skipped.
         """
         super().__init__(x, y, width, height, update_callback)
         self._alert_type = None  # "check", "queen", or "hint"
@@ -62,6 +66,9 @@ class AlertWidget(Widget):
         self._target_square = None  # Square index (0-63) of threatened piece
         self._hint_text_value = ""  # Hint move text (e.g., "e2e4")
         self.visible = False  # Hidden by default (uses base class attribute)
+        
+        # LED callback for hints (slow, dim)
+        self._led_from_to_hint = led_from_to_hint_callback
         
         # Get or use provided game state
         if game_state is None:
@@ -128,8 +135,8 @@ class AlertWidget(Widget):
         
         log.info(f"[AlertWidget] Showing CHECK: {'black' if is_black_in_check else 'white'} king in check, attacker={attacker_square}, king={king_square}")
         
-        # Flash LEDs from attacker to king
-        self._flash_leds(intensity=1, speed=5, repeat=2)
+        # Flash LEDs from attacker to king (hint style: slow, dim)
+        self._flash_leds(repeat=2)
         
         # Use base class show() to handle visibility and update
         super().show()
@@ -149,8 +156,8 @@ class AlertWidget(Widget):
         
         log.info(f"[AlertWidget] Showing QUEEN threat: {'black' if is_black_queen_threatened else 'white'} queen threatened, attacker={attacker_square}, queen={queen_square}")
         
-        # Flash LEDs from attacker to queen
-        self._flash_leds(intensity=1, speed=5, repeat=1)
+        # Flash LEDs from attacker to queen (hint style: slow, dim)
+        self._flash_leds(repeat=1)
         
         # Use base class show() to handle visibility and update
         super().show()
@@ -171,8 +178,8 @@ class AlertWidget(Widget):
         
         log.info(f"[AlertWidget] Showing HINT: {move_text} ({from_square} -> {to_square})")
         
-        # Flash LEDs from source to target
-        self._flash_leds(intensity=5, speed=5, repeat=2)
+        # Flash LEDs from source to target (hint style: slow, dim)
+        self._flash_leds(repeat=2)
         
         # Use base class show() to handle visibility and update
         super().show()
@@ -187,16 +194,21 @@ class AlertWidget(Widget):
             # Use base class hide() to handle visibility and update
             super().hide()
     
-    def _flash_leds(self, intensity: int = 5, speed: int = 3, repeat: int = 0) -> None:
-        """Flash LEDs from attacker square to target square."""
+    def _flash_leds(self, repeat: int = 2) -> None:
+        """Flash LEDs from attacker square to target square using hint callback.
+        
+        Uses slow speed and dim intensity via the led_from_to_hint callback.
+        Does nothing if callback not set.
+        """
         if self._attacker_square is None or self._target_square is None:
             return
         
+        if self._led_from_to_hint is None:
+            log.warning("[AlertWidget] LED callback not set, skipping LED flash")
+            return
+        
         try:
-            # Import board module for LED control
-            from DGTCentaurMods.board import board
-            # Flash from attacker to target with repeat=0 (continuous until next LED command)
-            board.ledFromTo(self._attacker_square, self._target_square, intensity=intensity, speed=speed, repeat=repeat)
+            self._led_from_to_hint(self._attacker_square, self._target_square, repeat)
         except Exception as e:
             log.error(f"[AlertWidget] Error flashing LEDs: {e}")
     
