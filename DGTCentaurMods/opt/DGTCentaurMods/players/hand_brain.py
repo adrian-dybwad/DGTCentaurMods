@@ -212,6 +212,7 @@ class HandBrainPlayer(Player):
         # REVERSE mode state
         self._selected_piece_type: Optional[chess.PieceType] = None
         self._selection_lifted_square: Optional[int] = None
+        self._opponent_lifted_square: Optional[int] = None  # Track opponent piece lifts for correction
         self._pending_move: Optional[chess.Move] = None
         self._piece_squares_led_callback: Optional[PieceSquaresLedCallback] = None
         # Tracks whether the user has started executing the pending move (lifted the source square).
@@ -513,6 +514,7 @@ class HandBrainPlayer(Player):
         self._pending_move = None
         self._selected_piece_type = None
         self._selection_lifted_square = None
+        self._opponent_lifted_square = None
         self._phase = HandBrainPhase.WAITING_PIECE_SELECTION
         
         self._set_state(PlayerState.THINKING)
@@ -579,11 +581,17 @@ class HandBrainPlayer(Player):
                 log.debug(f"[HandBrain] Lift on empty square {chess.square_name(square)}")
                 return
             
-            # Only allow selecting our own pieces
+            # Lifting an opponent's piece creates a board inconsistency - enter correction mode
+            # immediately. If the piece is placed back on the same square, correction mode
+            # will exit automatically when the physical board matches the logical board.
             if piece.color != board.turn:
-                log.debug("[HandBrain] Cannot select opponent's piece")
-                self._report_status("Select your own piece")
+                log.warning(f"[HandBrain] Opponent piece lifted from {chess.square_name(square)} - entering correction mode")
+                self._opponent_lifted_square = square
+                self._report_error("move_mismatch")
                 return
+            
+            # Clear opponent tracking when own piece is lifted
+            self._opponent_lifted_square = None
             
             self._selection_lifted_square = square
             piece_name = chess.piece_name(piece.piece_type).capitalize()
@@ -594,6 +602,22 @@ class HandBrainPlayer(Player):
             self._show_piece_type_leds(board, piece.piece_type)
         
         elif event_type == "place":
+            # Check for opponent piece misplacement first
+            if self._opponent_lifted_square is not None:
+                if square == self._opponent_lifted_square:
+                    # Opponent piece put back - no problem
+                    log.debug(f"[HandBrain] Opponent piece returned to {chess.square_name(square)}")
+                    self._opponent_lifted_square = None
+                else:
+                    # Opponent piece placed on different square - board mismatch
+                    log.warning(
+                        f"[HandBrain] Opponent piece moved from {chess.square_name(self._opponent_lifted_square)} "
+                        f"to {chess.square_name(square)} - entering correction mode"
+                    )
+                    self._opponent_lifted_square = None
+                    self._report_error("move_mismatch")
+                return
+            
             if self._selection_lifted_square is None:
                 # No lift was tracked. This can happen if:
                 # 1. The lift occurred while still INITIALIZING (missed)
@@ -1062,6 +1086,8 @@ class HandBrainPlayer(Player):
         self._pending_move = None
         self._suggested_piece_type = None
         self._selected_piece_type = None
+        self._selection_lifted_square = None
+        self._opponent_lifted_square = None
         self._phase = HandBrainPhase.IDLE
         self._current_board = None
         self._lifted_squares = []
@@ -1135,6 +1161,8 @@ class HandBrainPlayer(Player):
         self._pending_move = None
         self._suggested_piece_type = None
         self._selected_piece_type = None
+        self._selection_lifted_square = None
+        self._opponent_lifted_square = None
         self._phase = HandBrainPhase.IDLE
         self._pending_piece_events = []
     

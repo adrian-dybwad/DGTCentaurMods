@@ -503,6 +503,88 @@ class TestReverseModeReselectionEdgeCases(unittest.TestCase):
         assert pending_moves[0] == chess.Move(chess.E4, chess.F6), \
             f"Expected e4f6, got {pending_moves[0].uci()}"
 
+    def test_opponent_piece_lift_triggers_correction_mode(self):
+        """Test that lifting an opponent's piece triggers correction mode immediately.
+        
+        When a user lifts an opponent's piece, the physical board becomes
+        inconsistent with the logical board (piece is off the board). Correction
+        mode should be entered immediately on lift.
+        
+        Expected: _report_error("move_mismatch") is called on lift.
+        Failure: Error not triggered; board would be out of sync.
+        """
+        player = self._create_player()
+        player.set_piece_squares_led_callback(MagicMock())
+        player.set_move_callback(MagicMock())
+        player.set_pending_move_callback(MagicMock())
+        
+        errors_received = []
+        def error_callback(error_type):
+            errors_received.append(error_type)
+        player.set_error_callback(error_callback)
+        
+        # Position: white knight on e4, black bishop on d5
+        board = chess.Board()
+        board.set_piece_at(chess.E4, chess.Piece(chess.KNIGHT, chess.WHITE))
+        board.set_piece_at(chess.D5, chess.Piece(chess.BISHOP, chess.BLACK))
+        
+        player._do_request_move(board)
+        
+        # User lifts opponent's bishop from d5 - should immediately trigger correction mode
+        player.on_piece_event("lift", chess.D5, board)
+        
+        # Error should have been reported immediately on lift
+        assert len(errors_received) == 1, \
+            f"Expected 1 error on lift, got {len(errors_received)}: {errors_received}"
+        assert errors_received[0] == "move_mismatch", \
+            f"Expected 'move_mismatch' error, got '{errors_received[0]}'"
+
+    def test_opponent_piece_returned_correction_mode_exits(self):
+        """Test that returning an opponent's piece allows correction mode to exit.
+        
+        Lifting an opponent's piece enters correction mode. Placing it back
+        allows correction mode to exit (GameManager will detect board match).
+        The player reports an error on lift, but placing back clears the
+        opponent tracking so no additional error is reported.
+        
+        Expected: One error on lift, no additional error on place-back.
+        Failure: Multiple errors reported or tracking not cleared.
+        """
+        player = self._create_player()
+        player.set_piece_squares_led_callback(MagicMock())
+        player.set_move_callback(MagicMock())
+        player.set_pending_move_callback(MagicMock())
+        
+        errors_received = []
+        def error_callback(error_type):
+            errors_received.append(error_type)
+        player.set_error_callback(error_callback)
+        
+        # Position: white knight on e4, black bishop on d5
+        board = chess.Board()
+        board.set_piece_at(chess.E4, chess.Piece(chess.KNIGHT, chess.WHITE))
+        board.set_piece_at(chess.D5, chess.Piece(chess.BISHOP, chess.BLACK))
+        
+        player._do_request_move(board)
+        
+        # User lifts opponent's bishop from d5 - enters correction mode
+        player.on_piece_event("lift", chess.D5, board)
+        
+        # Should have one error from lift
+        assert len(errors_received) == 1, \
+            f"Expected 1 error after lift, got {len(errors_received)}: {errors_received}"
+        
+        # User puts it back on the same square - no additional error
+        player.on_piece_event("place", chess.D5, board)
+        
+        # Still only one error (from lift)
+        assert len(errors_received) == 1, \
+            f"Expected still 1 error after place-back, got {len(errors_received)}: {errors_received}"
+        
+        # Opponent tracking should be cleared
+        assert player._opponent_lifted_square is None, \
+            "Opponent lifted square should be cleared after place-back"
+
 
 if __name__ == '__main__':
     unittest.main()
