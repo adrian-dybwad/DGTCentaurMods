@@ -467,12 +467,6 @@ ble_manager = None  # BleManager for BLE GATT services
 relay_manager = None  # RelayManager for shadow target connections
 _connection_manager: Optional[ConnectionManager] = None  # Initialized in main()
 
-
-def _set_app_state(state: AppState) -> None:
-    """Update global app state."""
-    global app_state
-    app_state = state
-
 # Menu state - managed by MenuManager singleton
 _menu_manager: Optional[MenuManager] = None  # Initialized in main()
 _return_to_positions_menu = False  # Flag to signal return to positions menu from game
