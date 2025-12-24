@@ -2841,13 +2841,19 @@ def key_callback(key_id):
                 player_manager = protocol_manager.game_manager.player_manager
                 if player_manager:
                     current_player = player_manager.get_current_player(game_board)
-                    from DGTCentaurMods.players.hand_brain import HandBrainPlayer
+                    from DGTCentaurMods.players.hand_brain import HandBrainPlayer, HandBrainMode
                     if isinstance(current_player, HandBrainPlayer):
                         # Use Hand+Brain specific hint
                         hint_move = current_player.get_hint(game_board)
                         if hint_move:
-                            display_manager.show_hint(hint_move)
-                            log.info(f"[App] Hand+Brain hint: {hint_move.uci()}")
+                            if current_player.mode == HandBrainMode.NORMAL:
+                                # NORMAL mode: show full move (user decides which piece of that type)
+                                display_manager.show_hint(hint_move)
+                                log.info(f"[App] Hand+Brain NORMAL hint: {hint_move.uci()}")
+                            else:
+                                # REVERSE mode: get_hint already lit up piece type squares
+                                # Don't show full move - only piece type is the hint
+                                log.info(f"[App] Hand+Brain REVERSE hint: piece type shown on LEDs")
                         else:
                             log.info("[App] Hand+Brain hint not available yet")
                         _reset_unhandled_key_count()
