@@ -677,6 +677,122 @@ class TestReverseModeReselectionEdgeCases(unittest.TestCase):
             f"Expected IDLE phase after on_new_game, got {player._phase.name}"
 
 
+class TestHandBrainHint(unittest.TestCase):
+    """Test the ? key hint functionality for Hand+Brain modes."""
+    
+    def _create_normal_player(self):
+        """Create a NORMAL mode Hand+Brain player with mock engine."""
+        config = HandBrainConfig(
+            mode=HandBrainMode.NORMAL,
+            engine_name="stockfish",
+            time_limit_seconds=0.1,
+        )
+        player = HandBrainPlayer(config)
+        player._engine = MockEngine()
+        player._set_state(PlayerState.READY)
+        return player
+    
+    def _create_reverse_player(self):
+        """Create a REVERSE mode Hand+Brain player with mock engine."""
+        config = HandBrainConfig(
+            mode=HandBrainMode.REVERSE,
+            engine_name="stockfish",
+            time_limit_seconds=0.1,
+        )
+        player = HandBrainPlayer(config)
+        player._engine = MockEngine()
+        player._set_state(PlayerState.READY)
+        return player
+    
+    def test_normal_mode_hint_returns_stored_best_move(self):
+        """Test that get_hint in NORMAL mode returns the stored best move.
+        
+        In NORMAL mode, the engine computes the best move to derive the piece
+        type suggestion. The ? key should return this stored move.
+        
+        Expected: get_hint returns the same move that was computed for the suggestion.
+        """
+        player = self._create_normal_player()
+        player.set_piece_squares_led_callback(MagicMock())
+        player.set_move_callback(MagicMock())
+        player.set_brain_hint_callback(MagicMock())
+        player.set_status_callback(MagicMock())
+        
+        board = chess.Board()
+        # Configure engine to return e2e4
+        player._engine.play_results = [chess.Move.from_uci("e2e4")]
+        
+        # Start the turn (computes suggestion)
+        player._do_request_move(board)
+        
+        # Wait for computation to complete
+        import time
+        time.sleep(0.2)
+        
+        # Now get_hint should return the stored best move
+        hint = player.get_hint(board)
+        
+        assert hint is not None, \
+            "Expected hint to be available after suggestion computed"
+        assert hint.uci() == "e2e4", \
+            f"Expected hint to be e2e4, got {hint.uci()}"
+    
+    def test_reverse_mode_hint_computes_and_shows_piece_type(self):
+        """Test that get_hint in REVERSE mode computes best move and shows piece type.
+        
+        In REVERSE mode, the ? key should compute the engine's best move and
+        light up all squares with that piece type (like NORMAL mode does automatically).
+        
+        Expected: get_hint returns the computed move and triggers LED callback.
+        """
+        player = self._create_reverse_player()
+        
+        led_calls = []
+        def led_callback(squares):
+            led_calls.append(squares)
+        
+        player.set_piece_squares_led_callback(led_callback)
+        player.set_move_callback(MagicMock())
+        player.set_status_callback(MagicMock())
+        
+        board = chess.Board()
+        # Configure engine to return e2e4 (pawn move)
+        player._engine.play_results = [chess.Move.from_uci("e2e4")]
+        
+        # Get hint
+        hint = player.get_hint(board)
+        
+        assert hint is not None, \
+            "Expected hint to be available"
+        assert hint.uci() == "e2e4", \
+            f"Expected hint to be e2e4, got {hint.uci()}"
+        
+        # LED callback should have been called with pawn squares
+        assert len(led_calls) == 1, \
+            f"Expected LED callback to be called once, called {len(led_calls)} times"
+        
+        # All white pawns should be lit (a2-h2)
+        pawn_squares = [chess.A2, chess.B2, chess.C2, chess.D2, 
+                       chess.E2, chess.F2, chess.G2, chess.H2]
+        assert set(led_calls[0]) == set(pawn_squares), \
+            f"Expected pawn squares, got {[chess.square_name(s) for s in led_calls[0]]}"
+    
+    def test_normal_mode_hint_returns_none_before_suggestion(self):
+        """Test that get_hint returns None before suggestion is computed.
+        
+        Expected: get_hint returns None if called before the engine has finished.
+        """
+        player = self._create_normal_player()
+        
+        board = chess.Board()
+        
+        # Don't start the turn - no suggestion computed yet
+        hint = player.get_hint(board)
+        
+        assert hint is None, \
+            "Expected hint to be None before suggestion computed"
+
+
 if __name__ == '__main__':
     unittest.main()
 
