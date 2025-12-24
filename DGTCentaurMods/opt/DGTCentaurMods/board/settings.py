@@ -60,6 +60,10 @@ class Settings:
         Settings.ensure_key_exists(section, key, default)
         config = configparser.ConfigParser()
         config.read(Settings.configfile)
+        # If config directory is missing, ensure_key_exists() can't persist the section.
+        # Do not raise here; log and attempt a best-effort write.
+        if not config.has_section(section):
+            config.add_section(section)
         config.set(section, key, str(value))
         Settings.write_config(config)
 
@@ -68,6 +72,9 @@ class Settings:
         Settings.ensure_key_exists(section, key, '')
         config = configparser.ConfigParser()
         config.read(Settings.configfile)
+        if not config.has_section(section):
+            # Nothing persisted, so nothing to delete. Keep behavior non-fatal.
+            return
         config.remove_option(section, key)
         Settings.write_config(config)
 

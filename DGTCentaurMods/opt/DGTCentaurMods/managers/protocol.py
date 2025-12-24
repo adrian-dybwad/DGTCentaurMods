@@ -86,7 +86,7 @@ class ProtocolManager:
     
     def _setup_lichess_callbacks(self):
         """Set up callbacks for Lichess player."""
-        from DGTCentaurMods.players import LichessPlayer
+        from DGTCentaurMods.players.lichess import LichessPlayer
         
         for player in [self._player_manager.white_player, self._player_manager.black_player]:
             if isinstance(player, LichessPlayer):
@@ -119,7 +119,7 @@ class ProtocolManager:
         self.game_manager.set_player_manager(player_manager)
         
         # Check if this is a Lichess game and set up callbacks
-        from DGTCentaurMods.players import LichessPlayer
+        from DGTCentaurMods.players.lichess import LichessPlayer
         is_lichess = any(isinstance(p, LichessPlayer) 
                         for p in [player_manager.white_player, player_manager.black_player])
         if is_lichess:

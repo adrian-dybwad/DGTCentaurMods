@@ -67,7 +67,7 @@ class LocalController(GameController):
         self._game_manager.set_player_manager(player_manager)
         
         # Check for Lichess and set up callbacks
-        from DGTCentaurMods.players import LichessPlayer
+        from DGTCentaurMods.players.lichess import LichessPlayer
         for player in [player_manager.white_player, player_manager.black_player]:
             if isinstance(player, LichessPlayer):
                 player.set_clock_callback(self._on_lichess_clock_update)
@@ -156,7 +156,7 @@ class LocalController(GameController):
         """Whether this is a Lichess game."""
         if not self._player_manager:
             return False
-        from DGTCentaurMods.players import LichessPlayer
+        from DGTCentaurMods.players.lichess import LichessPlayer
         return any(isinstance(p, LichessPlayer) 
                    for p in [self._player_manager.white_player, 
                              self._player_manager.black_player])

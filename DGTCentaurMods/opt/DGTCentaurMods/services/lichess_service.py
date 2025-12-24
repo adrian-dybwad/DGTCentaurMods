@@ -311,7 +311,8 @@ def start_lichess_game_service(
     from DGTCentaurMods.display_manager import DisplayManager
     from DGTCentaurMods.epaper import SplashScreen, InfoOverlayWidget
     from DGTCentaurMods.protocol.protocol_manager import ProtocolManager
-    from DGTCentaurMods.players import HumanPlayer, LichessPlayer, LichessPlayerConfig, PlayerManager
+    from DGTCentaurMods.players import HumanPlayer, PlayerManager
+    from DGTCentaurMods.players.lichess import LichessPlayer, LichessPlayerConfig
     from DGTCentaurMods.managers.game import GameManager
     from DGTCentaurMods.managers.controller import ControllerManager
     from DGTCentaurMods.managers import EVENT_WHITE_TURN, EVENT_BLACK_TURN

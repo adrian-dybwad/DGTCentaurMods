@@ -195,6 +195,9 @@ class HandBrainPlayer(Player):
         self._init_thread: Optional[threading.Thread] = None
         self._think_thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
+        # Incremented each time a constrained-move computation is started.
+        # Used to ignore stale thread results after reverse-mode reselection.
+        self._compute_generation = 0
         
         # Turn phase state machine
         self._phase = HandBrainPhase.IDLE
@@ -211,6 +214,9 @@ class HandBrainPlayer(Player):
         self._selection_lifted_square: Optional[int] = None
         self._pending_move: Optional[chess.Move] = None
         self._piece_squares_led_callback: Optional[PieceSquaresLedCallback] = None
+        # Tracks whether the user has started executing the pending move (lifted the source square).
+        # Used to decide whether piece events in WAITING_EXECUTION are execution vs reselection bumps.
+        self._reverse_execution_started = False
         
         # UCI options loaded from config file
         self._uci_options: Dict[str, str] = {}
@@ -635,6 +641,9 @@ class HandBrainPlayer(Player):
         if self._current_board is None:
             log.error("[HandBrain] No current board for computation")
             return
+
+        self._compute_generation += 1
+        compute_generation = self._compute_generation
         
         self._phase = HandBrainPhase.COMPUTING_MOVE
         piece_name = chess.piece_name(piece_type).capitalize()
@@ -689,7 +698,8 @@ class HandBrainPlayer(Player):
                         # Engine respected root_moves - record success and use the move
                         _record_root_moves_result(engine_name, success=True)
                         log.info(f"[HandBrain] Best {piece_name} move (root_moves): {move.uci()}")
-                        self._set_pending_move(move)
+                        if compute_generation == self._compute_generation and self._selected_piece_type == piece_type:
+                            self._set_pending_move(move)
                         return
                     
                     # Engine did NOT respect root_moves - record failure
@@ -704,11 +714,13 @@ class HandBrainPlayer(Player):
                     best_move = self._evaluate_candidates(board_copy, legal_moves, piece_name)
                     
                     if best_move:
-                        self._set_pending_move(best_move)
+                        if compute_generation == self._compute_generation and self._selected_piece_type == piece_type:
+                            self._set_pending_move(best_move)
                     else:
                         # Last resort fallback
                         log.warning("[HandBrain] Per-move analysis failed, using first legal move")
-                        self._set_pending_move(legal_moves[0])
+                        if compute_generation == self._compute_generation and self._selected_piece_type == piece_type:
+                            self._set_pending_move(legal_moves[0])
                     
             except Exception as e:
                 log.error(f"[HandBrain] Error computing move: {e}")
@@ -854,6 +866,7 @@ class HandBrainPlayer(Player):
             move: The formed move from piece events.
         """
         log.debug(f"[HandBrain] REVERSE move formed: {move.uci()}")
+        self._reverse_execution_started = False
         
         if self._pending_move is None:
             log.warning("[HandBrain] Move formed but no pending move")
@@ -935,8 +948,33 @@ class HandBrainPlayer(Player):
             # REVERSE mode
             if self._phase == HandBrainPhase.WAITING_PIECE_SELECTION:
                 self._handle_reverse_piece_selection(event_type, square, board)
+            elif self._phase == HandBrainPhase.COMPUTING_MOVE:
+                # Allow reselection while engine is computing: user can bump a different piece
+                # to change the constrained piece type. Stale compute results are ignored via
+                # _compute_generation checks in _compute_constrained_move().
+                self._handle_reverse_piece_selection(event_type, square, board)
             elif self._phase == HandBrainPhase.WAITING_EXECUTION:
-                super().on_piece_event(event_type, square, board)
+                if event_type == "lift":
+                    if self._pending_move is not None and square == self._pending_move.from_square:
+                        # Normal execution path: user lifted the source piece.
+                        self._reverse_execution_started = True
+                        super().on_piece_event(event_type, square, board)
+                        return
+
+                    # Reselection path: user bumped a different square than the pending move source.
+                    piece = board.piece_at(square)
+                    if piece is not None and piece.color == board.turn:
+                        self._pending_move = None
+                        self._lifted_squares = []
+                        self._reverse_execution_started = False
+                    self._handle_reverse_piece_selection(event_type, square, board)
+                    return
+
+                # For place events: only forward to base if a source lift was forwarded.
+                if self._reverse_execution_started:
+                    super().on_piece_event(event_type, square, board)
+                else:
+                    self._handle_reverse_piece_selection(event_type, square, board)
             else:
                 # Unexpected phase - still call base class for error detection
                 # and correction mode triggering

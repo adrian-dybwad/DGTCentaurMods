@@ -108,7 +108,8 @@ manager.start()
 ### Lichess Online Game
 
 ```python
-from DGTCentaurMods.players import HumanPlayer, LichessPlayer, LichessPlayerConfig, LichessGameMode
+from DGTCentaurMods.players import HumanPlayer
+from DGTCentaurMods.players.lichess import LichessPlayer, LichessPlayerConfig, LichessGameMode
 
 # Create Lichess player for the remote opponent
 lichess_config = LichessPlayerConfig(
