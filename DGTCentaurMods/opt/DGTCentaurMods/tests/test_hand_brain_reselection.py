@@ -422,6 +422,87 @@ class TestReverseModeReselectionEdgeCases(unittest.TestCase):
         assert errors_received[0] == "move_mismatch", \
             f"Expected 'move_mismatch' error, got '{errors_received[0]}'"
 
+    def test_correction_mode_exit_restores_waiting_piece_selection_status(self):
+        """Test that on_correction_mode_exit restores status in WAITING_PIECE_SELECTION.
+        
+        When correction mode exits while the player is waiting for piece selection,
+        the status message should be restored to guide the user.
+        
+        Expected: Status message "Lift piece to select type" is shown.
+        Failure: No status message or wrong message shown.
+        """
+        player = self._create_player()
+        player.set_piece_squares_led_callback(MagicMock())
+        player.set_move_callback(MagicMock())
+        player.set_pending_move_callback(MagicMock())
+        
+        status_messages = []
+        def status_callback(msg):
+            status_messages.append(msg)
+        player.set_status_callback(status_callback)
+        
+        board = chess.Board()
+        board.set_piece_at(chess.E4, chess.Piece(chess.KNIGHT, chess.WHITE))
+        
+        player._do_request_move(board)
+        
+        # Player should be in WAITING_PIECE_SELECTION
+        assert player._phase == HandBrainPhase.WAITING_PIECE_SELECTION
+        
+        # Clear status messages
+        status_messages.clear()
+        
+        # Simulate correction mode exit
+        player.on_correction_mode_exit()
+        
+        # Status should be restored
+        assert len(status_messages) == 1, \
+            f"Expected 1 status message, got {len(status_messages)}"
+        assert status_messages[0] == "Lift piece to select type", \
+            f"Expected 'Lift piece to select type', got '{status_messages[0]}'"
+
+    def test_correction_mode_exit_restores_waiting_execution_leds(self):
+        """Test that on_correction_mode_exit re-triggers pending move callback.
+        
+        When correction mode exits while the player is in WAITING_EXECUTION
+        with a computed move, the pending move callback should be re-triggered
+        to restore LEDs.
+        
+        Expected: pending_move_callback called with the pending move.
+        Failure: Callback not called or called with wrong move.
+        """
+        player = self._create_player()
+        player.set_piece_squares_led_callback(MagicMock())
+        player.set_move_callback(MagicMock())
+        player.set_status_callback(MagicMock())
+        
+        pending_moves = []
+        def pending_move_callback(move):
+            pending_moves.append(move)
+        player.set_pending_move_callback(pending_move_callback)
+        
+        board = chess.Board()
+        board.set_piece_at(chess.E4, chess.Piece(chess.KNIGHT, chess.WHITE))
+        
+        player._do_request_move(board)
+        
+        # Simulate computed move and set phase
+        player._phase = HandBrainPhase.WAITING_EXECUTION
+        player._selected_piece_type = chess.KNIGHT
+        player._pending_move = chess.Move(chess.E4, chess.F6)
+        
+        # Clear pending moves list
+        pending_moves.clear()
+        
+        # Simulate correction mode exit
+        player.on_correction_mode_exit()
+        
+        # Pending move callback should be called
+        assert len(pending_moves) == 1, \
+            f"Expected 1 pending move callback, got {len(pending_moves)}"
+        assert pending_moves[0] == chess.Move(chess.E4, chess.F6), \
+            f"Expected e4f6, got {pending_moves[0].uci()}"
+
 
 if __name__ == '__main__':
     unittest.main()

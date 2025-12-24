@@ -548,6 +548,19 @@ class Player(ABC):
         """
         pass
     
+    def on_correction_mode_exit(self) -> None:
+        """Notification that correction mode has exited.
+        
+        Called when the physical board has been corrected to match the
+        logical board state. Players can use this to restore UI state
+        (status messages, LED hints, etc.) that was interrupted by
+        correction mode.
+        
+        Default implementation does nothing. Override in subclasses
+        that need to restore state after correction.
+        """
+        pass
+    
     def supports_takeback(self) -> bool:
         """Whether this player supports takeback.
         

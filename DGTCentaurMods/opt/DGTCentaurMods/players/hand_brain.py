@@ -1098,6 +1098,37 @@ class HandBrainPlayer(Player):
             else:
                 log.debug(f"[HandBrain] Skipping stale queued event: {event_type} on {chess.square_name(square)}")
     
+    def on_correction_mode_exit(self) -> None:
+        """Restore UI state after correction mode exits.
+        
+        Re-shows status messages and re-triggers LED callbacks based on
+        the current phase, since correction mode may have overwritten them.
+        """
+        if self._hb_config.mode == HandBrainMode.NORMAL:
+            if self._phase == HandBrainPhase.COMPUTING_SUGGESTION:
+                self._report_status("Analyzing...")
+            elif self._phase == HandBrainPhase.WAITING_HUMAN_MOVE:
+                if self._suggested_piece_type:
+                    piece_name = chess.piece_name(self._suggested_piece_type).capitalize()
+                    self._report_status(f"Move {piece_name}")
+        else:
+            # REVERSE mode
+            if self._phase == HandBrainPhase.WAITING_PIECE_SELECTION:
+                self._report_status("Lift piece to select type")
+            elif self._phase == HandBrainPhase.COMPUTING_MOVE:
+                if self._selected_piece_type:
+                    piece_name = chess.piece_name(self._selected_piece_type).capitalize()
+                    self._report_status(f"Computing {piece_name} move...")
+                else:
+                    self._report_status("Computing...")
+            elif self._phase == HandBrainPhase.WAITING_EXECUTION:
+                # Re-trigger pending move callback to restore LEDs
+                if self._pending_move and self._pending_move_callback:
+                    self._pending_move_callback(self._pending_move)
+                if self._selected_piece_type and self._pending_move:
+                    piece_name = chess.piece_name(self._selected_piece_type).capitalize()
+                    self._report_status(f"Move {piece_name}: {self._pending_move.uci()}")
+    
     def on_takeback(self, board: chess.Board) -> None:
         """Notification that a takeback occurred."""
         log.debug("[HandBrain] Takeback - resetting phase")

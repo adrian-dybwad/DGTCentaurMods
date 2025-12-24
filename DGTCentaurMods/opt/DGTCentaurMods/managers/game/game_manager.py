@@ -535,6 +535,13 @@ class GameManager:
             # needs to make a move after the board is corrected.
             self._switch_turn_with_event()
         
+        # Notify current player that correction mode exited so they can restore
+        # their UI state (status messages, LED hints for piece selection, etc.)
+        if self._player_manager:
+            current_player = self._player_manager.get_current_player(self.chess_board)
+            if current_player:
+                current_player.on_correction_mode_exit()
+        
         # Check/threat indicators are now handled automatically by ChessGameState
         # observers when push_move is called, so no explicit call needed here
     
