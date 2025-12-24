@@ -642,6 +642,40 @@ class TestReverseModeReselectionEdgeCases(unittest.TestCase):
         assert player._phase == HandBrainPhase.WAITING_PIECE_SELECTION, \
             f"Expected WAITING_PIECE_SELECTION, got {player._phase.name}"
 
+    def test_on_new_game_resets_state_to_ready(self):
+        """Test that on_new_game resets state from THINKING to READY.
+        
+        When a new game starts (starting position detected), the player must
+        be in READY state so that request_move() can be called to start
+        piece selection in REVERSE mode.
+        
+        Expected: State changes from THINKING to READY after on_new_game.
+        Failure: State remains THINKING, blocking request_move calls.
+        """
+        player = self._create_player()
+        player.set_piece_squares_led_callback(MagicMock())
+        player.set_move_callback(MagicMock())
+        player.set_pending_move_callback(MagicMock())
+        
+        board = chess.Board()
+        board.set_piece_at(chess.E4, chess.Piece(chess.KNIGHT, chess.WHITE))
+        
+        # Start a turn to put player in THINKING state
+        player._do_request_move(board)
+        assert player._state == PlayerState.THINKING, \
+            f"Expected THINKING state after request_move, got {player._state.name}"
+        
+        # Simulate new game (starting position detected)
+        player.on_new_game()
+        
+        # State should now be READY
+        assert player._state == PlayerState.READY, \
+            f"Expected READY state after on_new_game, got {player._state.name}"
+        
+        # Phase should be IDLE
+        assert player._phase == HandBrainPhase.IDLE, \
+            f"Expected IDLE phase after on_new_game, got {player._phase.name}"
+
 
 if __name__ == '__main__':
     unittest.main()

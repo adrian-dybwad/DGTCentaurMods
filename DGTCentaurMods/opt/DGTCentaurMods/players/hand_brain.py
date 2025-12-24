@@ -446,10 +446,13 @@ class HandBrainPlayer(Player):
                         
                         log.info(f"[HandBrain] Suggestion: {piece_name} ({piece_symbol}) from best move {best_move.uci()}")
                         
-                        # Display the hint
+                        # Display the hint on screen
                         if self._brain_hint_callback:
                             color_str = 'white' if board_copy.turn == chess.WHITE else 'black'
                             self._brain_hint_callback(color_str, piece_symbol)
+                        
+                        # Light up all squares with this piece type
+                        self._show_piece_type_leds(board_copy, piece.piece_type)
                         
                         self._phase = HandBrainPhase.WAITING_HUMAN_MOVE
                         self._report_status(f"Move your {piece_name}")
@@ -1118,6 +1121,9 @@ class HandBrainPlayer(Player):
         self._current_board = None
         self._lifted_squares = []
         self._pending_piece_events = []
+        # Reset state to READY so player can receive request_move() for the new game
+        if self._state == PlayerState.THINKING:
+            self._set_state(PlayerState.READY)
     
     def _process_pending_piece_events(self) -> None:
         """Process any piece events that were queued during initialization.
@@ -1163,6 +1169,9 @@ class HandBrainPlayer(Player):
                 if self._suggested_piece_type:
                     piece_name = chess.piece_name(self._suggested_piece_type).capitalize()
                     self._report_status(f"Move {piece_name}")
+                    # Re-light the piece type squares
+                    if self._current_board:
+                        self._show_piece_type_leds(self._current_board, self._suggested_piece_type)
         else:
             # REVERSE mode
             if self._phase == HandBrainPhase.WAITING_PIECE_SELECTION:
