@@ -33,6 +33,17 @@ from .update_menu import (
     check_and_download_update,
     install_deb_update,
 )
+from DGTCentaurMods.services.lichess_service import (
+    get_lichess_client,
+    build_lichess_menu_entries,
+    show_lichess_error,
+    show_lichess_mode_menu,
+    build_new_game_entries,
+    show_time_control_menu,
+    ensure_token,
+    start_lichess_game_service,
+    LichessStartResult,
+)
 
 __all__ = [
     "create_main_menu_entries",
@@ -52,6 +63,15 @@ __all__ = [
     "handle_local_deb_install",
     "check_and_download_update",
     "install_deb_update",
+    "get_lichess_client",
+    "build_lichess_menu_entries",
+    "show_lichess_error",
+    "show_lichess_mode_menu",
+    "build_new_game_entries",
+    "show_time_control_menu",
+    "ensure_token",
+    "start_lichess_game_service",
+    "LichessStartResult",
     "_get_player_type_label",
     "build_player1_menu_entries",
     "build_player2_menu_entries",

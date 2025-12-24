@@ -70,6 +70,14 @@ from DGTCentaurMods.menus import (
     handle_local_deb_install,
     check_and_download_update,
     install_deb_update,
+    get_lichess_client,
+    ensure_token,
+    start_lichess_game_service,
+)
+from DGTCentaurMods.utils.wifi import (
+    scan_wifi_networks,
+    connect_to_wifi,
+    get_wifi_password_from_board,
 )
 
 # Flag set if previous shutdown was incomplete (filesystem errors detected)
@@ -430,6 +438,12 @@ ble_manager = None  # BleManager for BLE GATT services
 relay_manager = None  # RelayManager for shadow target connections
 _connection_manager: Optional[ConnectionManager] = None  # Initialized in main()
 
+
+def _set_app_state(state: AppState) -> None:
+    """Update global app state."""
+    global app_state
+    app_state = state
+
 # Menu state - managed by MenuManager singleton
 _menu_manager: Optional[MenuManager] = None  # Initialized in main()
 _return_to_positions_menu = False  # Flag to signal return to positions menu from game
@@ -443,6 +457,18 @@ _last_position_category = None  # Remember last selected category name for direc
 
 # Keyboard state (for WiFi password entry etc.)
 _active_keyboard_widget = None
+
+
+def _set_active_keyboard_widget(widget) -> None:
+    """Track the currently active keyboard widget."""
+    global _active_keyboard_widget
+    _active_keyboard_widget = widget
+
+
+def _clear_active_keyboard_widget() -> None:
+    """Clear the active keyboard widget reference."""
+    global _active_keyboard_widget
+    _active_keyboard_widget = None
 
 # About widget state (for support QR screen)
 _active_about_widget = None
@@ -2982,237 +3008,28 @@ def _get_current_wifi_status() -> tuple:
     return ssid, ip_address
 
 
-def _scan_wifi_networks() -> List[dict]:
-    """Scan for available WiFi networks.
-    
-    Returns:
-        List of dicts with 'ssid' and 'signal' keys, sorted by signal strength
-    """
-    import subprocess
-    import re
-    
-    networks = []
-    
-    try:
-        # Show scanning message (full screen, no status bar)
-        board.display_manager.clear_widgets(addStatusBar=False)
-        promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="Scanning...", leave_room_for_status_bar=False))
-        if promise:
-            try:
-                promise.result(timeout=5.0)
-            except Exception:
-                pass
-        
-        # Use iwlist for scanning - more reliable than nmcli
-        result = subprocess.run(
-            ['sudo', 'iwlist', 'wlan0', 'scan'],
-            capture_output=True, text=True, timeout=30
-        )
-        
-        log.debug(f"[WiFi] iwlist return code: {result.returncode}")
-        if result.stderr:
-            log.debug(f"[WiFi] iwlist stderr: {result.stderr}")
-        
-        if result.returncode == 0:
-            seen_ssids = set()
-            current_ssid = None
-            current_signal = 0
-            current_security = ""
-            
-            for line in result.stdout.split('\n'):
-                line = line.strip()
-                
-                # New cell - save previous if exists
-                if line.startswith('Cell '):
-                    if current_ssid and current_ssid not in seen_ssids:
-                        seen_ssids.add(current_ssid)
-                        networks.append({
-                            'ssid': current_ssid,
-                            'signal': current_signal,
-                            'security': current_security
-                        })
-                    current_ssid = None
-                    current_signal = 0
-                    current_security = ""
-                
-                # Extract SSID
-                if 'ESSID:' in line:
-                    match = re.search(r'ESSID:"([^"]*)"', line)
-                    if match:
-                        current_ssid = match.group(1)
-                
-                # Extract signal quality
-                if 'Quality=' in line:
-                    match = re.search(r'Quality=(\d+)/(\d+)', line)
-                    if match:
-                        quality = int(match.group(1))
-                        max_quality = int(match.group(2))
-                        current_signal = int((quality / max_quality) * 100)
-                
-                # Extract encryption
-                if 'Encryption key:on' in line:
-                    current_security = "WPA"
-            
-            # Don't forget the last network
-            if current_ssid and current_ssid not in seen_ssids:
-                seen_ssids.add(current_ssid)
-                networks.append({
-                    'ssid': current_ssid,
-                    'signal': current_signal,
-                    'security': current_security
-                })
-            
-            # Sort by signal strength (strongest first)
-            networks.sort(key=lambda x: x['signal'], reverse=True)
-            log.info(f"[WiFi] Found {len(networks)} networks")
-        else:
-            log.error(f"[WiFi] iwlist failed: {result.stderr}")
-            
-    except subprocess.TimeoutExpired:
-        log.error("[WiFi] Network scan timed out")
-    except Exception as e:
-        log.error(f"[WiFi] Error scanning networks: {e}")
-        import traceback
-        log.error(traceback.format_exc())
-
-    return networks
-
-
-def _connect_to_wifi(ssid: str, password: str = None) -> bool:
-    """Connect to a WiFi network.
-    
-    Args:
-        ssid: Network SSID to connect to
-        password: Network password (None for open networks)
-    
-    Returns:
-        True if connection successful, False otherwise
-    """
-    import subprocess
-    
-    try:
-        # Show connecting message (full screen, no status bar)
-        board.display_manager.clear_widgets(addStatusBar=False)
-        promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="Connecting...", leave_room_for_status_bar=False))
-        if promise:
-            try:
-                promise.result(timeout=5.0)
-            except Exception:
-                pass
-        
-        if password:
-            result = subprocess.run(
-                ['sudo', 'nmcli', 'device', 'wifi', 'connect', ssid, 'password', password],
-                capture_output=True, text=True, timeout=30
-            )
-        else:
-            result = subprocess.run(
-                ['sudo', 'nmcli', 'device', 'wifi', 'connect', ssid],
-                capture_output=True, text=True, timeout=30
-            )
-        
-        if result.returncode == 0:
-            log.info(f"[WiFi] Connected to {ssid}")
-            board.beep(board.SOUND_GENERAL, event_type='key_press')
-            return True
-        else:
-            log.error(f"[WiFi] Failed to connect: {result.stderr}")
-            board.beep(board.SOUND_WRONG, event_type='error')
-            return False
-            
-    except subprocess.TimeoutExpired:
-        log.error("[WiFi] Connection timed out")
-        board.beep(board.SOUND_WRONG, event_type='error')
-        return False
-    except Exception as e:
-        log.error(f"[WiFi] Error connecting: {e}")
-        board.beep(board.SOUND_WRONG, event_type='error')
-        return False
-
-
 def _get_wifi_password_from_board(ssid: str) -> Optional[str]:
-    """Get WiFi password using board piece input.
-
-    Displays a keyboard widget on the e-paper where each board square
-    corresponds to a character. Lifting and placing a piece on a square
-    types that character.
-
-    Args:
-        ssid: SSID to display in the title
-
-    Returns:
-        Password string or None if cancelled
-    """
-    global _active_keyboard_widget
-    
-    log.info(f"[WiFi] Opening keyboard for password entry: {ssid}")
-    
-    # Clear display and show keyboard widget
-    board.display_manager.clear_widgets(addStatusBar=False)
-    
-    # Create keyboard widget
-    keyboard = KeyboardWidget(board.display_manager.update, title=f"Password: {ssid[:10]}", max_length=64)
-    _active_keyboard_widget = keyboard
-    
-    # Add widget to display
-    promise = board.display_manager.add_widget(keyboard)
-    if promise:
-        try:
-            promise.result(timeout=2.0)
-        except Exception:
-            pass
-    
-    # Wait for user input (blocking)
-    try:
-        result = keyboard.wait_for_input(timeout=300.0)
-        log.info(f"[WiFi] Keyboard input complete, got {'password' if result else 'cancelled'}")
-        return result
-    finally:
-        # Clear keyboard widget reference
-        _active_keyboard_widget = None
-
-
-def _handle_wifi_settings():
-    """Legacy stub kept for compatibility; handled via menus.wifi_menu."""
-    return handle_wifi_settings_menu(
-        menu_manager=_menu_manager,
-        wifi_info_module=__import__("DGTCentaurMods.epaper.wifi_info", fromlist=["wifi_info"]).wifi_info,
-        show_menu=_show_menu,
-        find_entry_index=find_entry_index,
-        on_scan=_handle_wifi_scan,
-        on_toggle_enable=lambda is_enabled: (
-            __import__("DGTCentaurMods.epaper.wifi_info", fromlist=["wifi_info"]).wifi_info.disable_wifi()
-            if is_enabled
-            else __import__("DGTCentaurMods.epaper.wifi_info", fromlist=["wifi_info"]).wifi_info.enable_wifi()
-        ),
+    """Get WiFi password using keyboard widget (delegated to wifi_service)."""
+    def _factory(update_fn, title, max_len):
+        return KeyboardWidget(update_fn, title=title, max_length=max_len)
+    return get_wifi_password_from_board(
         board=board,
         log=log,
+        ssid=ssid,
+        keyboard_factory=_factory,
+        set_active_keyboard=lambda w: _set_active_keyboard_widget(w),
+        clear_active_keyboard=_clear_active_keyboard_widget,
     )
 
 
 def _handle_wifi_scan():
     """Handle WiFi network scanning and selection."""
     return handle_wifi_scan_menu(
-        scan_networks=_scan_wifi_networks,
+        scan_networks=lambda: scan_wifi_networks(board, log),
         show_menu=_show_menu,
         is_break_result_fn=is_break_result,
         get_password=_get_wifi_password_from_board,
-        connect_fn=_connect_to_wifi,
-        board=board,
-        log=log,
-    )
-
-
-def _handle_bluetooth_settings():
-    """Legacy shim; handled via menus.bluetooth_menu."""
-    return handle_bluetooth_menu(
-        menu_manager=_menu_manager,
-        bluetooth_status_module=__import__("DGTCentaurMods.epaper.bluetooth_status", fromlist=["bluetooth_status"]).bluetooth_status,
-        show_menu=_show_menu,
-        find_entry_index=find_entry_index,
-        args_device_name=_args.device_name if _args else "DGT PEGASUS",
-        ble_manager=ble_manager,
-        client_connected=client_connected,
+        connect_fn=lambda ssid, password=None: connect_to_wifi(board, log, ssid, password),
         board=board,
         log=log,
     )
@@ -3887,18 +3704,6 @@ def _show_support_qr():
         _active_about_widget = None
 
 
-def _handle_update_menu(update_system):
-    """Legacy stub; handled via menus.update_menu."""
-    return handle_update_menu(
-        update_system=update_system,
-        show_menu=_show_menu,
-        find_entry_index=find_entry_index,
-        board=board,
-        log=log,
-        initial_index=0,
-    )
-
-
 def _check_and_download_update(update_system):
     """Check for updates from GitHub and download if available.
     
@@ -3914,17 +3719,6 @@ def _check_and_download_update(update_system):
         read_update_source=lambda: __import__("DGTCentaurMods.board.settings", fromlist=["Settings"]).Settings.read(
             "update", "source", "EdNekebno/DGTCentaurMods"
         ),
-    )
-
-
-def _install_deb_update(deb_file: str, update_system):
-    """Legacy stub; handled via menus.update_menu."""
-    return install_deb_update(
-        deb_file=deb_file,
-        update_system=update_system,
-        board=board,
-        log=log,
-        menu_manager=_menu_manager,
     )
 
 
@@ -3992,45 +3786,9 @@ def _handle_system_menu():
 # =============================================================================
 
 def _get_lichess_client():
-    """Get a berserk Lichess API client.
-    
-    Returns:
-        Tuple (client, username, error) where:
-        - client: berserk Client if successful, None otherwise
-        - username: Lichess username if successful, None otherwise
-        - error: Error type string if failed, None if successful
-            - "no_token": No token configured
-            - "invalid_token": Token is invalid or expired
-            - "no_berserk": berserk library not installed
-            - "network": Network or other connection error
-    """
+    """Get a Lichess client using service helper."""
     from DGTCentaurMods.board import centaur
-    
-    token = centaur.get_lichess_api()
-    if not token or token == "tokenhere":
-        log.warning("[Lichess] No valid API token configured")
-        return None, None, "no_token"
-    
-    try:
-        import berserk
-        session = berserk.TokenSession(token)
-        client = berserk.Client(session=session)
-        # Verify token by getting user info
-        user_info = client.account.get()
-        username = user_info.get('username', '')
-        log.info(f"[Lichess] Authenticated as: {username}")
-        return client, username, None
-    except ImportError:
-        log.error("[Lichess] berserk library not installed")
-        return None, None, "no_berserk"
-    except Exception as e:
-        error_str = str(e).lower()
-        if "401" in error_str or "unauthorized" in error_str or "no such token" in error_str:
-            log.error(f"[Lichess] Invalid or expired token: {e}")
-            return None, None, "invalid_token"
-        else:
-            log.error(f"[Lichess] API authentication failed: {e}")
-            return None, None, "network"
+    return get_lichess_client(centaur, log)
 
 
 def _handle_lichess_menu():
@@ -4041,205 +3799,83 @@ def _handle_lichess_menu():
         None/False otherwise.
     """
     from DGTCentaurMods.players.lichess import LichessPlayerConfig as LichessConfig, LichessGameMode
+    from DGTCentaurMods.services.lichess_service import show_lichess_error, build_lichess_menu_entries
     
-    # First verify we have a valid token
+    from DGTCentaurMods.board import centaur
     client, username, error = _get_lichess_client()
     if client is None:
-        # Show appropriate error message based on error type
-        # Token-related errors show the "Go to Accounts" button
         if error == "no_token":
-            result = _show_lichess_error(
-                "No API Token",
-                "Configure in\nSystem > Accounts",
-                show_accounts_button=True
-            )
+            result = show_lichess_error(_menu_manager, "No API Token", "Configure in\nSystem > Accounts", True)
         elif error == "invalid_token":
-            result = _show_lichess_error(
-                "Invalid Token",
-                "Token expired or\nrevoked",
-                show_accounts_button=True
-            )
+            result = show_lichess_error(_menu_manager, "Invalid Token", "Token expired or\nrevoked", True)
         elif error == "no_berserk":
-            _show_lichess_error("Missing Library", "berserk package\nnot installed")
+            show_lichess_error(_menu_manager, "Missing Library", "berserk package\nnot installed")
             result = None
         else:
-            _show_lichess_error("Connection Error", "Could not reach\nLichess server")
+            show_lichess_error(_menu_manager, "Connection Error", "Could not reach\nLichess server")
             result = None
-        
-        # If user chose to go to Accounts, open that menu
         if result == "accounts":
             _handle_accounts_menu()
-        
         return None
     
-    def build_entries():
-        """Build Lichess menu entries."""
-        return [
-            IconMenuEntry(
-                key="NewGame",
-                label="New Game",
-                icon_name="lichess",
-                enabled=True,
-                font_size=14
-            ),
-            IconMenuEntry(
-                key="Ongoing",
-                label="Ongoing",
-                icon_name="positions",
-                enabled=True,
-                font_size=14
-            ),
-            IconMenuEntry(
-                key="Challenges",
-                label="Challenges",
-                icon_name="random",
-                enabled=True,
-                font_size=14
-            ),
-        ]
+    entries = build_lichess_menu_entries(username, ongoing_games=True, has_challenges=True)
     
     # Track if game was started successfully
     game_started = False
     
     def handle_selection(result: MenuSelection):
-        """Handle Lichess menu selection."""
         nonlocal game_started
-        
         if result.key == "NewGame":
-            # Use current game settings for color and time
-            # For Lichess, the local player's color is determined by player1_color
-            color = _player1_settings['color']
-            
-            time_minutes = _game_settings['time_control']
-            if time_minutes == 0:
-                time_minutes = 10  # Default to 10 min if clock disabled
-            
+            color = _player1_settings["color"]
+            time_minutes = _game_settings["time_control"] or 10
             config = LichessConfig(
                 mode=LichessGameMode.NEW,
                 time_minutes=time_minutes,
                 increment_seconds=0,
                 rated=False,
-                color_preference=color
+                color_preference=color,
             )
-            
             if _start_lichess_game(config):
                 game_started = True
-                return result  # Exit menu loop
+                return result
             return None
-        
         elif result.key == "Ongoing":
             game_id = _show_lichess_ongoing_games(client)
             if game_id:
-                config = LichessConfig(
-                    mode=LichessGameMode.ONGOING,
-                    game_id=game_id
-                )
+                config = LichessConfig(mode=LichessGameMode.ONGOING, game_id=game_id)
                 if _start_lichess_game(config):
                     game_started = True
-                    return result  # Exit menu loop
+                    return result
             return None
-        
         elif result.key == "Challenges":
             challenge = _show_lichess_challenges(client)
             if challenge:
                 config = LichessConfig(
                     mode=LichessGameMode.CHALLENGE,
-                    challenge_id=challenge['id'],
-                    challenge_direction=challenge['direction']
+                    challenge_id=challenge["id"],
+                    challenge_direction=challenge["direction"],
                 )
                 if _start_lichess_game(config):
                     game_started = True
-                    return result  # Exit menu loop
+                    return result
             return None
-        
+        elif result.key == "Token":
+            ensure_token(
+                menu_manager=_menu_manager,
+                keyboard_factory=lambda update_fn, title, max_len: KeyboardWidget(update_fn, title=title, max_length=max_len),
+                get_token=centaur.get_lichess_api,
+                set_token=centaur.set_lichess_api,
+                log=log,
+                board=board,
+            )
         return None
-    
-    result = _menu_manager.run_menu_loop(build_entries, handle_selection)
+
+    result = _menu_manager.run_menu_loop(lambda: entries, handle_selection)
     
     if is_break_result(result):
         return result
     
     return game_started
-
-
-def _show_lichess_error(title: str, message: str, show_accounts_button: bool = False):
-    """Show a Lichess error message on the display.
-    
-    Uses an info box pattern with OK and optional Accounts buttons.
-    Similar to the WiFi and Bluetooth info displays.
-    
-    Args:
-        title: Error title
-        message: Error message (can be multi-line)
-        show_accounts_button: If True, show a button to navigate to Accounts menu
-        
-    Returns:
-        "accounts" if user pressed Accounts button, None otherwise
-    """
-    log.info(f"[Lichess] Showing error: {title} - {message}")
-    
-    go_to_accounts = False
-    
-    def build_entries():
-        """Build error display entries."""
-        entries = [
-            # Info box showing error message
-            IconMenuEntry(
-                key="Info",
-                label=f"{title}\n{message}",
-                icon_name="lichess",
-                enabled=True,
-                selectable=False,
-                height_ratio=1.5,
-                icon_size=36,
-                layout="vertical",
-                font_size=11,
-                border_width=1
-            ),
-        ]
-        
-        if show_accounts_button:
-            entries.append(IconMenuEntry(
-                key="Accounts",
-                label="Go to Accounts",
-                icon_name="settings",
-                enabled=True,
-                selectable=True,
-                height_ratio=0.8,
-                layout="horizontal",
-                font_size=14
-            ))
-        
-        # OK button to dismiss
-        entries.append(IconMenuEntry(
-            key="OK",
-            label="OK",
-            icon_name="checkbox_checked",
-            enabled=True,
-            selectable=True,
-            height_ratio=0.8,
-            layout="horizontal",
-            font_size=14
-        ))
-        
-        return entries
-    
-    def handle_selection(result: MenuSelection):
-        """Handle button press."""
-        nonlocal go_to_accounts
-        if result.key == "Accounts":
-            go_to_accounts = True
-            return result  # Exit menu
-        if result.key == "OK":
-            return result  # Exit menu
-        return None  # Continue loop
-    
-    # Show menu with info box and buttons
-    # Select Accounts button if shown, otherwise OK
-    initial = 1 if show_accounts_button else 1
-    _menu_manager.run_menu_loop(build_entries, handle_selection, initial_index=initial)
-    
-    return "accounts" if go_to_accounts else None
 
 
 def _show_lichess_ongoing_games(client) -> str:
@@ -4251,11 +3887,13 @@ def _show_lichess_ongoing_games(client) -> str:
     Returns:
         Game ID if selected, None if cancelled
     """
+    from DGTCentaurMods.services.lichess_service import show_lichess_error
+    
     try:
         ongoing = client.games.get_ongoing(count=10)
         
         if not ongoing:
-            _show_lichess_error("No Games", "No ongoing\ngames found")
+            show_lichess_error(_menu_manager, "No Games", "No ongoing\ngames found")
             return None
         
         # Build menu entries for each game
@@ -4285,7 +3923,8 @@ def _show_lichess_ongoing_games(client) -> str:
         
     except AttributeError as e:
         log.error(f"[Lichess] berserk API method not found: {e}")
-        _show_lichess_error(
+        show_lichess_error(
+            _menu_manager,
             "API Not Supported",
             "Ongoing games API\nnot available.\nUpdate berserk:\npip install -U berserk"
         )
@@ -4293,15 +3932,13 @@ def _show_lichess_ongoing_games(client) -> str:
     except Exception as e:
         error_msg = str(e)
         log.error(f"[Lichess] Error fetching ongoing games: {e}")
-        # Show a more descriptive error
         if "401" in error_msg or "unauthorized" in error_msg.lower():
-            _show_lichess_error("Auth Error", "Token does not have\nboard:play permission")
+            show_lichess_error(_menu_manager, "Auth Error", "Token does not have\nboard:play permission")
         elif "network" in error_msg.lower() or "connection" in error_msg.lower():
-            _show_lichess_error("Network Error", "Could not connect\nto Lichess")
+            show_lichess_error(_menu_manager, "Network Error", "Could not connect\nto Lichess")
         else:
-            # Show truncated error message
             short_error = error_msg[:40] + "..." if len(error_msg) > 40 else error_msg
-            _show_lichess_error("Error", f"Games failed:\n{short_error}")
+            show_lichess_error(_menu_manager, "Error", f"Games failed:\n{short_error}")
         return None
 
 
@@ -4314,6 +3951,8 @@ def _show_lichess_challenges(client) -> dict:
     Returns:
         Dict with 'id' and 'direction' if selected, None if cancelled
     """
+    from DGTCentaurMods.services.lichess_service import show_lichess_error
+    
     try:
         # Get incoming and outgoing challenges
         # Try different berserk API versions
@@ -4330,7 +3969,8 @@ def _show_lichess_challenges(client) -> dict:
         
         if challenges_data is None:
             log.error("[Lichess] berserk library does not support challenges API")
-            _show_lichess_error(
+            show_lichess_error(
+                _menu_manager,
                 "API Not Supported",
                 "Challenges require\nberserk >= 0.13\nUpdate with:\npip install -U berserk"
             )
@@ -4340,7 +3980,7 @@ def _show_lichess_challenges(client) -> dict:
         outgoing = list(challenges_data.get('out', []))
         
         if not incoming and not outgoing:
-            _show_lichess_error("No Challenges", "No pending\nchallenges")
+            show_lichess_error(_menu_manager, "No Challenges", "No pending\nchallenges")
             return None
         
         # Build menu entries
@@ -4387,7 +4027,8 @@ def _show_lichess_challenges(client) -> dict:
         
     except AttributeError as e:
         log.error(f"[Lichess] berserk API method not found: {e}")
-        _show_lichess_error(
+        show_lichess_error(
+            _menu_manager,
             "API Not Supported",
             "Challenges require\nberserk >= 0.13\nUpdate with:\npip install -U berserk"
         )
@@ -4395,24 +4036,20 @@ def _show_lichess_challenges(client) -> dict:
     except Exception as e:
         error_msg = str(e)
         log.error(f"[Lichess] Error fetching challenges: {e}")
-        # Show a more descriptive error
         if "401" in error_msg or "unauthorized" in error_msg.lower():
-            _show_lichess_error("Auth Error", "Token does not have\nchallenge permissions")
+            show_lichess_error(_menu_manager, "Auth Error", "Token does not have\nchallenge permissions")
         elif "network" in error_msg.lower() or "connection" in error_msg.lower():
-            _show_lichess_error("Network Error", "Could not connect\nto Lichess")
+            show_lichess_error(_menu_manager, "Network Error", "Could not connect\nto Lichess")
         else:
-            # Show truncated error message
             short_error = error_msg[:40] + "..." if len(error_msg) > 40 else error_msg
-            _show_lichess_error("Error", f"Challenges failed:\n{short_error}")
+            show_lichess_error(_menu_manager, "Error", f"Challenges failed:\n{short_error}")
         return None
 
 
 def _start_lichess_game(lichess_config) -> bool:
     """Start a Lichess game with the given configuration.
     
-    Similar to _start_game_mode() but for Lichess online play.
-    Shows a waiting screen while seeking, then transitions to game board.
-    BACK button during waiting cancels and returns to Lichess menu.
+    Delegates to lichess_service.start_lichess_game_service and updates global managers.
     
     Args:
         lichess_config: LichessConfig with game parameters
@@ -4421,284 +4058,34 @@ def _start_lichess_game(lichess_config) -> bool:
         True if game started successfully, False otherwise
     """
     global app_state, protocol_manager, display_manager, controller_manager
-    from DGTCentaurMods.players.lichess import LichessGameMode
-    
-    log.info(f"[App] Starting Lichess game (mode={lichess_config.mode})")
-    app_state = AppState.GAME
-    
-    # Get analysis engine path (only if analysis mode is enabled)
+    from DGTCentaurMods.services.lichess_service import start_lichess_game_service
     from DGTCentaurMods.paths import get_engine_path
-    analysis_mode = _game_settings['analysis_mode']
-    analysis_engine_path = get_engine_path(_game_settings['analysis_engine']) if analysis_mode else None
     
-    # Create DisplayManager first (this initializes game widgets)
-    display_manager = DisplayManager(
-        flip_board=False,  # Will be updated based on player color
-        show_analysis=_game_settings['show_analysis'],
-        analysis_engine_path=analysis_engine_path,
-        on_exit=lambda: _return_to_menu("Lichess exit"),
-        initial_fen=None,
-        time_control=0,  # Lichess manages its own clock (display shows turn indicator only)
-        show_board=_game_settings['show_board'],
-        show_clock=True,  # Show clock for Lichess (time comes from server)
-        show_graph=_game_settings['show_graph'],
-        analysis_mode=analysis_mode
-    )
-    log.info(f"[App] DisplayManager initialized for Lichess (analysis_mode={analysis_mode}, "
-             f"show_analysis={_game_settings['show_analysis']}, show_graph={_game_settings['show_graph']})")
-    
-    # Show waiting screen while seeking/connecting (overlay on top of DisplayManager)
-    waiting_message = "Finding Game..."
-    if lichess_config.mode == LichessGameMode.ONGOING:
-        waiting_message = "Connecting..."
-    elif lichess_config.mode == LichessGameMode.CHALLENGE:
-        waiting_message = "Loading\nChallenge..."
-    
-    # Add splash screen as modal overlay (covers game widgets)
-    waiting_splash = SplashScreen(board.display_manager.update, message=waiting_message)
-    board.display_manager.add_widget(waiting_splash)
-    log.info(f"[App] Showing Lichess waiting screen: {waiting_message}")
-    
-    # Track if game has connected
-    game_connected = False
-    user_cancelled = False
-    
-    def on_game_connected():
-        """Called when Lichess game is connected and ready to play.
-        
-        Removes the waiting splash to reveal game display.
-        """
-        nonlocal game_connected
-        if game_connected:
-            return
-        game_connected = True
-        
-        log.info("[App] Lichess game connected - removing waiting screen")
-        # Remove splash to reveal game widgets
-        board.display_manager.remove_widget(waiting_splash)
-    
-    def on_back_during_waiting():
-        """Handle BACK button during waiting/seeking state."""
+    def set_app_state(state):
         global app_state
-        nonlocal user_cancelled
-        if game_connected:
-            # Game started, use normal back menu
-            display_manager.show_back_menu(
-                _on_lichess_back_menu_result,
-                is_two_player=False
-            )
-        else:
-            # Still waiting - cancel and return to Lichess menu
-            log.info("[App] User cancelled Lichess seek")
-            user_cancelled = True
-            protocol_manager.stop_lichess()
-            _cleanup_game()
-            app_state = AppState.SETTINGS
+        app_state = state
     
-    # Create Lichess player for the remote opponent
-    # The human is the local player, Lichess provides the remote opponent
-    from DGTCentaurMods.players import HumanPlayer, LichessPlayer, LichessPlayerConfig
-    
-    # Create LichessPlayer from the lichess_config
-    lichess_player_config = LichessPlayerConfig(
-        name="Lichess",
-        mode=lichess_config.mode,
-        time_minutes=lichess_config.time_minutes,
-        increment_seconds=lichess_config.increment_seconds,
-        rated=lichess_config.rated,
-        color_preference=getattr(lichess_config, 'color_preference', 'random'),
-        game_id=getattr(lichess_config, 'game_id', ''),
-        challenge_id=getattr(lichess_config, 'challenge_id', ''),
-        challenge_direction=getattr(lichess_config, 'challenge_direction', 'in'),
-    )
-    lichess_player = LichessPlayer(lichess_player_config)
-    human_player = HumanPlayer()
-    
-    # Players will be assigned colors after Lichess connection determines color
-    # For now, put Lichess as black (will be updated when game info arrives)
-    white_player = human_player
-    black_player = lichess_player
-    
-    # Create GameManager
-    from DGTCentaurMods.managers.game import GameManager
-    game_manager = GameManager(save_to_database=True)
-    
-    # Create ProtocolManager with GameManager dependency
-    protocol_manager = ProtocolManager(
-        game_manager=game_manager,
+    result = start_lichess_game_service(
+        lichess_config=lichess_config,
+        game_settings=_game_settings,
+        board=board,
+        log=log,
+        menu_manager=_menu_manager,
+        connection_manager=_connection_manager,
+        return_to_menu_fn=_return_to_menu,
+        cleanup_game_fn=_cleanup_game,
+        set_app_state_fn=set_app_state,
+        app_state_game=AppState.GAME,
+        app_state_settings=AppState.SETTINGS,
+        get_engine_path=get_engine_path,
     )
     
-    # Create PlayerManager (callbacks wired by game_manager.set_player_manager)
-    from DGTCentaurMods.players import PlayerManager
-    player_manager = PlayerManager(
-        white_player=white_player,
-        black_player=black_player,
-        status_callback=lambda msg: log.info(f"[Player] {msg}"),
-    )
-    # Wires move_callback, error_callback, and pending_move_callback to GameManager
-    protocol_manager.set_player_manager(player_manager)
+    if result.success:
+        protocol_manager = result.protocol_manager
+        display_manager = result.display_manager
+        controller_manager = result.controller_manager
     
-    # Create ControllerManager for routing events to local/remote controllers
-    controller_manager = ControllerManager(game_manager)
-    
-    # Create local controller (for Lichess games - local human + remote Lichess opponent)
-    local_controller = controller_manager.create_local_controller()
-    local_controller.set_player_manager(player_manager)
-
-    # Wire ready callback through local controller
-    # Note: move_callback is already wired by game_manager.set_player_manager()
-    # to GameManager._on_player_move which handles all player moves (human+engine)
-    player_manager.set_ready_callback(local_controller.on_all_players_ready)
-    
-    # Wire up GameManager callbacks to DisplayManager
-    protocol_manager.set_on_promotion_needed(display_manager.show_promotion_menu)
-    
-    # Helper to find LichessPlayer from PlayerManager
-    def _get_lichess_player():
-        """Find and return the LichessPlayer from player_manager, or None."""
-        from DGTCentaurMods.players import LichessPlayer
-        if player_manager:
-            for player in [player_manager.white_player, player_manager.black_player]:
-                if isinstance(player, LichessPlayer):
-                    return player
-        return None
-    
-    # Set callback for when game is connected
-    lichess_player = _get_lichess_player()
-    if lichess_player:
-        lichess_player.set_on_game_connected(on_game_connected)
-    
-    # Info overlay widget for displaying messages like "Draw offered"
-    from DGTCentaurMods.epaper import InfoOverlayWidget
-    _info_overlay = InfoOverlayWidget(0, 216, 128, 80, board.display_manager.update)
-    board.display_manager.add_widget(_info_overlay)
-    
-    # Lichess callbacks
-    def _on_lichess_game_over(result: str, termination: str, winner):
-        """Handle Lichess game over event."""
-        log.info(f"[App] Lichess game over: result={result}, termination={termination}, winner={winner}")
-        display_manager.stop_clock()
-        # Set result triggers game over widget via observer
-        from DGTCentaurMods.state import get_chess_game
-        get_chess_game().set_result(result, termination)
-    
-    def _on_lichess_takeback_offer(accept_fn, decline_fn):
-        """Handle takeback offer from opponent - show confirmation menu."""
-        log.info("[App] Lichess takeback offer received")
-        board.beep(board.SOUND_GENERAL)
-        
-        # Show confirmation menu
-        entries = [
-            IconMenuEntry(key="accept", label="Accept\nTakeback", icon_name="undo"),
-            IconMenuEntry(key="decline", label="Decline", icon_name="cancel"),
-        ]
-        result = _menu_manager.show_menu(entries)
-        
-        if result.key == "accept":
-            log.info("[App] User accepted takeback")
-            accept_fn()
-        else:
-            log.info("[App] User declined takeback")
-            decline_fn()
-    
-    def _on_lichess_draw_offer(accept_fn, decline_fn):
-        """Handle draw offer from opponent - show confirmation menu."""
-        log.info("[App] Lichess draw offer received")
-        board.beep(board.SOUND_GENERAL)
-        
-        # Show confirmation menu
-        entries = [
-            IconMenuEntry(key="accept", label="Accept\nDraw", icon_name="draw"),
-            IconMenuEntry(key="decline", label="Decline", icon_name="cancel"),
-        ]
-        result = _menu_manager.show_menu(entries)
-        
-        if result.key == "accept":
-            log.info("[App] User accepted draw")
-            accept_fn()
-        else:
-            log.info("[App] User declined draw")
-            decline_fn()
-    
-    def _on_lichess_info_message(message: str):
-        """Handle info message from Lichess - show overlay."""
-        log.info(f"[App] Lichess info message: {message}")
-        _info_overlay.show_message(message, duration_seconds=5.0)
-    
-    # Wire up Lichess callbacks directly to LichessPlayer
-    lichess_player = _get_lichess_player()
-    if lichess_player:
-        lichess_player.set_game_over_callback(_on_lichess_game_over)
-        lichess_player.set_takeback_offer_callback(_on_lichess_takeback_offer)
-        lichess_player.set_draw_offer_callback(_on_lichess_draw_offer)
-        lichess_player.set_info_message_callback(_on_lichess_info_message)
-    
-    # Lichess games: BACK behavior depends on state
-    def _on_lichess_back_menu_result(action: str):
-        """Handle Lichess back menu result (resign/abort/cancel)."""
-        lichess_player = _get_lichess_player()
-        if not lichess_player:
-            log.warning("[App] No LichessPlayer found for action")
-            return
-        
-        if action == "resign":
-            log.info("[App] User resigned Lichess game")
-            lichess_player.on_resign(chess.WHITE)  # Lichess handles the actual resign
-            _return_to_menu("Lichess resign")
-        elif action == "abort":
-            log.info("[App] User aborted Lichess game")
-            lichess_player.abort_game()
-            _return_to_menu("Lichess abort")
-        elif action == "draw":
-            log.info("[App] User offered draw in Lichess game")
-            lichess_player.on_draw_offer()
-            # Don't exit - continue game, opponent may accept or decline
-        # cancel: do nothing, return to game
-    
-    # Use the waiting-aware back handler
-    protocol_manager.set_on_back_pressed(on_back_during_waiting)
-    
-    # Track clock state
-    from DGTCentaurMods.managers import EVENT_WHITE_TURN, EVENT_BLACK_TURN
-    _clock_started = False
-    
-    def _on_lichess_game_event(event):
-        """Handle game events for Lichess - updates clock widget on turn changes.
-        
-        Game over is handled separately by _on_lichess_game_over callback
-        which receives authoritative data from the Lichess stream.
-        """
-        nonlocal _clock_started
-        
-        if event == EVENT_WHITE_TURN or event == EVENT_BLACK_TURN:
-            # Start clock on first turn event (game has truly started)
-            # Turn indicator is handled by ChessClockWidget observing ChessGameState directly
-            if not _clock_started:
-                display_manager.start_clock()
-                _clock_started = True
-                log.debug("[App] Lichess clock started")
-            # Hide info overlay on new moves
-            _info_overlay.hide()
-    
-    # Register event callback for clock/turn updates
-    local_controller.set_external_event_callback(_on_lichess_game_event)
-    
-    # Activate local controller (handles game events via GameManager subscription)
-    controller_manager.activate_local()
-    
-    # Register controller_manager with ConnectionManager
-    _connection_manager.set_controller_manager(controller_manager)
-    
-    # Start the Lichess connection
-    if not protocol_manager.start_lichess():
-        log.error("[App] Failed to start Lichess connection")
-        _cleanup_game()
-        _show_lichess_error("Connection Failed", "Could not connect\nto Lichess")
-        app_state = AppState.SETTINGS
-        return False
-    
-    log.info("[App] Lichess connection started - waiting for game match")
-    return True
+    return result.success
 
 
 def _handle_accounts_menu():
@@ -4716,54 +4103,17 @@ def _handle_accounts_menu():
 
 
 def _handle_lichess_token():
-    """Handle Lichess API token entry using keyboard widget.
-    
-    Shows the keyboard widget for entering/editing the Lichess API token.
-    The token is saved immediately when confirmed (no restart required).
-    
-    Returns:
-        MenuSelection or result indicating success/cancel
-    """
-    global _active_keyboard_widget
+    """Handle Lichess API token entry using service helper."""
     from DGTCentaurMods.board import centaur
-    
-    log.info("[Accounts] Opening keyboard for Lichess token entry")
-    
-    # Clear display and show keyboard widget
-    board.display_manager.clear_widgets(addStatusBar=False)
-    
-    # Create keyboard widget with current token as initial text
-    current_token = centaur.get_lichess_api()
-    keyboard = KeyboardWidget(board.display_manager.update, title="Lichess Token", max_length=64)
-    # Pre-fill with current token if exists (user can edit or clear)
-    keyboard.text = current_token if current_token else ""
-    
-    _active_keyboard_widget = keyboard
-    
-    # Add widget to display
-    promise = board.display_manager.add_widget(keyboard)
-    if promise:
-        try:
-            promise.result(timeout=5.0)
-        except Exception as e:
-            log.warning(f"[Accounts] Keyboard display timeout: {e}")
-    
-    try:
-        # Wait for input (blocking)
-        result = keyboard.wait_for_input(timeout=300.0)
-        
-        if result is not None:
-            # User confirmed - save the token
-            centaur.set_lichess_api(result)
-            log.info(f"[Accounts] Lichess token saved ({len(result)} chars)")
-            board.beep(board.SOUND_GENERAL)
-        else:
-            log.info("[Accounts] Lichess token entry cancelled")
-        
-        return result
-    finally:
-        # Clear keyboard widget reference
-        _active_keyboard_widget = None
+    keyboard_factory = lambda update_fn, title, max_len: KeyboardWidget(update_fn, title=title, max_length=max_len)
+    return ensure_token(
+        menu_manager=_menu_manager,
+        keyboard_factory=keyboard_factory,
+        get_token=centaur.get_lichess_api,
+        set_token=centaur.set_lichess_api,
+        log=log,
+        board=board,
+    )
 
 
 def _shutdown(message: str, reboot: bool = False):
