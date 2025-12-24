@@ -155,6 +155,10 @@ BrainHintCallback = Callable[[str, str], None]
 # Args: list of square indices (0-63)
 PieceSquaresLedCallback = Callable[[List[int]], None]
 
+# Callback for flashing squares to indicate invalid selection (REVERSE mode)
+# Args: list of square indices (0-63), flash_count (number of times to flash)
+InvalidSelectionFlashCallback = Callable[[List[int], int], None]
+
 
 class HandBrainPlayer(Player):
     """A hybrid player for Hand+Brain chess variants.
@@ -215,6 +219,7 @@ class HandBrainPlayer(Player):
         self._opponent_lifted_square: Optional[int] = None  # Track opponent piece lifts for correction
         self._pending_move: Optional[chess.Move] = None
         self._piece_squares_led_callback: Optional[PieceSquaresLedCallback] = None
+        self._invalid_selection_flash_callback: Optional[InvalidSelectionFlashCallback] = None
         # Tracks whether the user has started executing the pending move (lifted the source square).
         # Used to decide whether piece events in WAITING_EXECUTION are execution vs reselection bumps.
         self._reverse_execution_started = False
@@ -283,6 +288,18 @@ class HandBrainPlayer(Player):
             callback: Function(squares) to light up the squares.
         """
         self._piece_squares_led_callback = callback
+    
+    def set_invalid_selection_flash_callback(self, callback: InvalidSelectionFlashCallback) -> None:
+        """Set callback for flashing LEDs on invalid piece selection (REVERSE mode).
+        
+        Called when the user selects a piece type that has no legal moves.
+        The callback should flash the squares rapidly to indicate the invalid
+        selection, then turn off.
+        
+        Args:
+            callback: Function(squares, flash_count) to flash the squares.
+        """
+        self._invalid_selection_flash_callback = callback
     
     def start(self) -> bool:
         """Initialize and start the engine.
@@ -686,6 +703,15 @@ class HandBrainPlayer(Player):
         if not legal_moves:
             log.info(f"[HandBrain] No legal moves with {piece_name}")
             self._report_status(f"No {piece_name} moves - select another")
+            
+            # Flash the piece type squares 3 times fast to indicate invalid selection
+            if self._invalid_selection_flash_callback and self._current_board:
+                squares = self._get_squares_with_piece_type(
+                    self._current_board, piece_type, self._current_board.turn
+                )
+                if squares:
+                    self._invalid_selection_flash_callback(squares, 3)
+            
             self._phase = HandBrainPhase.WAITING_PIECE_SELECTION
             self._selection_lifted_square = None
             return

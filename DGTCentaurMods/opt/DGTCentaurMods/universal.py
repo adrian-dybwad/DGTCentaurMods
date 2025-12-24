@@ -1375,15 +1375,27 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
             if squares:
                 board.ledArray(squares, speed=3, intensity=5, repeat=0)
         
+        def _on_invalid_selection_flash(squares: List[int], flash_count: int) -> None:
+            """Flash squares rapidly to indicate invalid piece selection (REVERSE mode).
+            
+            Flashes the given squares at high speed the specified number of times,
+            then turns LEDs off.
+            """
+            if squares:
+                # speed=1 is fast, repeat=flash_count for 3 quick flashes
+                board.ledArray(squares, speed=1, intensity=5, repeat=flash_count)
+        
         # Wire hint callback to any HandBrainPlayer in NORMAL mode
         # Wire LED callback to any HandBrainPlayer in REVERSE mode
         if isinstance(white_player, HandBrainPlayer):
             white_player.set_brain_hint_callback(_on_brain_hint)
             white_player.set_piece_squares_led_callback(_on_piece_squares_led)
+            white_player.set_invalid_selection_flash_callback(_on_invalid_selection_flash)
             log.info(f"[App] White Hand+Brain player: {white_player.mode.name} mode")
         if isinstance(black_player, HandBrainPlayer):
             black_player.set_brain_hint_callback(_on_brain_hint)
             black_player.set_piece_squares_led_callback(_on_piece_squares_led)
+            black_player.set_invalid_selection_flash_callback(_on_invalid_selection_flash)
             log.info(f"[App] Black Hand+Brain player: {black_player.mode.name} mode")
     
     local_controller.set_takeback_callback(_on_takeback)

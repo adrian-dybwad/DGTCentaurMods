@@ -585,6 +585,63 @@ class TestReverseModeReselectionEdgeCases(unittest.TestCase):
         assert player._opponent_lifted_square is None, \
             "Opponent lifted square should be cleared after place-back"
 
+    def test_invalid_selection_flashes_leds(self):
+        """Test that selecting a piece type with no legal moves flashes LEDs.
+        
+        When the user selects a piece type that has no legal moves,
+        the invalid_selection_flash_callback should be called
+        with the piece squares and flash count of 3.
+        
+        Expected: Callback called with squares and flash_count=3.
+        Failure: Callback not called or called with wrong parameters.
+        """
+        player = self._create_player()
+        player.set_piece_squares_led_callback(MagicMock())
+        player.set_move_callback(MagicMock())
+        player.set_pending_move_callback(MagicMock())
+        player.set_status_callback(MagicMock())
+        
+        flash_calls = []
+        def flash_callback(squares, flash_count):
+            flash_calls.append((squares, flash_count))
+        player.set_invalid_selection_flash_callback(flash_callback)
+        
+        # Position: white rook on h1, but completely blocked by own pieces
+        # Use a custom position where rook has no legal moves
+        # King on e1, rook on h1, pieces blocking all rook moves
+        board = chess.Board(fen=None)  # Empty board
+        board.set_piece_at(chess.E1, chess.Piece(chess.KING, chess.WHITE))
+        board.set_piece_at(chess.H1, chess.Piece(chess.ROOK, chess.WHITE))
+        # Block rook horizontally: g1, f1 with pawns
+        board.set_piece_at(chess.G1, chess.Piece(chess.PAWN, chess.WHITE))
+        board.set_piece_at(chess.F1, chess.Piece(chess.PAWN, chess.WHITE))
+        # Block rook vertically: h2 with pawn
+        board.set_piece_at(chess.H2, chess.Piece(chess.PAWN, chess.WHITE))
+        # Need black king
+        board.set_piece_at(chess.E8, chess.Piece(chess.KING, chess.BLACK))
+        
+        player._do_request_move(board)
+        
+        # Clear any initial LED calls
+        flash_calls.clear()
+        
+        # Select the blocked rook
+        player.on_piece_event("lift", chess.H1, board)
+        player.on_piece_event("place", chess.H1, board)
+        
+        # Flash callback should have been called with the rook square and count=3
+        assert len(flash_calls) == 1, \
+            f"Expected 1 flash callback, got {len(flash_calls)}"
+        squares, count = flash_calls[0]
+        assert chess.H1 in squares, \
+            f"Expected h1 in flash squares, got {[chess.square_name(s) for s in squares]}"
+        assert count == 3, \
+            f"Expected flash count 3, got {count}"
+        
+        # Player should be back in WAITING_PIECE_SELECTION
+        assert player._phase == HandBrainPhase.WAITING_PIECE_SELECTION, \
+            f"Expected WAITING_PIECE_SELECTION, got {player._phase.name}"
+
 
 if __name__ == '__main__':
     unittest.main()
