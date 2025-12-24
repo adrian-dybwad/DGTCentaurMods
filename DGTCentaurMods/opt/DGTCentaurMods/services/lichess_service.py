@@ -514,3 +514,111 @@ def start_lichess_game_service(
         controller_manager=controller_manager,
     )
 
+
+def handle_lichess_menu(
+    get_lichess_client_fn: Callable,
+    get_settings_fn: Callable,
+    menu_manager,
+    keyboard_factory: Callable,
+    start_lichess_game_fn: Callable,
+    handle_accounts_menu_fn: Callable,
+    centaur_module,
+    board,
+    log,
+):
+    """Handle Lichess submenu with New Game, Ongoing, and Challenges options.
+
+    Args:
+        get_lichess_client_fn: Callback to get (client, username, error) tuple
+        get_settings_fn: Callback to get AllSettings instance
+        menu_manager: MenuManager instance
+        keyboard_factory: Factory for KeyboardWidget(update_fn, title, max_length)
+        start_lichess_game_fn: Callback to start a Lichess game with config
+        handle_accounts_menu_fn: Callback to show accounts menu
+        centaur_module: Centaur module for token get/set
+        board: Board module
+        log: Logger instance
+
+    Returns:
+        True if a Lichess game was started, break result if break action,
+        None/False otherwise.
+    """
+    from DGTCentaurMods.players.lichess import LichessPlayerConfig as LichessConfig, LichessGameMode
+    from DGTCentaurMods.managers.menu import MenuSelection
+
+    client, username, error = get_lichess_client_fn()
+    if client is None:
+        if error == "no_token":
+            result = show_lichess_error(menu_manager, "No API Token", "Configure in\nSystem > Accounts", True)
+        elif error == "invalid_token":
+            result = show_lichess_error(menu_manager, "Invalid Token", "Token expired or\nrevoked", True)
+        elif error == "no_berserk":
+            show_lichess_error(menu_manager, "Missing Library", "berserk package\nnot installed")
+            result = None
+        else:
+            show_lichess_error(menu_manager, "Connection Error", "Could not reach\nLichess server")
+            result = None
+        if result == "accounts":
+            handle_accounts_menu_fn()
+        return None
+
+    entries = build_lichess_menu_entries(username, ongoing_games=True, has_challenges=True)
+
+    # Track if game was started successfully
+    game_started = False
+
+    def handle_selection(result: MenuSelection):
+        nonlocal game_started
+        if result.key == "NewGame":
+            settings = get_settings_fn()
+            color = settings.player1.color
+            time_minutes = settings.game.time_control or 10
+            config = LichessConfig(
+                mode=LichessGameMode.NEW,
+                time_minutes=time_minutes,
+                increment_seconds=0,
+                rated=False,
+                color_preference=color,
+            )
+            if start_lichess_game_fn(config):
+                game_started = True
+                return result
+            return None
+        elif result.key == "Ongoing":
+            game_id = show_lichess_ongoing_games(client, menu_manager, log)
+            if game_id:
+                config = LichessConfig(mode=LichessGameMode.ONGOING, game_id=game_id)
+                if start_lichess_game_fn(config):
+                    game_started = True
+                    return result
+            return None
+        elif result.key == "Challenges":
+            challenge = show_lichess_challenges(client, menu_manager, log)
+            if challenge:
+                config = LichessConfig(
+                    mode=LichessGameMode.CHALLENGE,
+                    challenge_id=challenge["id"],
+                    challenge_direction=challenge["direction"],
+                )
+                if start_lichess_game_fn(config):
+                    game_started = True
+                    return result
+            return None
+        elif result.key == "Token":
+            ensure_token(
+                menu_manager=menu_manager,
+                keyboard_factory=keyboard_factory,
+                get_token=centaur_module.get_lichess_api,
+                set_token=centaur_module.set_lichess_api,
+                log=log,
+                board=board,
+            )
+        return None
+
+    result = menu_manager.run_menu_loop(lambda: entries, handle_selection)
+
+    if is_break_result(result):
+        return result
+
+    return game_started
+

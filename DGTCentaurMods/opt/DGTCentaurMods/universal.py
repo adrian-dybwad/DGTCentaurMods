@@ -45,17 +45,10 @@ from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.epaper import Manager, SplashScreen, IconMenuWidget, IconMenuEntry, KeyboardWidget
 from DGTCentaurMods.epaper.status_bar import STATUS_BAR_HEIGHT
 from DGTCentaurMods.menus import (
-    build_hand_brain_mode_entries,
-    build_hand_brain_mode_toggle_entry,
-    handle_player1_menu,
-    handle_player2_menu,
     create_main_menu_entries,
     create_settings_entries,
     create_system_entries,
     _get_player_type_label,
-    toggle_hand_brain_mode,
-    handle_engine_selection,
-    handle_elo_selection,
     handle_system_menu,
     handle_positions_menu,
     handle_time_control_menu,
@@ -73,11 +66,6 @@ from DGTCentaurMods.menus import (
     handle_display_settings,
     handle_sound_settings,
     handle_reset_settings,
-    handle_players_menu,
-    handle_color_selection,
-    handle_type_selection,
-    handle_hand_brain_mode_selection,
-    handle_name_input,
     handle_analysis_mode_menu,
     handle_analysis_engine_selection,
     handle_update_menu,
@@ -88,10 +76,28 @@ from DGTCentaurMods.menus import (
     ensure_token,
     start_lichess_game_service,
 )
+from DGTCentaurMods.menus.players_menu import (
+    handle_players_menu,
+    handle_player1_menu,
+    handle_player2_menu,
+    handle_color_selection,
+    handle_type_selection,
+    handle_hand_brain_mode_selection,
+    handle_name_input,
+)
+from DGTCentaurMods.menus.engine_menu import (
+    handle_engine_selection,
+    handle_elo_selection,
+)
+from DGTCentaurMods.menus.hand_brain_menu import toggle_hand_brain_mode
 from DGTCentaurMods.utils.wifi import (
     scan_wifi_networks,
     connect_to_wifi,
     get_wifi_password_from_board,
+)
+from DGTCentaurMods.utils.positions import (
+    parse_position_entry,
+    load_positions_config,
 )
 from DGTCentaurMods.utils.settings_persistence import (
     MenuContext,
@@ -417,6 +423,7 @@ try:
         find_entry_index,
         ConnectionManager,
     )
+    from DGTCentaurMods.managers.rfcomm_server import RfcommServer
     from DGTCentaurMods.controllers import ControllerManager
     log.debug(f"[Import timing] managers: {(_import_time.time() - _import_start)*1000:.0f}ms")
 except Exception as e:
@@ -447,7 +454,6 @@ CENTAUR_SOFTWARE = "/home/pi/centaur/centaur"
 # Global state
 running = True
 kill = 0
-client_connected = False
 app_state = AppState.MENU  # Current application state
 protocol_manager = None  # ProtocolManager instance
 display_manager = None  # DisplayManager for game UI widgets
@@ -456,6 +462,7 @@ _last_message = None  # Last message sent via sendMessage
 relay_mode = False  # Whether relay mode is enabled (connects to relay target)
 mainloop = None  # GLib mainloop for BLE
 rfcomm_manager = None  # RfcommManager for RFCOMM pairing
+rfcomm_server: Optional[RfcommServer] = None  # RFCOMM server for classic Bluetooth
 ble_manager = None  # BleManager for BLE GATT services
 relay_manager = None  # RelayManager for shadow target connections
 _connection_manager: Optional[ConnectionManager] = None  # Initialized in main()
@@ -494,10 +501,6 @@ def _clear_active_keyboard_widget() -> None:
 
 # About widget state (for support QR screen)
 _active_about_widget = None
-
-# Socket references
-server_sock = None
-client_sock = None
 
 # Args (stored globally after parsing for access in callbacks)
 _args = None
@@ -833,80 +836,6 @@ def _resume_game(game_data: dict) -> bool:
 # ============================================================================
 # Position Loading Functions
 # ============================================================================
-
-def _parse_position_entry(value: str) -> tuple:
-    """Parse a position entry from positions.ini.
-    
-    Format: FEN | hint_move (hint_move is optional)
-    
-    Args:
-        value: Raw value from INI file
-        
-    Returns:
-        Tuple of (fen, hint_move) where hint_move may be None
-    """
-    if '|' in value:
-        parts = value.split('|', 1)
-        fen = parts[0].strip()
-        hint_move = parts[1].strip() if len(parts) > 1 else None
-        # Validate hint_move format (UCI: 4-5 chars like e2e4 or a7a8q)
-        if hint_move and (len(hint_move) < 4 or len(hint_move) > 5):
-            log.warning(f"[Positions] Invalid hint move format: {hint_move}")
-            hint_move = None
-        return (fen, hint_move)
-    else:
-        return (value.strip(), None)
-
-
-def _load_positions_config() -> dict:
-    """Load predefined positions from positions.ini.
-    
-    Returns:
-        Dictionary with category names as keys and dict of {name: (fen, hint_move)} as values.
-        hint_move is None if not specified.
-        Example: {'test': {'en_passant': ('fen...', 'e5d6')}, 'puzzles': {...}}
-    """
-    import configparser
-    
-    positions = {}
-    
-    # Try runtime path first, then development path
-    config_paths = [
-        pathlib.Path("/opt/DGTCentaurMods/config/positions.ini"),
-        pathlib.Path(__file__).parent / "defaults" / "config" / "positions.ini"
-    ]
-    
-    config_file = None
-    for path in config_paths:
-        if path.exists():
-            config_file = path
-            break
-    
-    if config_file is None:
-        log.warning("[Positions] positions.ini not found")
-        return positions
-    
-    try:
-        config = configparser.ConfigParser()
-        config.read(str(config_file))
-        
-        for section in config.sections():
-            positions[section] = {}
-            for name, value in config.items(section):
-                fen, hint_move = _parse_position_entry(value)
-                # Validate FEN has 6 fields
-                if len(fen.split()) == 6:
-                    positions[section][name] = (fen, hint_move)
-                else:
-                    log.warning(f"[Positions] Invalid FEN for {section}/{name}: {fen}")
-        
-        log.info(f"[Positions] Loaded {sum(len(v) for v in positions.values())} positions from {len(positions)} categories")
-        
-    except Exception as e:
-        log.error(f"[Positions] Error loading positions.ini: {e}")
-    
-    return positions
-
 
 def _start_from_position(fen: str, position_name: str, hint_move: str = None) -> bool:
     """Start a game from a predefined position.
@@ -1776,7 +1705,7 @@ def _handle_settings(initial_selection: str = None):
             ctx.enter_menu("Positions", 0)
             position_result = handle_positions_menu(
                 ctx=ctx,
-                load_positions_config=_load_positions_config,
+                load_positions_config=lambda: load_positions_config(log),
                 start_from_position=_start_from_position,
                 show_menu=_show_menu,
                 find_entry_index=find_entry_index,
@@ -1842,8 +1771,13 @@ def _handle_settings(initial_selection: str = None):
                 return about_result
 
 
+# ============================================================================
+# Player Menu Handlers
+# These wrap the extracted handlers with the global dependencies.
+# ============================================================================
+
 def _handle_players_menu():
-    """Handle the Players submenu - delegates to extracted menu function."""
+    """Handle the Players submenu."""
     return handle_players_menu(
         get_menu_context=_get_menu_context,
         player1_settings=_player1_settings_dict(),
@@ -1858,23 +1792,9 @@ def _handle_players_menu():
 
 
 def _handle_player1_menu():
-    """Handle Player 1 configuration submenu.
-
-    Player 1 is at the bottom of the board. Can set:
-    - Color (White/Black)
-    - Type (Human/Engine/Lichess)
-    - Engine and ELO (if type is engine)
-
-    Uses MenuContext for tracking selection state.
-
-    Returns:
-        Break result if user triggered a break action.
-        None otherwise.
-    """
-    ctx = _get_menu_context()
-    
+    """Handle Player 1 configuration submenu."""
     return handle_player1_menu(
-        ctx=ctx,
+        ctx=_get_menu_context(),
         player1_settings=_player1_settings_dict(),
         show_menu=_show_menu,
         find_entry_index=find_entry_index,
@@ -1893,22 +1813,9 @@ def _handle_player1_menu():
 
 
 def _handle_player2_menu():
-    """Handle Player 2 configuration submenu.
-    
-    Player 2 is at the top of the board. Can set:
-    - Type (Human/Engine/Lichess)
-    - Engine and ELO (if type is engine)
-    
-    Uses MenuContext for tracking selection state.
-    
-    Returns:
-        Break result if user triggered a break action.
-        None otherwise.
-    """
-    ctx = _get_menu_context()
-    
+    """Handle Player 2 configuration submenu."""
     return handle_player2_menu(
-        ctx=ctx,
+        ctx=_get_menu_context(),
         player2_settings=_player2_settings_dict(),
         show_menu=_show_menu,
         find_entry_index=find_entry_index,
@@ -1926,7 +1833,7 @@ def _handle_player2_menu():
 
 
 def _handle_player1_color_selection():
-    """Handle color selection for Player 1 - delegates to extracted menu function."""
+    """Handle color selection for Player 1."""
     return handle_color_selection(
         player_settings=_player1_settings_dict(),
         show_menu=_show_menu,
@@ -1937,7 +1844,7 @@ def _handle_player1_color_selection():
 
 
 def _handle_player1_type_selection():
-    """Handle type selection for Player 1 - delegates to extracted menu function."""
+    """Handle type selection for Player 1."""
     return handle_type_selection(
         player_settings=_player1_settings_dict(),
         show_menu=_show_menu,
@@ -1948,37 +1855,48 @@ def _handle_player1_type_selection():
     )
 
 
+def _handle_player2_type_selection():
+    """Handle type selection for Player 2."""
+    return handle_type_selection(
+        player_settings=_player2_settings_dict(),
+        show_menu=_show_menu,
+        save_player_setting=_save_player2_setting,
+        log=log,
+        board=board,
+        player_label="Player2",
+    )
+
+
 def _handle_player1_engine_selection():
-    """Handle engine selection for Player 1.
-    
-    Only shows installed engines. Use Engine Manager to install more engines.
-    Shows root_moves compatibility percentage for Reverse Hand+Brain mode.
-    
-    Returns:
-        Break result if user triggered a break action.
-        None otherwise.
-    """
+    """Handle engine selection for Player 1."""
     return handle_engine_selection(
         player_settings=_player1_settings_dict(),
         show_menu=_show_menu,
         is_break_result=is_break_result,
         get_installed_engines=_get_installed_engines,
-        format_engine_label_with_compat=lambda eng, is_sel, show_compat: _format_engine_label_with_compat(
-            eng, is_sel, show_compat=show_compat
-        ),
+        format_engine_label_with_compat=_format_engine_label_with_compat,
         save_player_setting=_save_player1_setting,
         log=log,
         board=board,
     )
 
 
+def _handle_player2_engine_selection():
+    """Handle engine selection for Player 2."""
+    return handle_engine_selection(
+        player_settings=_player2_settings_dict(),
+        show_menu=_show_menu,
+        is_break_result=is_break_result,
+        get_installed_engines=_get_installed_engines,
+        format_engine_label_with_compat=_format_engine_label_with_compat,
+        save_player_setting=_save_player2_setting,
+        log=log,
+        board=board,
+    )
+
+
 def _handle_player1_elo_selection():
-    """Handle ELO selection for Player 1.
-    
-    Returns:
-        Break result if user triggered a break action.
-        None otherwise.
-    """
+    """Handle ELO selection for Player 1."""
     return handle_elo_selection(
         player_settings=_player1_settings_dict(),
         show_menu=_show_menu,
@@ -1990,21 +1908,21 @@ def _handle_player1_elo_selection():
     )
 
 
-def _handle_player1_hand_brain_mode_selection():
-    """Handle Hand+Brain mode selection for Player 1 - delegates to extracted menu function."""
-    return handle_hand_brain_mode_selection(
-        player_settings=_player1_settings_dict(),
+def _handle_player2_elo_selection():
+    """Handle ELO selection for Player 2."""
+    return handle_elo_selection(
+        player_settings=_player2_settings_dict(),
         show_menu=_show_menu,
-        save_player_setting=_save_player1_setting,
+        is_break_result=is_break_result,
+        get_engine_elo_levels=_get_engine_elo_levels,
+        save_player_setting=_save_player2_setting,
         log=log,
         board=board,
-        player_label="Player1",
     )
 
 
 def _handle_player1_name_input():
-    """Handle name input for Player 1 - delegates to extracted menu function."""
-    global _active_keyboard_widget
+    """Handle name input for Player 1."""
     return handle_name_input(
         player_settings=_player1_settings_dict(),
         show_menu=_show_menu,
@@ -2013,13 +1931,12 @@ def _handle_player1_name_input():
         board=board,
         keyboard_widget_class=KeyboardWidget,
         player_label="Player 1",
-        set_active_keyboard_widget=lambda w: globals().__setitem__('_active_keyboard_widget', w),
+        set_active_keyboard_widget=_set_active_keyboard_widget,
     )
 
 
 def _handle_player2_name_input():
-    """Handle name input for Player 2 - delegates to extracted menu function."""
-    global _active_keyboard_widget
+    """Handle name input for Player 2."""
     return handle_name_input(
         player_settings=_player2_settings_dict(),
         show_menu=_show_menu,
@@ -2028,100 +1945,8 @@ def _handle_player2_name_input():
         board=board,
         keyboard_widget_class=KeyboardWidget,
         player_label="Player 2",
-        set_active_keyboard_widget=lambda w: globals().__setitem__('_active_keyboard_widget', w),
+        set_active_keyboard_widget=_set_active_keyboard_widget,
     )
-
-
-def _handle_player2_type_selection():
-    """Handle type selection for Player 2 - delegates to extracted menu function."""
-    return handle_type_selection(
-        player_settings=_player2_settings_dict(),
-        show_menu=_show_menu,
-        save_player_setting=_save_player2_setting,
-        log=log,
-        board=board,
-        player_label="Player2",
-    )
-
-
-def _handle_player2_engine_selection():
-    """Handle engine selection for Player 2.
-    
-    Only shows installed engines. Use Engine Manager to install more engines.
-    Shows root_moves compatibility percentage for Reverse Hand+Brain mode.
-    
-    Returns:
-        Break result if user triggered a break action.
-        None otherwise.
-    """
-    return handle_engine_selection(
-        player_settings=_player2_settings_dict(),
-        show_menu=_show_menu,
-        is_break_result=is_break_result,
-        get_installed_engines=_get_installed_engines,
-        format_engine_label_with_compat=lambda eng, is_sel, show_compat: _format_engine_label_with_compat(
-            eng, is_sel, show_compat=show_compat
-        ),
-        save_player_setting=_save_player2_setting,
-        log=log,
-        board=board,
-    )
-
-
-def _handle_player2_elo_selection():
-    """Handle ELO selection for Player 2.
-    
-    Returns:
-        Break result if user triggered a break action.
-        None otherwise.
-    """
-    return handle_elo_selection(
-        player_settings=_player2_settings_dict(),
-        show_menu=_show_menu,
-        is_break_result=is_break_result,
-        get_engine_elo_levels=_get_engine_elo_levels,
-        save_player_setting=_save_player2_setting,
-        log=log,
-        board=board,
-    )
-
-
-def _handle_player2_hand_brain_mode_selection():
-    """Handle Hand+Brain mode selection for Player 2 - delegates to extracted menu function."""
-    return handle_hand_brain_mode_selection(
-        player_settings=_player2_settings_dict(),
-        show_menu=_show_menu,
-        save_player_setting=_save_player2_setting,
-        log=log,
-        board=board,
-        player_label="Player2",
-    )
-
-
-def _get_current_wifi_status() -> tuple:
-    """Get current WiFi connection status.
-    
-    Returns:
-        Tuple of (ssid, ip_address) or (None, None) if not connected
-    """
-    import subprocess
-    
-    try:
-        result = subprocess.run(['iwgetid', '-r'], capture_output=True, text=True, timeout=5)
-        ssid = result.stdout.strip() if result.returncode == 0 and result.stdout.strip() else None
-    except Exception:
-        ssid = None
-    
-    ip_address = None
-    if ssid:
-        try:
-            result = subprocess.run(['hostname', '-I'], capture_output=True, text=True, timeout=5)
-            ips = result.stdout.strip().split()
-            ip_address = ips[0] if ips else None
-        except Exception:
-            pass
-    
-    return ssid, ip_address
 
 
 def _get_wifi_password_from_board(ssid: str) -> Optional[str]:
@@ -2174,24 +1999,6 @@ def _get_installed_version() -> str:
     except Exception as e:
         log.debug(f"[About] Failed to get version: {e}")
     return ""
-
-
-def _check_and_download_update(update_system):
-    """Check for updates from GitHub and download if available.
-    
-    Args:
-        update_system: The UpdateSystem instance.
-    """
-    return check_and_download_update(
-        update_system=update_system,
-        board=board,
-        log=log,
-        menu_manager=_menu_manager,
-        get_installed_version=_get_installed_version,
-        read_update_source=lambda: __import__("DGTCentaurMods.board.settings", fromlist=["Settings"]).Settings.read(
-            "update", "source", "EdNekebno/DGTCentaurMods"
-        ),
-    )
 
 
 def _handle_system_menu():
@@ -2272,7 +2079,7 @@ def _handle_system_menu():
             find_entry_index=find_entry_index,
             args_device_name=_args.device_name if _args else "DGT PEGASUS",
             ble_manager=ble_manager,
-            client_connected=client_connected,
+            rfcomm_connected=(rfcomm_server.connected if rfcomm_server else False),
             board=board,
             log=log,
         ),
@@ -2306,100 +2113,22 @@ def _handle_system_menu():
 # Lichess Online Play
 # =============================================================================
 
-def _get_lichess_client():
-    """Get a Lichess client using service helper."""
-    from DGTCentaurMods.board import centaur
-    return get_lichess_client(centaur, log)
-
-
 def _handle_lichess_menu():
-    """Handle Lichess submenu with New Game, Ongoing, and Challenges options.
-    
-    Returns:
-        True if a Lichess game was started, break result if break action,
-        None/False otherwise.
-    """
-    from DGTCentaurMods.players.lichess import LichessPlayerConfig as LichessConfig, LichessGameMode
-    from DGTCentaurMods.services.lichess_service import show_lichess_error, build_lichess_menu_entries
-    
+    """Handle Lichess submenu - delegates to service."""
+    from DGTCentaurMods.services.lichess_service import handle_lichess_menu
     from DGTCentaurMods.board import centaur
-    client, username, error = _get_lichess_client()
-    if client is None:
-        if error == "no_token":
-            result = show_lichess_error(_menu_manager, "No API Token", "Configure in\nSystem > Accounts", True)
-        elif error == "invalid_token":
-            result = show_lichess_error(_menu_manager, "Invalid Token", "Token expired or\nrevoked", True)
-        elif error == "no_berserk":
-            show_lichess_error(_menu_manager, "Missing Library", "berserk package\nnot installed")
-            result = None
-        else:
-            show_lichess_error(_menu_manager, "Connection Error", "Could not reach\nLichess server")
-            result = None
-        if result == "accounts":
-            _handle_accounts_menu()
-        return None
-    
-    entries = build_lichess_menu_entries(username, ongoing_games=True, has_challenges=True)
-    
-    # Track if game was started successfully
-    game_started = False
-    
-    def handle_selection(result: MenuSelection):
-        nonlocal game_started
-        if result.key == "NewGame":
-            settings = _get_settings()
-            color = settings.player1.color
-            time_minutes = settings.game.time_control or 10
-            config = LichessConfig(
-                mode=LichessGameMode.NEW,
-                time_minutes=time_minutes,
-                increment_seconds=0,
-                rated=False,
-                color_preference=color,
-            )
-            if _start_lichess_game(config):
-                game_started = True
-                return result
-            return None
-        elif result.key == "Ongoing":
-            from DGTCentaurMods.services.lichess_service import show_lichess_ongoing_games
-            game_id = show_lichess_ongoing_games(client, _menu_manager, log)
-            if game_id:
-                config = LichessConfig(mode=LichessGameMode.ONGOING, game_id=game_id)
-                if _start_lichess_game(config):
-                    game_started = True
-                    return result
-            return None
-        elif result.key == "Challenges":
-            from DGTCentaurMods.services.lichess_service import show_lichess_challenges
-            challenge = show_lichess_challenges(client, _menu_manager, log)
-            if challenge:
-                config = LichessConfig(
-                    mode=LichessGameMode.CHALLENGE,
-                    challenge_id=challenge["id"],
-                    challenge_direction=challenge["direction"],
-                )
-                if _start_lichess_game(config):
-                    game_started = True
-                    return result
-            return None
-        elif result.key == "Token":
-            ensure_token(
-                menu_manager=_menu_manager,
-                keyboard_factory=lambda update_fn, title, max_len: KeyboardWidget(update_fn, title=title, max_length=max_len),
-                get_token=centaur.get_lichess_api,
-                set_token=centaur.set_lichess_api,
-                log=log,
-                board=board,
-            )
-        return None
 
-    result = _menu_manager.run_menu_loop(lambda: entries, handle_selection)
-    
-    if is_break_result(result):
-        return result
-    
-    return game_started
+    return handle_lichess_menu(
+        get_lichess_client_fn=lambda: get_lichess_client(centaur, log),
+        get_settings_fn=_get_settings,
+        menu_manager=_menu_manager,
+        keyboard_factory=lambda update_fn, title, max_len: KeyboardWidget(update_fn, title=title, max_length=max_len),
+        start_lichess_game_fn=_start_lichess_game,
+        handle_accounts_menu_fn=_handle_accounts_menu,
+        centaur_module=centaur,
+        board=board,
+        log=log,
+    )
 
 
 def _start_lichess_game(lichess_config) -> bool:
@@ -2673,12 +2402,12 @@ def sendMessage(data):
     
     Routes data to the appropriate transport based on current connection state:
     - BLE: Uses BleManager.send_notification() which routes to correct protocol
-    - RFCOMM: Direct socket send
+    - RFCOMM: Uses RfcommServer.send()
     
     Args:
         data: Message data bytes (already formatted with messageType, length, payload)
     """
-    global _last_message, relay_mode, ble_manager, client_connected, client_sock
+    global _last_message, relay_mode, ble_manager, rfcomm_server
 
     tosend = bytearray(data)
     _last_message = tosend
@@ -2697,57 +2426,10 @@ def sendMessage(data):
         except Exception as e:
             log.error(f"[sendMessage] Error sending via BLE: {e}")
     
-    # Send via BT classic if connected
-    if client_connected and client_sock is not None:
-        try:
-            client_sock.send(bytes(tosend))
-        except Exception as e:
-            log.error(f"[sendMessage] Error sending via BT classic: {e}")
-
-
-# ============================================================================
-# RFCOMM Client Reader
-# ============================================================================
-
-def client_reader():
-    """Read data from RFCOMM client.
-    
-    Processes data through ProtocolManager and optionally forwards to relay target.
-    """
-    global running, client_sock, client_connected, protocol_manager, relay_mode, relay_manager
-    
-    log.info("Starting Client reader thread")
-    try:
-        while running and not kill:
-            try:
-                if not client_connected or client_sock is None:
-                    time.sleep(0.1)
-                    continue
-                
-                data = client_sock.recv(1024)
-                if len(data) == 0:
-                    log.info("RFCOMM client disconnected")
-                    client_connected = False
-                    protocol_manager.on_app_disconnected()
-                    break
-                
-                # Route through ConnectionManager (handles queuing and relay)
-                _connection_manager.receive_data(bytes(data), "rfcomm")
-                    
-            except bluetooth.BluetoothError as e:
-                if running:
-                    log.error(f"Bluetooth error: {e}")
-                client_connected = False
-                break
-            except Exception as e:
-                if running:
-                    log.error(f"Error: {e}")
-                break
-    except Exception as e:
-        log.error(f"Thread error: {e}")
-    finally:
-        log.info("Client reader thread stopped")
-        client_connected = False
+    # Send via RFCOMM if connected
+    if rfcomm_server is not None and rfcomm_server.connected:
+        if not rfcomm_server.send(bytes(tosend)):
+            log.error(f"[sendMessage] Error sending via RFCOMM")
 
 
 _cleanup_done = False  # Guard against running cleanup twice
@@ -2771,8 +2453,8 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
         system_shutdown: If True, trigger system shutdown/reboot after cleanup
         reboot: If True and system_shutdown is True, reboot instead of poweroff
     """
-    global kill, running, client_sock, server_sock, client_connected, mainloop
-    global protocol_manager, display_manager, controller_manager, rfcomm_manager, ble_manager, relay_manager
+    global kill, running, mainloop
+    global protocol_manager, display_manager, controller_manager, rfcomm_server, ble_manager, relay_manager
     global _cleanup_done
     
     # Guard against running cleanup twice (signal handler + finally block)
@@ -2786,16 +2468,16 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
         kill = 1
         running = False
         
-        # Stop RFCOMM manager pairing thread and bt-agent
-        log.info("[Cleanup] Stopping RFCOMM manager...")
-        if rfcomm_manager is not None:
+        # Stop RFCOMM server (handles pairing manager, sockets, and threads)
+        log.info("[Cleanup] Stopping RFCOMM server...")
+        if rfcomm_server is not None:
             try:
-                rfcomm_manager.stop_pairing_thread()
-                log.info("[Cleanup] RFCOMM manager stopped")
+                rfcomm_server.stop()
+                log.info("[Cleanup] RFCOMM server stopped")
             except Exception as e:
-                log.error(f"[Cleanup] Error stopping rfcomm_manager: {e}", exc_info=True)
+                log.error(f"[Cleanup] Error stopping rfcomm_server: {e}", exc_info=True)
         else:
-            log.info("[Cleanup] RFCOMM manager was None")
+            log.info("[Cleanup] RFCOMM server was None")
         
         # Stop relay manager (shadow target connection)
         log.info("[Cleanup] Stopping relay manager...")
@@ -2842,22 +2524,6 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
         # NOTE: Display manager cleanup is deferred until after shutdown splash/LEDs
         # so the display can show the shutdown message
         
-        # Close sockets
-        log.info("[Cleanup] Closing sockets...")
-        if client_sock:
-            try:
-                client_sock.close()
-                log.info("[Cleanup] Client socket closed")
-            except Exception as e:
-                log.error(f"[Cleanup] Error closing client socket: {e}")
-        
-        if server_sock:
-            try:
-                server_sock.close()
-                log.info("[Cleanup] Server socket closed")
-            except Exception as e:
-                log.error(f"[Cleanup] Error closing server socket: {e}")
-        
         # Stop BLE manager
         log.info("[Cleanup] Stopping BLE manager...")
         if ble_manager is not None:
@@ -2879,8 +2545,6 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
                 log.error(f"[Cleanup] Error quitting mainloop: {e}")
         else:
             log.info("[Cleanup] Mainloop was None")
-        
-        client_connected = False
         
         # For system shutdown (not reboot), check for pending update first,
         # then display splash, call board.shutdown() for visual feedback (beep, LEDs)
@@ -3295,7 +2959,7 @@ def main():
     BLE/RFCOMM connections can trigger auto-transition to game mode.
     """
     log.info("[Main] Entering main()")
-    global server_sock, client_sock, client_connected, running, kill
+    global running, kill
     global mainloop, relay_mode, protocol_manager, relay_manager, app_state, _args
     global _pending_piece_events, _return_to_positions_menu, _switch_to_normal_game, _menu_manager
     global _pending_display_settings
@@ -3484,108 +3148,48 @@ def main():
     else:
         log.info("[Main] BLE disabled by command line argument")
     
-    # Setup RFCOMM if enabled (runs asynchronously to improve startup time)
-    global rfcomm_manager
+    # Setup RFCOMM if enabled
+    global rfcomm_server
     if not args.no_rfcomm:
-        def rfcomm_setup_and_accept():
-            """Initialize RFCOMM and accept connections in background thread.
+        def _on_rfcomm_connected():
+            """Handle RFCOMM client connection."""
+            global app_state, _pending_ble_client_type
             
-            Runs all RFCOMM setup (bluetoothctl commands, socket creation) in background
-            to avoid blocking startup. Once setup is complete, accepts connections.
-            """
-            global rfcomm_manager, server_sock, client_sock, client_connected
-            global app_state, _menu_manager, _pending_ble_client_type
-            
-            if startup_splash:
-                startup_splash.set_message("RFCOMM...")
-            log.info("[RFCOMM] Starting background initialization...")
-            
-            # Kill any existing rfcomm processes
-            os.system('sudo service rfcomm stop 2>/dev/null')
-            time.sleep(0.5)
-            
-            for p in psutil.process_iter(attrs=['pid', 'name']):
-                if str(p.info["name"]) == "rfcomm":
-                    try:
-                        p.kill()
-                    except:
-                        pass
-            
-            time.sleep(0.3)
-            
-            # Create RFCOMM manager for pairing
-            rfcomm_manager = RfcommManager(device_name=args.device_name)
-            rfcomm_manager.enable_bluetooth()
-            rfcomm_manager.set_device_name(args.device_name)
-            rfcomm_manager.start_pairing_thread()
-            
-            time.sleep(0.5)
-            
-            # Initialize server socket
-            log.info("[RFCOMM] Setting up server socket...")
-            server_sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
-            server_sock.bind(("", args.port if args.port else bluetooth.PORT_ANY))
-            server_sock.settimeout(0.5)
-            server_sock.listen(1)
-            port = server_sock.getsockname()[1]
-            uuid = "94f39d29-7d6d-437d-973b-fba39e49d4ee"
-            
-            try:
-                bluetooth.advertise_service(server_sock, args.device_name, service_id=uuid,
-                                          service_classes=[uuid, bluetooth.SERIAL_PORT_CLASS],
-                                          profiles=[bluetooth.SERIAL_PORT_PROFILE])
-                log.info(f"[RFCOMM] Service '{args.device_name}' advertised on channel {port}")
-            except Exception as e:
-                log.error(f"[RFCOMM] Failed to advertise service: {e}")
-            
-            log.info("[RFCOMM] Initialization complete, accepting connections...")
-            
-            # Accept connections loop
-            while running and not kill:
-                try:
-                    sock, client_info = server_sock.accept()
-                    client_sock = sock
-                    client_connected = True
-                    log.info("=" * 60)
-                    log.info("RFCOMM CLIENT CONNECTED")
-                    log.info("=" * 60)
-                    log.info(f"Client address: {client_info}")
-                    
-                    # Handle connection - same logic as BLE
-                    if app_state == AppState.GAME and protocol_manager is not None:
-                        # Already in game - show confirmation dialog
-                        log.info("[RFCOMM] Client connected while in game - showing confirmation dialog")
-                        _show_ble_connection_confirm("rfcomm")
-                    elif (app_state == AppState.MENU or app_state == AppState.SETTINGS) and _menu_manager.active_widget is not None:
-                        # In menu/settings with active widget - cancel to start game
-                        log.info(f"[RFCOMM] Client connected while in {app_state.name} - transitioning to game")
-                        _menu_manager.cancel_selection("CLIENT_CONNECTED")
-                    elif app_state == AppState.MENU or app_state == AppState.SETTINGS:
-                        # Between menus - set flag for main loop
-                        log.info(f"[RFCOMM] Client connected between menus ({app_state.name}) - setting flag")
-                        _pending_ble_client_type = "rfcomm"
-                    elif protocol_manager:
-                        protocol_manager.on_app_connected()
-                    
-                    # Start client reader thread
-                    reader_thread = threading.Thread(target=client_reader, daemon=True)
-                    reader_thread.start()
-                    
-                    # Wait for client to disconnect before accepting new connection
-                    while client_connected and running and not kill:
-                        time.sleep(0.5)
-                    
-                except bluetooth.BluetoothError:
-                    time.sleep(0.1)
-                except Exception as e:
-                    if running:
-                        log.error(f"[RFCOMM] Error accepting connection: {e}")
-                    time.sleep(0.1)
+            if app_state == AppState.GAME and protocol_manager is not None:
+                log.info("[RFCOMM] Client connected while in game - showing confirmation dialog")
+                _show_ble_connection_confirm("rfcomm")
+            elif (app_state == AppState.MENU or app_state == AppState.SETTINGS) and _menu_manager.active_widget is not None:
+                log.info(f"[RFCOMM] Client connected while in {app_state.name} - transitioning to game")
+                _menu_manager.cancel_selection("CLIENT_CONNECTED")
+            elif app_state == AppState.MENU or app_state == AppState.SETTINGS:
+                log.info(f"[RFCOMM] Client connected between menus ({app_state.name}) - setting flag")
+                _pending_ble_client_type = "rfcomm"
+            elif protocol_manager:
+                protocol_manager.on_app_connected()
         
-        # Start RFCOMM setup in background thread (doesn't block startup)
-        rfcomm_thread = threading.Thread(target=rfcomm_setup_and_accept, daemon=True)
-        rfcomm_thread.start()
-        log.info("[RFCOMM] Background thread started")
+        def _on_rfcomm_disconnected():
+            """Handle RFCOMM client disconnection."""
+            if protocol_manager:
+                protocol_manager.on_app_disconnected()
+        
+        def _on_rfcomm_data(data: bytes):
+            """Handle data received from RFCOMM client."""
+            _connection_manager.receive_data(data, "rfcomm")
+        
+        # Create pairing manager
+        rfcomm_pairing_manager = RfcommManager(device_name=args.device_name)
+        
+        # Create and start RFCOMM server
+        rfcomm_server = RfcommServer(
+            device_name=args.device_name,
+            on_connected=_on_rfcomm_connected,
+            on_disconnected=_on_rfcomm_disconnected,
+            on_data_received=_on_rfcomm_data,
+            port=args.port,
+            rfcomm_manager=rfcomm_pairing_manager,
+        )
+        rfcomm_server.start(startup_splash)
+        log.info("[RFCOMM] Server started")
     
     # Connect to shadow target if relay mode
     if relay_mode:
@@ -3608,11 +3212,9 @@ def main():
                     log.info("[Relay] MATCH: Emulator response matches shadow host")
             
             # Forward to RFCOMM client if connected
-            if client_connected and client_sock is not None:
-                try:
-                    client_sock.send(data)
-                except Exception as e:
-                    log.error(f"[Relay] Error sending to RFCOMM client: {e}")
+            if rfcomm_server is not None and rfcomm_server.connected:
+                if not rfcomm_server.send(data):
+                    log.error(f"[Relay] Error sending to RFCOMM client")
             
             # Forward to BLE client if connected
             if ble_manager is not None and ble_manager.connected:
@@ -3720,7 +3322,7 @@ def main():
                             controller_manager.on_field_event(pe, field, ts)
                         elif protocol_manager:
                             protocol_manager.receive_field(pe, field, ts)
-                    if (ble_manager and ble_manager.connected) or client_connected:
+                    if (ble_manager and ble_manager.connected) or (rfcomm_server and rfcomm_server.connected):
                         if controller_manager:
                             controller_manager.activate_remote()
                         if protocol_manager:
@@ -3799,7 +3401,7 @@ def main():
                             protocol_manager.receive_field(pe, field, ts)
                     
                     # If client is already connected, switch to remote controller
-                    if (ble_manager and ble_manager.connected) or client_connected:
+                    if (ble_manager and ble_manager.connected) or (rfcomm_server and rfcomm_server.connected):
                         if controller_manager:
                             controller_manager.activate_remote()
                         if protocol_manager:
@@ -3857,7 +3459,7 @@ def main():
                     ctx = _get_menu_context()
                     position_result = handle_positions_menu(
                         ctx=ctx,
-                        load_positions_config=_load_positions_config,
+                        load_positions_config=lambda: load_positions_config(log),
                         start_from_position=_start_from_position,
                         show_menu=_show_menu,
                         find_entry_index=find_entry_index,

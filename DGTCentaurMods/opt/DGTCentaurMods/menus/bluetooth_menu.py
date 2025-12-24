@@ -13,7 +13,7 @@ def handle_bluetooth_menu(
     find_entry_index: Callable,
     args_device_name: str,
     ble_manager,
-    client_connected: bool,
+    rfcomm_connected: bool,
     board,
     log,
 ) -> MenuSelection:
@@ -21,7 +21,7 @@ def handle_bluetooth_menu(
 
     def build_entries():
         bt_status = bluetooth_status_module.get_bluetooth_status(
-            device_name=args_device_name, ble_manager=ble_manager, rfcomm_connected=client_connected
+            device_name=args_device_name, ble_manager=ble_manager, rfcomm_connected=rfcomm_connected
         )
         status_label = bluetooth_status_module.format_status_label(bt_status)
         advertised_label = bluetooth_status_module.get_advertised_names_label()
@@ -67,7 +67,7 @@ def handle_bluetooth_menu(
     def handle_selection(result: MenuSelection):
         if result.key == "Toggle":
             bt_status = bluetooth_status_module.get_bluetooth_status(
-                device_name=args_device_name, ble_manager=ble_manager, rfcomm_connected=client_connected
+                device_name=args_device_name, ble_manager=ble_manager, rfcomm_connected=rfcomm_connected
             )
             if bt_status["enabled"]:
                 bluetooth_status_module.disable_bluetooth()
