@@ -1181,8 +1181,10 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     # Create players based on settings
     from DGTCentaurMods.players import (
         HumanPlayer, HumanPlayerConfig, EnginePlayer, EnginePlayerConfig,
-        LichessPlayer, LichessPlayerConfig, LichessGameMode,
         HandBrainPlayer, HandBrainConfig, HandBrainMode
+    )
+    from DGTCentaurMods.players.lichess import (
+        LichessPlayer, LichessPlayerConfig, LichessGameMode
     )
     from DGTCentaurMods.players.settings import PlayerSettings
 
