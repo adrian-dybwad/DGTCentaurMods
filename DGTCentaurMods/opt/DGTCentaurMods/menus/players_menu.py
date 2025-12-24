@@ -195,6 +195,7 @@ def handle_player1_menu(
             old_mode = player1_settings["hand_brain_mode"]
             new_mode = toggle_hand_brain_mode_fn(old_mode)
             save_player1_setting("hand_brain_mode", new_mode)
+            player1_settings["hand_brain_mode"] = new_mode  # Update local dict for UI refresh
             log.info(f"[Settings] Player1 hand_brain_mode toggled: {old_mode} -> {new_mode}")
             board.beep(board.SOUND_GENERAL, event_type='key_press')
             continue
@@ -586,6 +587,7 @@ def handle_player2_menu(
             old_mode = player2_settings["hand_brain_mode"]
             new_mode = toggle_hand_brain_mode_fn(old_mode)
             save_player2_setting("hand_brain_mode", new_mode)
+            player2_settings["hand_brain_mode"] = new_mode  # Update local dict for UI refresh
             log.info(f"[Settings] Player2 hand_brain_mode toggled: {old_mode} -> {new_mode}")
             board.beep(board.SOUND_GENERAL, event_type='key_press')
             continue
