@@ -26,6 +26,13 @@ from .inactivity_menu import handle_inactivity_timeout
 from .wifi_menu import handle_wifi_settings_menu
 from .wifi_menu import handle_wifi_scan_menu
 from .bluetooth_menu import handle_bluetooth_menu
+from .accounts_menu import handle_accounts_menu, mask_token
+from .update_menu import (
+    handle_update_menu,
+    handle_local_deb_install,
+    check_and_download_update,
+    install_deb_update,
+)
 
 __all__ = [
     "create_main_menu_entries",
@@ -39,6 +46,12 @@ __all__ = [
     "handle_wifi_settings_menu",
     "handle_wifi_scan_menu",
     "handle_bluetooth_menu",
+    "handle_accounts_menu",
+    "mask_token",
+    "handle_update_menu",
+    "handle_local_deb_install",
+    "check_and_download_update",
+    "install_deb_update",
     "_get_player_type_label",
     "build_player1_menu_entries",
     "build_player2_menu_entries",

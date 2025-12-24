@@ -64,6 +64,12 @@ from DGTCentaurMods.menus import (
     handle_wifi_settings_menu,
     handle_wifi_scan_menu,
     handle_bluetooth_menu,
+    handle_accounts_menu,
+    mask_token,
+    handle_update_menu,
+    handle_local_deb_install,
+    check_and_download_update,
+    install_deb_update,
 )
 
 # Flag set if previous shutdown was incomplete (filesystem errors detected)
@@ -3821,7 +3827,14 @@ def _handle_about_menu():
             ctx.leave_menu()
         elif result.key == "Updates":
             ctx.enter_menu("Updates", 0)
-            sub_result = _handle_update_menu(update_system)
+            sub_result = handle_update_menu(
+                update_system=update_system,
+                show_menu=_show_menu,
+                find_entry_index=find_entry_index,
+                board=board,
+                log=log,
+                initial_index=ctx.current_index(),
+            )
             ctx.leave_menu()
             if is_break_result(sub_result):
                 return sub_result
@@ -3875,165 +3888,15 @@ def _show_support_qr():
 
 
 def _handle_update_menu(update_system):
-    """Handle update settings menu.
-    
-    Provides options to enable/disable updates, set channel, set policy,
-    and manually trigger updates.
-    
-    Args:
-        update_system: The UpdateSystem instance from centaur module.
-    
-    Returns:
-        Break result if interrupted, None otherwise.
-    """
-    import os
-    import urllib.request
-    import json
-    
-    def build_entries():
-        """Build update menu entries with current settings."""
-        status = update_system.getStatus()
-        channel = update_system.getChannel()
-        policy = update_system.getPolicy()
-        
-        status_icon = "checkbox_checked" if status == "enabled" else "checkbox_empty"
-        
-        entries = [
-            IconMenuEntry(
-                key="Status",
-                label=f"Auto-Update\n{status.capitalize()}",
-                icon_name=status_icon,
-                enabled=True
-            ),
-        ]
-        
-        # Only show channel/policy if updates are enabled
-        if status == "enabled":
-            entries.extend([
-                IconMenuEntry(
-                    key="Channel",
-                    label=f"Channel\n{channel.capitalize()}",
-                    icon_name="settings",
-                    enabled=True
-                ),
-                IconMenuEntry(
-                    key="Policy",
-                    label=f"Policy\n{policy.capitalize()}",
-                    icon_name="settings",
-                    enabled=True
-                ),
-            ])
-        
-        # Check for available .deb files in /home/pi
-        deb_files = []
-        try:
-            for f in os.listdir("/home/pi"):
-                if f.endswith(".deb") and f.startswith("dgtcentaurmods_"):
-                    deb_files.append(f)
-        except Exception:
-            pass
-        
-        # Add manual update options
-        entries.append(
-            IconMenuEntry(
-                key="CheckUpdate",
-                label="Check for\nUpdates",
-                icon_name="download",
-                enabled=True
-            )
-        )
-        
-        # Add any found .deb files as update options
-        for deb_file in deb_files:
-            # Extract version from filename
-            try:
-                version_part = deb_file[15:deb_file.find("_", 15)]
-            except Exception:
-                version_part = deb_file
-            entries.append(
-                IconMenuEntry(
-                    key=deb_file,
-                    label=f"Install\n{version_part}",
-                    icon_name="download",
-                    enabled=True
-                )
-            )
-        
-        return entries
-    
-    def handle_selection(result: MenuSelection):
-        """Handle update menu selection."""
-        if result.key == "Status":
-            # Toggle auto-update status
-            current = update_system.getStatus()
-            if current == "enabled":
-                update_system.disable()
-                log.info("[Update] Auto-update disabled")
-            else:
-                update_system.enable()
-                log.info("[Update] Auto-update enabled")
-            board.beep(board.SOUND_GENERAL)
-            return None  # Refresh menu
-        
-        elif result.key == "Channel":
-            # Show channel selection submenu
-            channel_entries = [
-                IconMenuEntry(
-                    key="stable",
-                    label="Stable",
-                    icon_name="checkbox_checked" if update_system.getChannel() == "stable" else "checkbox_empty",
-                    enabled=True
-                ),
-                IconMenuEntry(
-                    key="beta",
-                    label="Beta",
-                    icon_name="checkbox_checked" if update_system.getChannel() == "beta" else "checkbox_empty",
-                    enabled=True
-                ),
-            ]
-            channel_result = _menu_manager.show_menu(channel_entries)
-            if channel_result.is_break:
-                return channel_result
-            if channel_result.key not in ["BACK"]:
-                update_system.setChannel(channel_result.key)
-                log.info(f"[Update] Channel set to: {channel_result.key}")
-                board.beep(board.SOUND_GENERAL)
-        
-        elif result.key == "Policy":
-            # Show policy selection submenu
-            policy_entries = [
-                IconMenuEntry(
-                    key="always",
-                    label="Always\nUpdate",
-                    icon_name="checkbox_checked" if update_system.getPolicy() == "always" else "checkbox_empty",
-                    enabled=True
-                ),
-                IconMenuEntry(
-                    key="revision",
-                    label="Revisions\nOnly",
-                    icon_name="checkbox_checked" if update_system.getPolicy() == "revision" else "checkbox_empty",
-                    enabled=True
-                ),
-            ]
-            policy_result = _menu_manager.show_menu(policy_entries)
-            if policy_result.is_break:
-                return policy_result
-            if policy_result.key not in ["BACK"]:
-                update_system.setPolicy(policy_result.key)
-                log.info(f"[Update] Policy set to: {policy_result.key}")
-                board.beep(board.SOUND_GENERAL)
-        
-        elif result.key == "CheckUpdate":
-            # Check for updates from GitHub
-            _check_and_download_update(update_system)
-        
-        elif result.key.endswith(".deb"):
-            # User selected a .deb file to install
-            _install_deb_update(result.key, update_system)
-        
-        return None  # Continue loop
-    
-    return _menu_manager.run_menu_loop(build_entries, handle_selection)
+    """Legacy stub; handled via menus.update_menu."""
+    return handle_update_menu(
+        update_system=update_system,
+        show_menu=_show_menu,
+        find_entry_index=find_entry_index,
+        board=board,
+        log=log,
+        initial_index=0,
+    )
 
 
 def _check_and_download_update(update_system):
@@ -4042,168 +3905,27 @@ def _check_and_download_update(update_system):
     Args:
         update_system: The UpdateSystem instance.
     """
-    import urllib.request
-    import json
-    
-    from DGTCentaurMods.board.settings import Settings
-    
-    # Show checking message
-    board.display_manager.clear_widgets()
-    promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="Checking for\nupdates..."))
-    if promise:
-        try:
-            promise.result(timeout=2.0)
-        except Exception:
-            pass
-    
-    update_source = Settings.read('update', 'source', 'EdNekebno/DGTCentaurMods')
-    url = f'https://raw.githubusercontent.com/{update_source}/master/DGTCentaurMods/DEBIAN/versions'
-    
-    try:
-        with urllib.request.urlopen(url, timeout=10) as response:
-            ver_info = json.loads(response.read().decode())
-        
-        channel = update_system.getChannel()
-        if channel in ver_info:
-            release_version = ver_info[channel].get('release', '')
-            ota_version = ver_info[channel].get('ota', 'None')
-            
-            current_version = _get_installed_version()
-            
-            if ota_version != 'None' and ota_version != current_version:
-                # Update available - ask to download
-                board.display_manager.clear_widgets()
-                promise = board.display_manager.add_widget(
-                    SplashScreen(board.display_manager.update, message=f"Update available\nv{ota_version}\n\nDownloading...")
-                )
-                if promise:
-                    try:
-                        promise.result(timeout=2.0)
-                    except Exception:
-                        pass
-                
-                # Download the update
-                download_url = f'https://github.com/{update_source}/releases/download/v{release_version}/dgtcentaurmods_{release_version}_armhf.deb'
-                try:
-                    urllib.request.urlretrieve(download_url, '/tmp/dgtcentaurmods_armhf.deb')
-                    log.info(f"[Update] Downloaded update to /tmp/dgtcentaurmods_armhf.deb")
-                    
-                    # Ask to install
-                    board.display_manager.clear_widgets()
-                    promise = board.display_manager.add_widget(
-                        SplashScreen(board.display_manager.update, message=f"Downloaded\nv{release_version}\n\nInstall now?")
-                    )
-                    if promise:
-                        try:
-                            promise.result(timeout=2.0)
-                        except Exception:
-                            pass
-                    
-                    # Show confirm/cancel menu
-                    confirm_entries = [
-                        IconMenuEntry(key="Install", label="Install\nNow", icon_name="play", enabled=True),
-                        IconMenuEntry(key="Later", label="Install\nLater", icon_name="cancel", enabled=True),
-                    ]
-                    confirm_result = _menu_manager.show_menu(confirm_entries)
-                    
-                    if confirm_result.key == "Install":
-                        update_system.updateInstall()
-                        # updateInstall calls sys.exit()
-                    
-                except Exception as e:
-                    log.error(f"[Update] Download failed: {e}")
-                    board.display_manager.clear_widgets()
-                    promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="Download\nfailed"))
-                    if promise:
-                        try:
-                            promise.result(timeout=2.0)
-                        except Exception:
-                            pass
-                    time.sleep(2)
-            else:
-                # No update available
-                board.display_manager.clear_widgets()
-                promise = board.display_manager.add_widget(
-                    SplashScreen(board.display_manager.update, message=f"You have the\nlatest version\n\nv{current_version}")
-                )
-                if promise:
-                    try:
-                        promise.result(timeout=2.0)
-                    except Exception:
-                        pass
-                time.sleep(2)
-        else:
-            log.warning(f"[Update] Channel '{channel}' not found in version info")
-            board.display_manager.clear_widgets()
-            promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="Channel not\nfound"))
-            if promise:
-                try:
-                    promise.result(timeout=2.0)
-                except Exception:
-                    pass
-            time.sleep(2)
-    
-    except Exception as e:
-        log.error(f"[Update] Failed to check for updates: {e}")
-        board.display_manager.clear_widgets()
-        promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="Check failed\n\nNo network?"))
-        if promise:
-            try:
-                promise.result(timeout=2.0)
-            except Exception:
-                pass
-        time.sleep(2)
+    return check_and_download_update(
+        update_system=update_system,
+        board=board,
+        log=log,
+        menu_manager=_menu_manager,
+        get_installed_version=_get_installed_version,
+        read_update_source=lambda: __import__("DGTCentaurMods.board.settings", fromlist=["Settings"]).Settings.read(
+            "update", "source", "EdNekebno/DGTCentaurMods"
+        ),
+    )
 
 
 def _install_deb_update(deb_file: str, update_system):
-    """Install a .deb file from /home/pi.
-    
-    Args:
-        deb_file: Name of the .deb file in /home/pi.
-        update_system: The UpdateSystem instance.
-    """
-    import os
-    import shutil
-    
-    source_path = f"/home/pi/{deb_file}"
-    if not os.path.exists(source_path):
-        log.error(f"[Update] .deb file not found: {source_path}")
-        return
-    
-    # Show confirmation
-    board.display_manager.clear_widgets()
-    promise = board.display_manager.add_widget(
-        SplashScreen(board.display_manager.update, message=f"Install\n{deb_file[:20]}?")
+    """Legacy stub; handled via menus.update_menu."""
+    return install_deb_update(
+        deb_file=deb_file,
+        update_system=update_system,
+        board=board,
+        log=log,
+        menu_manager=_menu_manager,
     )
-    if promise:
-        try:
-            promise.result(timeout=2.0)
-        except Exception:
-            pass
-    
-    confirm_entries = [
-        IconMenuEntry(key="Install", label="Install\nNow", icon_name="play", enabled=True),
-        IconMenuEntry(key="Cancel", label="Cancel", icon_name="cancel", enabled=True),
-    ]
-    confirm_result = _menu_manager.show_menu(confirm_entries)
-    
-    if confirm_result.key == "Install":
-        # Copy to /tmp and install
-        try:
-            shutil.copy(source_path, '/tmp/dgtcentaurmods_armhf.deb')
-            log.info(f"[Update] Copied {deb_file} to /tmp for installation")
-            update_system.updateInstall()
-            # updateInstall calls sys.exit()
-        except Exception as e:
-            log.error(f"[Update] Failed to prepare update: {e}")
-            board.display_manager.clear_widgets()
-            promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="Install\nfailed"))
-            if promise:
-                try:
-                    promise.result(timeout=2.0)
-                except Exception:
-                    pass
-            time.sleep(2)
 
 
 def _handle_system_menu():
@@ -4979,22 +4701,6 @@ def _start_lichess_game(lichess_config) -> bool:
     return True
 
 
-def _mask_token(token: str) -> str:
-    """Mask a token for display, showing only first and last few characters.
-    
-    Args:
-        token: The token to mask
-        
-    Returns:
-        Masked token string (e.g., "lip_ab...xy" or "Not set")
-    """
-    if not token:
-        return "Not set"
-    if len(token) <= 8:
-        return token[:2] + "..." + token[-2:] if len(token) > 4 else "****"
-    return token[:6] + "..." + token[-4:]
-
-
 def _handle_accounts_menu():
     """Handle Accounts submenu for online service credentials.
     
@@ -5002,32 +4708,11 @@ def _handle_accounts_menu():
     Each entry displays the current credential status (masked).
     """
     from DGTCentaurMods.board import centaur
-    
-    def build_entries():
-        """Build accounts menu entries with current status."""
-        token = centaur.get_lichess_api()
-        masked = _mask_token(token)
-        
-        return [
-            IconMenuEntry(
-                key="Lichess",
-                label=f"Lichess\n{masked}",
-                icon_name="lichess",
-                enabled=True,
-                font_size=12,
-                max_height=47  # ~1/6 of available screen height (280px)
-            ),
-        ]
-    
-    def handle_selection(result: MenuSelection):
-        """Handle accounts menu selection."""
-        if result.key == "Lichess":
-            sub_result = _handle_lichess_token()
-            if is_break_result(sub_result):
-                return sub_result
-        return None  # Continue loop
-    
-    return _menu_manager.run_menu_loop(build_entries, handle_selection)
+    return handle_accounts_menu(
+        menu_manager=_menu_manager,
+        get_lichess_api=centaur.get_lichess_api,
+        handle_lichess_token_fn=_handle_lichess_token,
+    )
 
 
 def _handle_lichess_token():
