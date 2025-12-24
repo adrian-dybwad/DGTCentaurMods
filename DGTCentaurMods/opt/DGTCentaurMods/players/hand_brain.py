@@ -211,6 +211,7 @@ class HandBrainPlayer(Player):
         
         # NORMAL mode state
         self._suggested_piece_type: Optional[chess.PieceType] = None
+        self._suggested_best_move: Optional[chess.Move] = None  # The move used to derive the suggestion
         self._brain_hint_callback: Optional[BrainHintCallback] = None
         
         # REVERSE mode state
@@ -300,6 +301,87 @@ class HandBrainPlayer(Player):
             callback: Function(squares, flash_count) to flash the squares.
         """
         self._invalid_selection_flash_callback = callback
+    
+    def get_hint(self, board: chess.Board) -> Optional[chess.Move]:
+        """Get a hint move for the ? key.
+        
+        In NORMAL mode: Returns the stored best move that was used to derive
+        the piece type suggestion. This is the engine's recommended move.
+        
+        In REVERSE mode: Computes the engine's best move synchronously and
+        lights up all squares with that piece type (same as what NORMAL mode
+        does automatically). Returns the best move for LED display.
+        
+        Args:
+            board: Current chess position.
+        
+        Returns:
+            The hint move, or None if not available.
+        """
+        if self._hb_config.mode == HandBrainMode.NORMAL:
+            # In NORMAL mode, we already know the best move - return it
+            if self._suggested_best_move is not None:
+                log.info(f"[HandBrain] Hint (NORMAL mode): returning stored best move {self._suggested_best_move.uci()}")
+                return self._suggested_best_move
+            else:
+                log.info("[HandBrain] Hint (NORMAL mode): no suggestion available yet")
+                return None
+        else:
+            # REVERSE mode: compute best move and show piece type on LEDs
+            return self._compute_hint_for_reverse_mode(board)
+    
+    def _compute_hint_for_reverse_mode(self, board: chess.Board) -> Optional[chess.Move]:
+        """Compute a hint for REVERSE mode - shows which piece type to select.
+        
+        This mirrors what NORMAL mode does automatically: compute best move,
+        extract piece type, and light up squares with that piece type.
+        
+        Args:
+            board: Current chess position.
+        
+        Returns:
+            The hint move, or None if engine not ready.
+        """
+        with self._lock:
+            if not self._engine:
+                log.warning("[HandBrain] Hint (REVERSE mode): engine not ready")
+                return None
+            
+            try:
+                # Re-apply UCI options before computation
+                if self._uci_options:
+                    self._engine.configure(self._uci_options)
+                
+                # Get engine's best move (use short time limit for responsiveness)
+                result = self._engine.play(
+                    board,
+                    chess.engine.Limit(time=min(self._hb_config.time_limit_seconds, 1.0))
+                )
+                best_move = result.move
+                
+                if best_move:
+                    piece = board.piece_at(best_move.from_square)
+                    if piece:
+                        piece_name = chess.piece_name(piece.piece_type).capitalize()
+                        log.info(f"[HandBrain] Hint (REVERSE mode): suggest {piece_name} from best move {best_move.uci()}")
+                        
+                        # Light up squares with this piece type
+                        self._show_piece_type_leds(board, piece.piece_type)
+                        
+                        # Show status message
+                        self._report_status(f"Hint: {piece_name}")
+                        
+                        return best_move
+                    else:
+                        log.warning("[HandBrain] Hint (REVERSE mode): no piece at from_square")
+                        return None
+                else:
+                    log.warning("[HandBrain] Hint (REVERSE mode): engine returned no move")
+                    return None
+                    
+            except Exception as e:
+                log.error(f"[HandBrain] Hint error: {e}")
+                return None
     
     def start(self) -> bool:
         """Initialize and start the engine.
@@ -412,6 +494,7 @@ class HandBrainPlayer(Player):
         log.info("[HandBrain] NORMAL mode turn started - computing suggestion")
         
         self._suggested_piece_type = None
+        self._suggested_best_move = None
         self._phase = HandBrainPhase.COMPUTING_SUGGESTION
         self._set_state(PlayerState.THINKING)
         self._report_status("Analyzing...")
@@ -441,6 +524,7 @@ class HandBrainPlayer(Player):
                     piece = board_copy.piece_at(best_move.from_square)
                     if piece:
                         self._suggested_piece_type = piece.piece_type
+                        self._suggested_best_move = best_move  # Store for ? key hint
                         piece_symbol = piece.symbol().upper()
                         piece_name = chess.piece_name(piece.piece_type).capitalize()
                         
@@ -1092,6 +1176,7 @@ class HandBrainPlayer(Player):
         if self._phase == HandBrainPhase.WAITING_EXECUTION:
             self._pending_move = None
             self._suggested_piece_type = None
+            self._suggested_best_move = None
             self._selected_piece_type = None
             self._phase = HandBrainPhase.IDLE
             self._lifted_squares = []
@@ -1114,6 +1199,7 @@ class HandBrainPlayer(Player):
         log.info("[HandBrain] New game - resetting")
         self._pending_move = None
         self._suggested_piece_type = None
+        self._suggested_best_move = None
         self._selected_piece_type = None
         self._selection_lifted_square = None
         self._opponent_lifted_square = None
@@ -1195,6 +1281,7 @@ class HandBrainPlayer(Player):
         log.debug("[HandBrain] Takeback - resetting phase")
         self._pending_move = None
         self._suggested_piece_type = None
+        self._suggested_best_move = None
         self._selected_piece_type = None
         self._selection_lifted_square = None
         self._opponent_lifted_square = None

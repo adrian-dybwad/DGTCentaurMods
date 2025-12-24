@@ -2831,10 +2831,30 @@ def key_callback(key_id):
         
         # Handle app-level keys
         if key_id == board.Key.HELP:
-            # Show move hint (best move from analysis engine)
+            # Show move hint - behavior depends on game mode
             if display_manager and protocol_manager and protocol_manager.game_manager:
                 from DGTCentaurMods.state import get_chess_game
-                hint_move = display_manager.get_hint_move(get_chess_game().board)
+                game_board = get_chess_game().board
+                hint_move = None
+                
+                # Check if current player is a Hand+Brain player
+                player_manager = protocol_manager.game_manager.player_manager
+                if player_manager:
+                    current_player = player_manager.get_current_player(game_board)
+                    from DGTCentaurMods.players.hand_brain import HandBrainPlayer
+                    if isinstance(current_player, HandBrainPlayer):
+                        # Use Hand+Brain specific hint
+                        hint_move = current_player.get_hint(game_board)
+                        if hint_move:
+                            display_manager.show_hint(hint_move)
+                            log.info(f"[App] Hand+Brain hint: {hint_move.uci()}")
+                        else:
+                            log.info("[App] Hand+Brain hint not available yet")
+                        _reset_unhandled_key_count()
+                        return
+                
+                # Standard hint from analysis engine
+                hint_move = display_manager.get_hint_move(game_board)
                 if hint_move:
                     # Show hint on display widget and LEDs
                     display_manager.show_hint(hint_move)
