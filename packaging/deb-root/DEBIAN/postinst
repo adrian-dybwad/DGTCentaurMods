@@ -264,6 +264,7 @@ fi
 # This ensures we get the correct architecture binary automatically
 echo -e "::: Setting up Stockfish engine"
 ENGINES_DIR="${DGTCM_PATH}/engines"
+mkdir -p "${ENGINES_DIR}"
 
 # Remove old compiled binaries and symlinks
 rm -f "${ENGINES_DIR}/${STOCKFISH}"
@@ -291,8 +292,8 @@ fi
 
 if [ -n "${STOCKFISH_PATH}" ]; then
     echo -e "::: Found system Stockfish at ${STOCKFISH_PATH}"
-    ln -sf "${STOCKFISH_PATH}" "${ENGINES_DIR}/${STOCKFISH}"
-    chown -h pi:pi "${ENGINES_DIR}/${STOCKFISH}"
+    ln -sfn "${STOCKFISH_PATH}" "${ENGINES_DIR}/${STOCKFISH}"
+    chown -h pi:pi "${ENGINES_DIR}/${STOCKFISH}" 2>/dev/null || true
     echo -e "::: Created symlink ${ENGINES_DIR}/${STOCKFISH} -> ${STOCKFISH_PATH}"
 else
     echo -e "::: WARNING: Stockfish not found on PATH. Install it with: sudo apt-get install -y stockfish"
