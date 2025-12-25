@@ -45,3 +45,4 @@ jobs:
           pytest src/universalchess/tests/ -v --tb=short
         env:
           PYTEST_CURRENT_TEST: "true"
+          PYTHONPATH: ${{ github.workspace }}/src
