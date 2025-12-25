@@ -13,7 +13,7 @@
 Chessnut Air Protocol Emulator
 
 Emulates a Chessnut Air chess board, responding to commands from chess apps
-and generating board state updates based on the physical DGT Centaur board.
+and generating board state updates based on the physical board.
 
 Protocol based on official Chessnut eBoards API documentation:
 https://github.com/chessnutech/Chessnut_eBoards

@@ -126,7 +126,7 @@ def run_hardware_promotion_test(color="white"):
     """
     Run interactive hardware test for promotion.
     
-    This test requires manual interaction with the DGT Centaur board.
+    This test requires manual interaction with the board.
     Uses logger instead of print for proper logging hygiene.
     
     Args:
@@ -137,7 +137,7 @@ def run_hardware_promotion_test(color="white"):
         return
     
     logger.info(f"Testing {color} promotion with hardware...")
-    logger.info("This test requires manual interaction with the DGT Centaur board")
+    logger.info("This test requires manual interaction with the board")
     
     # Create promotion position
     if color.lower() == "white":

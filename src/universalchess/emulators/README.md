@@ -1,6 +1,6 @@
 # Emulators
 
-Protocol parsing and encoding modules used by `protocol_manager.py` to translate between chess app protocols and the physical DGT Centaur board.
+Protocol parsing and encoding modules used by `protocol_manager.py` to translate between chess app protocols and the physical board.
 
 ## Purpose
 
@@ -30,8 +30,8 @@ The ProtocolManager class handles protocol parsing and routing. These emulator m
 
 ## Requirements
 
-- Physical DGT Centaur board connected
-- Used as part of the DGTCentaurMods system (not standalone)
+- Physical board connected
+- Used as part of the Universal-Chess system (not standalone)
 
 ## See Also
 

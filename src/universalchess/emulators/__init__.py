@@ -13,14 +13,13 @@
 Protocol emulators for chess board apps.
 
 These modules emulate the protocols used by various chess board companion apps,
-allowing the DGT Centaur to appear as different board types to those apps.
+allowing Universal Chess to appear as different board types to those apps.
 
 Includes:
 - Chessnut: Chessnut Air protocol (BLE)
 - Millennium: Millennium ChessLink protocol (BLE/RFCOMM)
 - Pegasus: DGT Pegasus protocol (BLE)
 
-Note: Lichess has moved to DGTCentaurMods.opponents.lichess as LichessOpponent.
 """
 
 import time as _t

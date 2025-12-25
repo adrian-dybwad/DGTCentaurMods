@@ -23,7 +23,7 @@ This document provides a comprehensive overview of all modules, their internal g
 ## universal.py (Entry Point)
 
 ### Purpose
-Main application entry point - Universal Bluetooth Relay with BLE and RFCOMM support. Connects to target devices via Bluetooth and relays data between the DGT Centaur board and connected clients.
+Main application entry point - Universal Bluetooth Relay with BLE and RFCOMM support. Connects to target devices via Bluetooth and relays data between the board and connected clients.
 
 ### Global Variables
 | Variable | Purpose |
@@ -45,7 +45,7 @@ Main application entry point - Universal Bluetooth Relay with BLE and RFCOMM sup
 
 ## board/ Module
 
-Hardware abstraction layer for interacting with the DGT Centaur chess board.
+Hardware abstraction layer for interacting with the chess board.
 
 ### board.py
 

@@ -44,6 +44,8 @@ import pwd
 import subprocess
 from xml.sax.saxutils import escape
 
+from universalchess.web.piece_svg import generate_piece_svg, PieceSvgOptions
+
 # Conditionally import crypt (removed in Python 3.13+, may not be available)
 try:
     import crypt
@@ -1298,6 +1300,17 @@ def makePGN(gameid):
     if pgn_string is None:
         return "", 404
     return pgn_string
+
+
+@app.route("/pieces/<piece_code>.svg")
+def piece_svg(piece_code: str):
+    """Serve an on-the-fly SVG for chessboard.js piece rendering."""
+    try:
+        svg = generate_piece_svg(piece_code, options=PieceSvgOptions(size=80))
+    except ValueError:
+        abort(404)
+
+    return Response(svg, mimetype="image/svg+xml")
 
 pb = Image.open(get_resource_path("pb.png")).convert("RGBA")
 pw = Image.open(get_resource_path("pw.png")).convert("RGBA")

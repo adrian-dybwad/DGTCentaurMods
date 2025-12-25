@@ -14,7 +14,7 @@
     var ruyLopez = '{{ fen }}'
     var config = {
         position: ruyLopez,
-        pieceTheme: "{{ url_for('static', filename='chessboardjs/img/chesspieces/wikipedia/') }}" + "{piece}.png"
+        pieceTheme: "{{ url_for('piece_svg', piece_code='wK') }}".replace("wK.svg", "{piece}.svg")
     }
     var board1 = Chessboard('board1', config)
     </script>

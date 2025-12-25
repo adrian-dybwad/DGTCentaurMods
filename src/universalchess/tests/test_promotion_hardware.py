@@ -206,7 +206,7 @@ def run_hardware_test(color="white"):
     """
     Run interactive hardware test for promotion.
     
-    This test requires manual interaction with the DGT Centaur board
+    This test requires manual interaction with the board
     and is not suitable for automated testing.
     
     Args:

@@ -1,4 +1,4 @@
-# DGT Centaur Universal - Architecture Diagrams
+# Universal Chess - Architecture Diagrams
 
 ## 1. Application Startup Flow
 

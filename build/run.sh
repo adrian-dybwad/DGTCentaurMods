@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # ============================================================================
-# DGTCentaur Launcher
+# Universal-Chess Launcher
 # ============================================================================
 #
 # Description:
-#   Launch script for DGTCentaurMods project. Supports running on Bullseye,
+#   Launch script for Universal-Chess project. Supports running on Bullseye,
 #   Bookworm, or desktop environments. Automatically manages the Python
 #   virtual environment and systemd service lifecycle.
 #
@@ -83,7 +83,24 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
+DO_UPDATE=true
+if [ "${1:-}" = "--no-update" ] || [ "${1:-}" = "--no-git-pull" ]; then
+  DO_UPDATE=false
+  shift
+fi
+
 cd "${REPO_ROOT}"
+
+if [ "$DO_UPDATE" = true ]; then
+  if [ ! -d "${REPO_ROOT}/.git" ]; then
+    echo "Not a git repository: ${REPO_ROOT} (skipping git pull)" >&2
+  elif ! git diff --quiet || ! git diff --cached --quiet; then
+    echo "Working tree has local changes; skipping 'git pull --ff-only'." >&2
+    echo "Run with --no-update to silence this, or commit/stash to enable pulling." >&2
+  else
+    git pull --ff-only || echo "git pull failed; continuing without update." >&2
+  fi
+fi
 
 # Ensure virtualenv exists (repo-root .venv)
 if [ ! -d "${REPO_ROOT}/.venv" ]; then

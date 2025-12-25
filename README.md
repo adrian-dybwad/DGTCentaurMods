@@ -1,8 +1,15 @@
-# UNIVERSAL
+# Universal-Chess
 
-This project adds features to the DGT Centaur electronic chessboard, such as the ability to export your games via PGN files, use the chessboard as an interface for online play (e.g. Lichess), play engines, and emulate other chess boards such as the DGT Pegasus.
+Universal-Chess is an extensible software platform for electronic chess boards.
+It currently targets the **DGT Centaur** hardware (as the first supported board), and includes:
+- Local play against engines
+- Game recording/export (PGN)
+- Online play (Lichess integration)
+- Board emulation modes (Millennium / Pegasus / Chessnut) for compatible apps
 
-Inside the DGT Centaur is a Raspberry Pi Zero with an SD Card, by replacing that with a Raspberry Pi Zero 2 W (or Raspberry Pi Zero W) and using our own software we get a wireless enabled chessboard that can theoretically do practically anything we can imagine. We've reverse-engineered most of the protocols for piece detection, lights, sound, and display (although we still occasionally discover the odd new thing). Now we can control the board, we're using that to create the software features.
+On DGT Centaur hardware, the stock Raspberry Pi can be replaced with a Raspberry Pi Zero 2 W (or Raspberry Pi Zero W) to enable Wi‑Fi/Bluetooth features and run this software stack.
+
+**Warranty notice:** Hardware modification may void device warranty. Proceed at own risk.
 
 ## Architecture
 
@@ -17,27 +24,15 @@ These foundations enable the higher-level components:
 - `DisplayManager` composes widgets without worrying about refresh mechanics  
 - The menu system, game resume, position loading - all orchestration on top of solid primitives
 
-Good architecture compounds. Every feature added costs less than it would have before these foundations existed. New capabilities like predefined position loading become mostly wiring - the hard parts (rendering, event handling, correction mode, special move detection) are already solved.
-
-## Development Approach
-
-This codebase was developed through human-AI collaboration - a partnership where each brings different strengths. The human provides domain knowledge, hardware access, real-world testing, and architectural vision. The AI brings pattern recognition across the codebase, rapid iteration on implementations, and the ability to trace complex event flows through multiple layers of abstraction.
-
-The result is code that neither could have written alone. When a bug surfaces - like piece events being delayed during engine thinking - the AI can trace the callback chain from serial parsing through queue workers to blocking calls, while the human provides the runtime logs and hardware feedback that reveal where theory meets reality.
-
-This collaborative approach works because the foundations are solid. Clean abstractions in the serial layer and display framework mean new features can be discussed at the right level of abstraction, implemented correctly the first time, and debugged systematically when issues arise.
-
-**A word of caution!**
-
-**All functionality is based on the fact that the Raspberry Pi Zero inside the board is being replaced with a Raspberry Pi Zero 2 W (or Raspberry Pi Zero W) and this breaks the product warranty. Proceed at your own risk!**
+The project is moving toward a plugin-friendly architecture where board support, emulators, players, and assistants can be extended without rewriting core orchestration.
 
 ## Project Status and a Word on Forks and Derivatives and other builds
 
-Note on forks and derivatives. As an open source project we want people to be able to take this code and work with it to improve people's experiences with electronic chess boards. You are welcome to amend the code, to use the reversed protocols, to create derivatives, and we encourage you to do so. Whilst we work with the DGT Centaur, maybe you will want to integrate it into your own DIY chessboard, and so on. Hopefully you'll feed back those great changes, fixes, improvements too. We ask only that you follow the license, be clear that your work is a modification, and you ensure that the end user understands the state of the code.
+Forks and derivatives are welcome. Follow the license, clearly label modifications, and ensure end users understand the state of the code.
 
-A number of binaries are included in this repository as the software makes use of them - these are not covered under the general GPL license terms of the project. Our GPL license covers the bulk of the Python code. If you are creating a derivative, it is up to you to ensure you can use these binaries. 
+A number of binaries are included in this repository and are not covered under the general GPL license terms. The GPL license covers the bulk of the Python code. Derivative projects should verify licensing for any bundled binaries.
 
-This project is presented to you in an beta state. This means that whilst the project works generally, you may come across some bugs. If you have problems, feel free to raise an issue or join us on discord https://discord.gg/zqgUGK2x49 .
+This project is in beta. Bugs may exist. Issues and reports are welcome.
 
 
 ## Current Features
@@ -48,7 +43,7 @@ This project is presented to you in an beta state. This means that whilst the pr
 - **Predefined Positions** - Load test positions (en passant, castling, promotion) or puzzles/endgames from the Settings menu. Physical board correction mode guides you to set up the position correctly.
 
 ### Board Emulation (Universal)
-The board simultaneously advertises as multiple e-board types and auto-detects which protocol an app uses - this is why it's called UNIVERSAL:
+Universal-Chess can advertise as multiple e-board types and auto-detect which protocol a connected app uses:
 - **DGT Revelation II / Millennium** - Use the Centaur as a Bluetooth DGT e-board with apps, Rabbit plugin, Livechess, etc. Works with Chess for Android and Chess.com app (experimental).
 - **DGT Pegasus** - Emulate a DGT Pegasus. Works with the DGT Chess app.
 - **Chessnut** - Emulate a Chessnut board for compatible apps.
@@ -73,8 +68,7 @@ The board simultaneously advertises as multiple e-board types and auto-detects w
 - WiFi configuration, Bluetooth pairing, sound control, Lichess API token, engine selection, and predefined position loading.
 
 ## Install procedure
-See the install procedure in the release info page.
-Note: when installing Raspbian please select Bullseye (legacy) and not the new "bookworm".
+See the install procedure in the release page for the target device image/package.
 
 ## Local development setup (configs and database)
 
@@ -84,6 +78,12 @@ Note: when installing Raspbian please select Bullseye (legacy) and not the new "
   - Copy resources to `/opt/universalchess/resources/`.
 - The SQLite database is created at runtime at `/opt/universalchess/db/centaur.db` on first run; it is not tracked in git.
  - The current FEN position is written to `/opt/universalchess/tmp/fen.log` by runtime services.
+
+## Repository layout
+
+- Source (Python package): `src/universalchess/`
+- Debian packaging staging root: `packaging/deb-root/`
+- Debian install root at runtime: `/opt/universalchess`
 
 ## Local Python env (direnv + venv)
 
@@ -98,10 +98,16 @@ Note: when installing Raspbian please select Bullseye (legacy) and not the new "
   3. From repo root, allow: `direnv allow`
 - After that, entering the repo activates the venv; run tests with `bin/pytest ...` or python with `bin/python ...`.
 
+## Running locally
+
+- Main app: `./build/run.sh` (defaults to `python -m universalchess.universal`)
+  - Skip auto-update/pull: `./build/run.sh --no-update`
+- Web UI: `./build/run-web.sh`
+
 ## Support
 
-Join us on Discord: https://discord.gg/zqgUGK2x49
+Join on Discord: `https://discord.gg/zqgUGK2x49`
 
 ## Contributors welcome!
 
-If you can offer some time and effort to the project please get in contact! Everybody is more than welcome!
+Contributions are welcome.
