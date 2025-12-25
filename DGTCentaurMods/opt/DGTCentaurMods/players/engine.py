@@ -32,14 +32,14 @@ class EnginePlayerConfig(PlayerConfig):
         name: Engine name for display.
         color: The color this player plays.
         time_limit_seconds: Maximum time per move.
-        engine_name: Name of the engine executable (e.g., "stockfish_pi").
+        engine_name: Name of the engine executable (e.g., "stockfish").
         engine_path: Full path to engine executable. If None, searches in
                     standard locations (engines/ folder).
         elo_section: Section name from .uci config file for ELO settings.
         uci_options: Additional UCI options to configure.
     """
     time_limit_seconds: float = 5.0
-    engine_name: str = "stockfish_pi"
+    engine_name: str = "stockfish"
     engine_path: Optional[str] = None
     elo_section: str = "Default"
     uci_options: Dict[str, str] = field(default_factory=dict)
@@ -132,8 +132,10 @@ class EnginePlayer(Player):
             return False
         
         # Load UCI options from config file (synchronous, fast)
-        uci_file_path = str(engine_path) + ".uci"
-        self._load_uci_options(uci_file_path)
+        # UCI files are in config/engines/ or defaults/engines/, not next to binaries
+        uci_file_path = self._resolve_uci_file_path()
+        if uci_file_path:
+            self._load_uci_options(uci_file_path)
         
         # Start engine initialization in background
         def _init_engine():
@@ -189,6 +191,17 @@ class EnginePlayer(Player):
                 self._engine = None
         
         self._set_state(PlayerState.STOPPED)
+    
+    def clear_pending_move(self) -> None:
+        """Clear any pending move.
+        
+        Called when an external app connects and takes over game control.
+        The engine may have computed a move that should now be discarded.
+        """
+        if self._pending_move is not None:
+            log.info(f"[EnginePlayer] Clearing pending move: {self._pending_move.uci()}")
+            self._pending_move = None
+            self._lifted_squares = []
     
     def _do_request_move(self, board: chess.Board) -> None:
         """Request the engine to compute a move.
@@ -276,6 +289,10 @@ class EnginePlayer(Player):
         Only submits if the move matches the pending move. If it doesn't
         match, the board state is wrong and needs correction.
         
+        Handles destination-only moves (from_square == to_square) which indicate
+        a missed lift event. If the destination matches the pending move's to_square,
+        we trust the move was executed correctly.
+        
         Args:
             move: The formed move from piece events.
         """
@@ -286,6 +303,19 @@ class EnginePlayer(Player):
             log.warning(f"[EnginePlayer] Move formed but no pending move - engine still thinking")
             self._report_error("move_mismatch")
             return
+        
+        # Handle destination-only move (missed lift event)
+        # If from_square == to_square and matches pending move's to_square, trust it
+        if move.from_square == move.to_square:
+            if move.to_square == self._pending_move.to_square:
+                log.warning(f"[EnginePlayer] MISSED LIFT RECOVERY: Destination-only move to {chess.square_name(move.to_square)} matches pending move's destination")
+                if self._move_callback:
+                    self._move_callback(self._pending_move)
+                return
+            else:
+                log.warning(f"[EnginePlayer] Destination-only move {chess.square_name(move.to_square)} does not match pending {self._pending_move.uci()}")
+                self._report_error("move_mismatch")
+                return
         
         # Check if move matches (ignoring promotion - use pending move's promotion)
         if move.from_square == self._pending_move.from_square and \
@@ -339,6 +369,8 @@ class EnginePlayer(Player):
         """Find the engine executable.
         
         Searches in standard locations if not explicitly configured.
+        Uses paths.get_engine_path() which checks installed location first,
+        then falls back to development location.
         
         Returns:
             Path to engine executable, or None if not found.
@@ -349,14 +381,37 @@ class EnginePlayer(Player):
                 return path
             log.warning(f"[EnginePlayer] Configured path not found: {path}")
         
-        # Search standard locations
-        base_path = pathlib.Path(__file__).parent.parent
-        engine_path = base_path / "engines" / self._engine_config.engine_name
+        from DGTCentaurMods.paths import get_engine_path
+        engine_path = get_engine_path(self._engine_config.engine_name)
+        if engine_path:
+            return pathlib.Path(engine_path)
         
-        if engine_path.exists():
-            return engine_path
+        log.error(f"[EnginePlayer] Engine not found: {self._engine_config.engine_name}")
+        return None
+    
+    def _resolve_uci_file_path(self) -> Optional[str]:
+        """Find the UCI configuration file for this engine.
         
-        log.error(f"[EnginePlayer] Engine not found: {engine_path}")
+        Searches in:
+        1. /opt/DGTCentaurMods/config/engines/ (production)
+        2. defaults/engines/ relative to this module (development)
+        
+        Returns:
+            Path to UCI file, or None if not found.
+        """
+        engine_name = self._engine_config.engine_name
+        
+        # Check production location
+        prod_path = pathlib.Path(f"/opt/DGTCentaurMods/config/engines/{engine_name}.uci")
+        if prod_path.exists():
+            return str(prod_path)
+        
+        # Check development location
+        dev_path = pathlib.Path(__file__).parent.parent / "defaults" / "engines" / f"{engine_name}.uci"
+        if dev_path.exists():
+            return str(dev_path)
+        
+        log.debug(f"[EnginePlayer] No UCI config found for {engine_name}")
         return None
     
     def _load_uci_options(self, uci_file_path: str) -> None:
@@ -401,7 +456,7 @@ class EnginePlayer(Player):
 
 def create_engine_player(
     color: chess.Color,
-    engine_name: str = "stockfish_pi",
+    engine_name: str = "stockfish",
     elo_section: str = "Default",
     time_limit: float = 5.0
 ) -> EnginePlayer:
@@ -409,7 +464,7 @@ def create_engine_player(
     
     Args:
         color: The color this engine plays (WHITE or BLACK).
-        engine_name: Name of the engine (e.g., "stockfish_pi", "maia").
+        engine_name: Name of the engine (e.g., "stockfish", "maia").
         elo_section: ELO section from .uci config file.
         time_limit: Maximum thinking time per move in seconds.
     

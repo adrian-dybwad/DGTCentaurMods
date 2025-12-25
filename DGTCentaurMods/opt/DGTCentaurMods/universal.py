@@ -36,13 +36,81 @@ import signal
 import random
 import psutil
 from enum import Enum, auto
-from typing import Optional, List
+from typing import Any, Dict, Optional, List
+from dataclasses import dataclass, field
 
 # Initialize display FIRST, before board module is imported
 # This allows showing a splash screen while the board initializes
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.epaper import Manager, SplashScreen, IconMenuWidget, IconMenuEntry, KeyboardWidget
 from DGTCentaurMods.epaper.status_bar import STATUS_BAR_HEIGHT
+from DGTCentaurMods.menus import (
+    create_main_menu_entries,
+    create_settings_entries,
+    create_system_entries,
+    _get_player_type_label,
+    handle_system_menu,
+    handle_positions_menu,
+    handle_time_control_menu,
+    handle_chromecast_menu,
+    handle_inactivity_timeout,
+    handle_wifi_settings_menu,
+    handle_wifi_scan_menu,
+    handle_bluetooth_menu,
+    handle_accounts_menu,
+    mask_token,
+    handle_about_menu,
+    handle_engine_manager_menu,
+    handle_engine_detail_menu,
+    show_engine_install_progress,
+    handle_display_settings,
+    handle_sound_settings,
+    handle_reset_settings,
+    handle_analysis_mode_menu,
+    handle_analysis_engine_selection,
+    handle_update_menu,
+    handle_local_deb_install,
+    check_and_download_update,
+    install_deb_update,
+    get_lichess_client,
+    ensure_token,
+    start_lichess_game_service,
+)
+from DGTCentaurMods.menus.players_menu import (
+    handle_players_menu,
+    handle_player1_menu,
+    handle_player2_menu,
+    handle_color_selection,
+    handle_type_selection,
+    handle_hand_brain_mode_selection,
+    handle_name_input,
+)
+from DGTCentaurMods.menus.engine_menu import (
+    handle_engine_selection,
+    handle_elo_selection,
+)
+from DGTCentaurMods.menus.hand_brain_menu import toggle_hand_brain_mode
+from DGTCentaurMods.utils.wifi import (
+    scan_wifi_networks,
+    connect_to_wifi,
+    get_wifi_password_from_board,
+)
+from DGTCentaurMods.utils.positions import (
+    parse_position_entry,
+    load_positions_config,
+)
+from DGTCentaurMods.utils.settings_persistence import (
+    MenuContext,
+)
+from DGTCentaurMods.players.settings import (
+    PlayerSettings,
+    GameSettings,
+    AllSettings,
+)
+
+# Flag set if previous shutdown was incomplete (filesystem errors detected)
+# Accessible via universal.incomplete_shutdown for display in About menu
+incomplete_shutdown = False
 
 # Check previous shutdown status IMMEDIATELY - before any hardware initialization
 # This must run before board module is imported (which initializes the controller)
@@ -65,7 +133,10 @@ def _check_previous_shutdown_early():
     log.info("[Startup] PREVIOUS SHUTDOWN ANALYSIS - Checking OS indicators")
     log.info("=" * 70)
     
-    # 1. Check dmesg for filesystem recovery messages
+    # 1. Check dmesg for filesystem ERROR messages (not routine cleanup)
+    # Note: "orphan cleanup on readonly fs" is NORMAL - it happens on every boot
+    # when the filesystem cleans up files that were open during previous shutdown.
+    # Only actual ERRORS indicate problems.
     try:
         result = subprocess.run(
             ["dmesg"],
@@ -73,19 +144,26 @@ def _check_previous_shutdown_early():
         )
         if result.returncode == 0:
             dmesg_output = result.stdout
-            recovery_indicators = []
+            error_indicators = []
+            info_indicators = []
             for line in dmesg_output.split('\n'):
                 line_lower = line.lower()
-                if any(term in line_lower for term in ['recover', 'orphan', 'unclean', 'ext4-fs error', 'journal']):
-                    if 'recovering' in line_lower or 'orphan' in line_lower or 'unclean' in line_lower:
-                        recovery_indicators.append(line.strip())
-            
-            if recovery_indicators:
-                log.warning("[Startup] DMESG: Filesystem recovery detected (possible unclean shutdown):")
-                for indicator in recovery_indicators[:10]:  # Limit to first 10
+                # Actual errors that indicate problems
+                if 'ext4-fs error' in line_lower or 'ext4_error' in line_lower:
+                    error_indicators.append(line.strip())
+                elif 'unclean' in line_lower:
+                    error_indicators.append(line.strip())
+                elif 'recovering journal' in line_lower:
+                    # Journal recovery with actual data loss indication
+                    error_indicators.append(line.strip())
+            if error_indicators:
+                global incomplete_shutdown
+                incomplete_shutdown = True
+                log.warning("[Startup] DMESG: Filesystem errors detected (possible unclean shutdown):")
+                for indicator in error_indicators[:10]:
                     log.warning(f"[Startup] DMESG:   {indicator}")
             else:
-                log.info("[Startup] DMESG: No filesystem recovery messages found (clean)")
+                log.info("[Startup] DMESG: No filesystem errors found (clean)")
     except Exception as e:
         log.error(f"[Startup] DMESG: Could not check dmesg: {e}")
     
@@ -246,7 +324,7 @@ def _init_display_early():
         
         # Show splash screen immediately (full screen, no status bar)
         _early_display_manager.clear_widgets(addStatusBar=False)
-        _startup_splash = SplashScreen(message="Starting...", leave_room_for_status_bar=False)
+        _startup_splash = SplashScreen(_early_display_manager.update, message="Starting...", leave_room_for_status_bar=False)
         promise = _early_display_manager.add_widget(_startup_splash)
         # Don't block - monitor in background thread
         _wait_for_display_promise(promise, "add_splash", timeout=10.0)
@@ -345,6 +423,8 @@ try:
         find_entry_index,
         ConnectionManager,
     )
+    from DGTCentaurMods.managers.rfcomm_server import RfcommServer
+    from DGTCentaurMods.controllers import ControllerManager
     log.debug(f"[Import timing] managers: {(_import_time.time() - _import_start)*1000:.0f}ms")
 except Exception as e:
     log.error(f"[Startup] Failed to import managers: {e}", exc_info=True)
@@ -374,14 +454,15 @@ CENTAUR_SOFTWARE = "/home/pi/centaur/centaur"
 # Global state
 running = True
 kill = 0
-client_connected = False
 app_state = AppState.MENU  # Current application state
 protocol_manager = None  # ProtocolManager instance
 display_manager = None  # DisplayManager for game UI widgets
+controller_manager = None  # ControllerManager for routing events to local/remote controllers
 _last_message = None  # Last message sent via sendMessage
 relay_mode = False  # Whether relay mode is enabled (connects to relay target)
 mainloop = None  # GLib mainloop for BLE
 rfcomm_manager = None  # RfcommManager for RFCOMM pairing
+rfcomm_server: Optional[RfcommServer] = None  # RFCOMM server for classic Bluetooth
 ble_manager = None  # BleManager for BLE GATT services
 relay_manager = None  # RelayManager for shadow target connections
 _connection_manager: Optional[ConnectionManager] = None  # Initialized in main()
@@ -392,6 +473,7 @@ _return_to_positions_menu = False  # Flag to signal return to positions menu fro
 _is_position_game = False  # Flag to track if current game is a position (practice) game
 _switch_to_normal_game = False  # Flag to signal switch from position game to normal game
 _pending_ble_client_type: str = None  # Flag for BLE connection when between menus
+_pending_display_settings = False  # Flag to show display settings menu from game mode
 _last_position_category_index = 0  # Remember last selected category in positions menu
 _last_position_index = 0  # Remember last selected position in positions menu
 _last_position_category = None  # Remember last selected category name for direct return
@@ -399,54 +481,64 @@ _last_position_category = None  # Remember last selected category name for direc
 # Keyboard state (for WiFi password entry etc.)
 _active_keyboard_widget = None
 
+
+def _set_active_keyboard_widget(widget) -> None:
+    """Track the currently active keyboard widget."""
+    global _active_keyboard_widget
+    _active_keyboard_widget = widget
+
+
+def _clear_active_keyboard_widget() -> None:
+    """Clear the active keyboard widget reference."""
+    global _active_keyboard_widget
+    _active_keyboard_widget = None
+
 # About widget state (for support QR screen)
 _active_about_widget = None
 
-# Socket references
-server_sock = None
-client_sock = None
-
 # Args (stored globally after parsing for access in callbacks)
 _args = None
-
-# Game settings (user-configurable via settings menu)
-# These are loaded from centaur.ini on startup and saved when changed
-# Player settings are stored in [PlayerOne] and [PlayerTwo] sections
-_player1_settings = {
-    'color': 'white',           # Color Player 1 plays: 'white' or 'black'
-    'type': 'human',            # Player type: 'human', 'engine', 'lichess'
-    'name': '',                 # Player name (for human type, empty = use default)
-    'engine': 'stockfish_pi',   # Engine name (when type is 'engine')
-    'elo': 'Default',           # Engine ELO level (when type is 'engine')
-}
-
-_player2_settings = {
-    'type': 'engine',           # Player type: 'human', 'engine', 'lichess'
-    'name': '',                 # Player name (for human type, empty = use default)
-    'engine': 'stockfish_pi',   # Engine name (when type is 'engine')
-    'elo': 'Default',           # Engine ELO level (when type is 'engine')
-}
-
-# General game settings (stored in [game] section)
-_game_settings = {
-    # Time control
-    'time_control': 0,         # Time per player in minutes (0 = disabled/untimed)
-    # System settings (cannot be changed during a game)
-    'analysis_mode': True,     # Enable analysis engine (creates analysis widget even if hidden)
-    # Display settings (widgets to show during game)
-    'show_board': True,        # Show chess board widget
-    'show_clock': True,        # Show clock/turn indicator widget
-    'show_analysis': True,     # Show analysis widget (score bar + graph)
-    'show_graph': True,        # Show history graph in analysis widget
-}
-
-# Available time control options (in minutes)
-TIME_CONTROL_OPTIONS = [0, 1, 3, 5, 10, 15, 30, 60, 90]
 
 # Settings section names in centaur.ini
 SETTINGS_SECTION = 'game'
 PLAYER1_SECTION = 'PlayerOne'
 PLAYER2_SECTION = 'PlayerTwo'
+MENU_STATE_SECTION = 'MenuState'
+
+# Default settings (used for type inference and missing values)
+PLAYER1_DEFAULTS = {
+    'color': 'white',
+    'type': 'human',
+    'name': '',
+    'engine': 'stockfish',
+    'elo': 'Default',
+    'hand_brain_mode': 'normal',
+}
+
+PLAYER2_DEFAULTS = {
+    'color': 'black',  # Player 2 color (opposite of player 1)
+    'type': 'engine',
+    'name': '',
+    'engine': 'stockfish',
+    'elo': 'Default',
+    'hand_brain_mode': 'normal',
+}
+
+GAME_SETTINGS_DEFAULTS = {
+    'time_control': 0,
+    'analysis_mode': True,
+    'analysis_engine': 'stockfish',
+    'show_board': True,
+    'show_clock': True,
+    'show_analysis': True,
+    'show_graph': True,
+}
+
+# Global settings instance (populated from centaur.ini on startup)
+_settings: Optional[AllSettings] = None
+
+# Available time control options (in minutes)
+TIME_CONTROL_OPTIONS = [0, 1, 3, 5, 10, 15, 30, 60, 90]
 
 # Cached engine data
 _available_engines: List[str] = []
@@ -457,126 +549,98 @@ _engine_elo_levels: dict = {}  # engine_name -> list of ELO levels
 # Settings Persistence
 # ============================================================================
 
-def _load_game_settings():
-    """Load game settings from centaur.ini.
-    
-    Reads player settings from [PlayerOne] and [PlayerTwo] sections.
-    Reads general settings from [game] section.
-    Uses defaults if not present.
-    """
-    global _player1_settings, _player2_settings, _game_settings
-    
-    try:
-        from DGTCentaurMods.board.settings import Settings
-        
-        # Player 1 settings (from [PlayerOne] section)
-        _player1_settings['color'] = Settings.read(PLAYER1_SECTION, 'color', 'white')
-        _player1_settings['type'] = Settings.read(PLAYER1_SECTION, 'type', 'human')
-        _player1_settings['name'] = Settings.read(PLAYER1_SECTION, 'name', '')
-        _player1_settings['engine'] = Settings.read(PLAYER1_SECTION, 'engine', 'stockfish_pi')
-        _player1_settings['elo'] = Settings.read(PLAYER1_SECTION, 'elo', 'Default')
-        
-        # Player 2 settings (from [PlayerTwo] section)
-        _player2_settings['type'] = Settings.read(PLAYER2_SECTION, 'type', 'engine')
-        _player2_settings['name'] = Settings.read(PLAYER2_SECTION, 'name', '')
-        _player2_settings['engine'] = Settings.read(PLAYER2_SECTION, 'engine', 'stockfish_pi')
-        _player2_settings['elo'] = Settings.read(PLAYER2_SECTION, 'elo', 'Default')
-        
-        # Time control (from [game] section)
-        time_control_str = Settings.read(SETTINGS_SECTION, 'time_control', '0')
-        try:
-            _game_settings['time_control'] = int(time_control_str)
-        except ValueError:
-            _game_settings['time_control'] = 0
-        
-        # Load display settings (booleans stored as 'true'/'false' strings)
-        # Default to 'true' if not present or if value is empty/invalid
-        def load_bool_setting(key: str) -> bool:
-            value = Settings.read(SETTINGS_SECTION, key, 'true')
-            # Treat empty string, 'false', or '0' as False; everything else as True
-            if value.lower() in ('false', '0', ''):
-                return False
-            return True
-        
-        # Load system settings (analysis mode)
-        _game_settings['analysis_mode'] = load_bool_setting('analysis_mode')
-        
-        _game_settings['show_board'] = load_bool_setting('show_board')
-        _game_settings['show_clock'] = load_bool_setting('show_clock')
-        _game_settings['show_analysis'] = load_bool_setting('show_analysis')
-        _game_settings['show_graph'] = load_bool_setting('show_graph')
+def _get_settings() -> AllSettings:
+    """Get the global settings instance, loading from storage if needed.
 
-        log.info(f"[Settings] Player1: type={_player1_settings['type']}, color={_player1_settings['color']}, "
-                 f"name={_player1_settings['name'] or '(default)'}, "
-                 f"engine={_player1_settings['engine']}, elo={_player1_settings['elo']}")
-        log.info(f"[Settings] Player2: type={_player2_settings['type']}, "
-                 f"name={_player2_settings['name'] or '(default)'}, "
-                 f"engine={_player2_settings['engine']}, elo={_player2_settings['elo']}")
-        log.info(f"[Settings] Game: time={_game_settings['time_control']} min, "
-                 f"analysis={_game_settings['analysis_mode']}")
-        log.info(f"[Settings] Display: board={_game_settings['show_board']}, "
-                 f"clock={_game_settings['show_clock']}, analysis={_game_settings['show_analysis']}, "
-                 f"graph={_game_settings['show_graph']}")
-    except Exception as e:
-        log.warning(f"[Settings] Error loading game settings: {e}, using defaults")
+    Returns:
+        The global AllSettings instance
+    """
+    global _settings
+    if _settings is None:
+        _settings = AllSettings.load(
+            player1_section=PLAYER1_SECTION,
+            player2_section=PLAYER2_SECTION,
+            game_section=SETTINGS_SECTION,
+            player1_defaults=PLAYER1_DEFAULTS,
+            player2_defaults=PLAYER2_DEFAULTS,
+            game_defaults=GAME_SETTINGS_DEFAULTS,
+            log=log,
+        )
+    return _settings
+
+
+def _load_game_settings():
+    """Load game settings from centaur.ini using AllSettings."""
+    global _settings
+
+    _settings = AllSettings.load(
+        player1_section=PLAYER1_SECTION,
+        player2_section=PLAYER2_SECTION,
+        game_section=SETTINGS_SECTION,
+        player1_defaults=PLAYER1_DEFAULTS,
+        player2_defaults=PLAYER2_DEFAULTS,
+        game_defaults=GAME_SETTINGS_DEFAULTS,
+        log=log,
+    )
+    _settings.log_summary()
 
 
 def _save_player1_setting(key: str, value):
-    """Save a Player 1 setting to centaur.ini [PlayerOne] section.
-    
-    Args:
-        key: Setting key (color, type, engine, elo)
-        value: Setting value
-    """
-    global _player1_settings
-    try:
-        from DGTCentaurMods.board.settings import Settings
-        str_value = str(value)
-        Settings.write(PLAYER1_SECTION, key, str_value)
-        _player1_settings[key] = value
-        log.debug(f"[Settings] Saved PlayerOne.{key}={str_value}")
-    except Exception as e:
-        log.warning(f"[Settings] Error saving PlayerOne.{key}={value}: {e}")
+    """Save a Player 1 setting to centaur.ini."""
+    _get_settings().player1.set(key, value)
 
 
 def _save_player2_setting(key: str, value):
-    """Save a Player 2 setting to centaur.ini [PlayerTwo] section.
-    
-    Args:
-        key: Setting key (type, engine, elo)
-        value: Setting value
-    """
-    global _player2_settings
-    try:
-        from DGTCentaurMods.board.settings import Settings
-        str_value = str(value)
-        Settings.write(PLAYER2_SECTION, key, str_value)
-        _player2_settings[key] = value
-        log.debug(f"[Settings] Saved PlayerTwo.{key}={str_value}")
-    except Exception as e:
-        log.warning(f"[Settings] Error saving PlayerTwo.{key}={value}: {e}")
+    """Save a Player 2 setting to centaur.ini."""
+    _get_settings().player2.set(key, value)
 
 
 def _save_game_setting(key: str, value):
-    """Save a general game setting to centaur.ini [game] section.
-    
-    Args:
-        key: Setting key (time_control, analysis_mode, show_board, etc.)
-        value: Setting value (string or boolean - booleans stored as 'true'/'false')
+    """Save a general game setting to centaur.ini."""
+    _get_settings().game.set(key, value)
+
+
+# Dict accessors for compatibility with menu functions that expect dicts
+def _player1_settings_dict() -> Dict[str, Any]:
+    """Get Player 1 settings as a dict."""
+    return _get_settings().player1.to_dict()
+
+
+def _player2_settings_dict() -> Dict[str, Any]:
+    """Get Player 2 settings as a dict."""
+    return _get_settings().player2.to_dict()
+
+
+def _game_settings_dict() -> Dict[str, Any]:
+    """Get game settings as a dict."""
+    return _get_settings().game.to_dict()
+
+
+# Global menu context instance (MenuContext imported from utils/settings_persistence.py)
+_menu_context: Optional[MenuContext] = None
+
+
+def _get_menu_context() -> MenuContext:
+    """Get the global menu context, loading from storage if needed.
+
+    Returns:
+        The global MenuContext instance
     """
-    try:
-        from DGTCentaurMods.board.settings import Settings
-        
-        # Convert to string for storage
-        if isinstance(value, bool):
-            str_value = 'true' if value else 'false'
-        else:
-            str_value = str(value)
-        
-        Settings.write(SETTINGS_SECTION, key, str_value)
-        log.debug(f"[Settings] Saved game.{key}={str_value}")
-    except Exception as e:
-        log.warning(f"[Settings] Error saving game.{key}={value}: {e}")
+    global _menu_context
+    if _menu_context is None:
+        _menu_context = MenuContext.load(section=MENU_STATE_SECTION, log=log)
+    return _menu_context
+
+
+def _clear_menu_state():
+    """Clear the saved menu state.
+    
+    Called when starting a game or explicitly going back to the main menu,
+    to ensure the next startup shows the main menu.
+    """
+    ctx = _get_menu_context()
+    ctx.clear()
+
 
 
 # ============================================================================
@@ -678,7 +742,7 @@ def _resume_game(game_data: dict) -> bool:
     Returns:
         True if game was successfully resumed, False otherwise
     """
-    global protocol_manager, app_state
+    global protocol_manager, app_state, controller_manager
     
     try:
         import chess
@@ -686,8 +750,14 @@ def _resume_game(game_data: dict) -> bool:
         
         log.info(f"[Resume] Resuming game {game_data['id']}...")
         
-        # Start game mode with the resume position FEN so display shows correct position immediately
-        _start_game_mode(starting_fen=game_data['fen'])
+        # Start game mode from standard starting position
+        # Moves will be replayed to reach the resumed position
+        # Do NOT pass starting_fen here - that would skip to the final position
+        # before move replay, causing move replay to fail
+        # Suppress initial move requests until the saved move list has been replayed.
+        # Without this, LocalController may request a move on an incomplete board state,
+        # which can produce illegal Hand+Brain suggestions (e.g., moves onto own pieces).
+        _start_game_mode(suppress_initial_move_request=True)
         
         if protocol_manager is None or protocol_manager.game_manager is None:
             log.error("[Resume] Failed to start game mode")
@@ -698,27 +768,27 @@ def _resume_game(game_data: dict) -> bool:
         # Set the database game ID so updates go to the right record
         gm.game_db_id = game_data['id']
         
+        # Get game state for proper mutation with observer notification
+        from DGTCentaurMods.state import get_chess_game
+        from DGTCentaurMods.state.chess_game import ChessGameState
+        game_state = get_chess_game()
+        
         # Replay all the moves to get to the current position
+        # Use game_state.push_uci() to ensure observers are notified
         for move_uci in game_data['moves']:
             try:
-                move = chess.Move.from_uci(move_uci)
-                if move in gm.chess_board.legal_moves:
-                    gm.chess_board.push(move)
-                else:
-                    log.warning(f"[Resume] Illegal move in history: {move_uci}")
+                game_state.push_uci(move_uci)
+            except ValueError as e:
+                log.warning(f"[Resume] Illegal move in history: {move_uci} - {e}")
             except Exception as move_error:
                 log.warning(f"[Resume] Error replaying move {move_uci}: {move_error}")
         
         # Verify we reached the expected position
-        current_fen = gm.chess_board.fen()
+        current_fen = game_state.fen
         if current_fen != game_data['fen']:
             log.warning(f"[Resume] FEN mismatch after replay. Expected: {game_data['fen']}, Got: {current_fen}")
         
         log.info(f"[Resume] Game resumed successfully at position: {current_fen[:50]}...")
-        
-        # Update the display to show the current position
-        if protocol_manager:
-            protocol_manager._update_display()
         
         # Restore clock times if available
         white_clock = game_data.get('white_clock')
@@ -729,25 +799,29 @@ def _resume_game(game_data: dict) -> bool:
         
         # Restore eval score history if available
         eval_scores = game_data.get('eval_scores', [])
-        if eval_scores and display_manager:
-            display_manager.set_score_history(eval_scores)
+        if eval_scores:
+            from DGTCentaurMods.services.analysis import get_analysis_service
+            get_analysis_service().restore_history(eval_scores)
             log.info(f"[Resume] Eval scores restored: {len(eval_scores)} positions")
         
         # Check if physical board matches the resumed position
         current_physical_state = board.getChessState()
-        expected_logical_state = gm._chess_board_to_state(gm.chess_board)
+        expected_logical_state = game_state.to_piece_presence_state()
         
         if current_physical_state is not None and expected_logical_state is not None:
-            if not gm._validate_board_state(current_physical_state, expected_logical_state):
+            if not ChessGameState.states_match(current_physical_state, expected_logical_state):
                 log.warning("[Resume] Physical board does not match resumed position, entering correction mode")
                 gm._enter_correction_mode()
                 gm._provide_correction_guidance(current_physical_state, expected_logical_state)
             else:
                 log.info("[Resume] Physical board matches resumed position")
+                # Resume is complete - re-enable move requests from LocalController.
+                if controller_manager and controller_manager.local_controller:
+                    controller_manager.local_controller.set_suppress_move_requests(False)
                 # Board is correct - trigger turn event and prompt current player
                 # Uses _switch_turn_with_event which also calls request_move on the player
                 # If engine is still initializing, the request will be queued
-                log.info(f"[Resume] Triggering {'WHITE' if gm.chess_board.turn == chess.WHITE else 'BLACK'} turn")
+                log.info(f"[Resume] Triggering {'WHITE' if game_state.turn == chess.WHITE else 'BLACK'} turn")
                 gm._switch_turn_with_event()
         else:
             log.warning("[Resume] Could not validate physical board state")
@@ -762,80 +836,6 @@ def _resume_game(game_data: dict) -> bool:
 # ============================================================================
 # Position Loading Functions
 # ============================================================================
-
-def _parse_position_entry(value: str) -> tuple:
-    """Parse a position entry from positions.ini.
-    
-    Format: FEN | hint_move (hint_move is optional)
-    
-    Args:
-        value: Raw value from INI file
-        
-    Returns:
-        Tuple of (fen, hint_move) where hint_move may be None
-    """
-    if '|' in value:
-        parts = value.split('|', 1)
-        fen = parts[0].strip()
-        hint_move = parts[1].strip() if len(parts) > 1 else None
-        # Validate hint_move format (UCI: 4-5 chars like e2e4 or a7a8q)
-        if hint_move and (len(hint_move) < 4 or len(hint_move) > 5):
-            log.warning(f"[Positions] Invalid hint move format: {hint_move}")
-            hint_move = None
-        return (fen, hint_move)
-    else:
-        return (value.strip(), None)
-
-
-def _load_positions_config() -> dict:
-    """Load predefined positions from positions.ini.
-    
-    Returns:
-        Dictionary with category names as keys and dict of {name: (fen, hint_move)} as values.
-        hint_move is None if not specified.
-        Example: {'test': {'en_passant': ('fen...', 'e5d6')}, 'puzzles': {...}}
-    """
-    import configparser
-    
-    positions = {}
-    
-    # Try runtime path first, then development path
-    config_paths = [
-        pathlib.Path("/opt/DGTCentaurMods/config/positions.ini"),
-        pathlib.Path(__file__).parent / "defaults" / "config" / "positions.ini"
-    ]
-    
-    config_file = None
-    for path in config_paths:
-        if path.exists():
-            config_file = path
-            break
-    
-    if config_file is None:
-        log.warning("[Positions] positions.ini not found")
-        return positions
-    
-    try:
-        config = configparser.ConfigParser()
-        config.read(str(config_file))
-        
-        for section in config.sections():
-            positions[section] = {}
-            for name, value in config.items(section):
-                fen, hint_move = _parse_position_entry(value)
-                # Validate FEN has 6 fields
-                if len(fen.split()) == 6:
-                    positions[section][name] = (fen, hint_move)
-                else:
-                    log.warning(f"[Positions] Invalid FEN for {section}/{name}: {fen}")
-        
-        log.info(f"[Positions] Loaded {sum(len(v) for v in positions.values())} positions from {len(positions)} categories")
-        
-    except Exception as e:
-        log.error(f"[Positions] Error loading positions.ini: {e}")
-    
-    return positions
-
 
 def _start_from_position(fen: str, position_name: str, hint_move: str = None) -> bool:
     """Start a game from a predefined position.
@@ -899,21 +899,21 @@ def _start_from_position(fen: str, position_name: str, hint_move: str = None) ->
         
         gm = protocol_manager.game_manager
         
-        # Set the board to the loaded position
-        gm.chess_board.set_fen(fen)
+        # Set the board to the loaded position using game state
+        # This ensures observers (ChessBoardWidget) are notified
+        from DGTCentaurMods.state import get_chess_game
+        from DGTCentaurMods.state.chess_game import ChessGameState
+        game_state = get_chess_game()
+        game_state.set_position(fen)
         
-        log.info(f"[Positions] Position loaded: {gm.chess_board.fen()}")
-        
-        # Update the display to show the position
-        if protocol_manager:
-            protocol_manager._update_display()
+        log.info(f"[Positions] Position loaded: {game_state.fen}")
         
         # Check if physical board matches the loaded position
         current_physical_state = board.getChessState()
-        expected_logical_state = gm._chess_board_to_state(gm.chess_board)
+        expected_logical_state = game_state.to_piece_presence_state()
         
         if current_physical_state is not None and expected_logical_state is not None:
-            if not gm._validate_board_state(current_physical_state, expected_logical_state):
+            if not ChessGameState.states_match(current_physical_state, expected_logical_state):
                 log.info("[Positions] Physical board does not match position, entering correction mode")
                 board.beep(board.SOUND_GENERAL, event_type='game_event')
                 
@@ -928,25 +928,31 @@ def _start_from_position(fen: str, position_name: str, hint_move: str = None) ->
                 board.beep(board.SOUND_GENERAL, event_type='game_event')
                 
                 # Check if position is already a terminal state (checkmate, stalemate, etc.)
-                outcome = gm.chess_board.outcome(claim_draw=True)
+                outcome = game_state.board.outcome(claim_draw=True)
                 if outcome is not None:
-                    # Game is already over - show game over screen
-                    result_string = str(gm.chess_board.result())
+                    # Game is already over - set result on game state (widget observes and shows)
+                    result_string = game_state.result or str(game_state.board.result())
                     termination = str(outcome.termination).replace("Termination.", "")
                     log.info(f"[Positions] Position is already terminal: {termination} ({result_string})")
                     
-                    # Show game over screen via display manager
+                    # Set result triggers game over widget via observer
+                    game_state.set_result(result_string, termination)
                     if display_manager:
-                        display_manager.show_game_over(result_string, termination)
+                        display_manager.stop_clock()
                 else:
                     # Show hint LEDs if provided
                     if hint_from_sq is not None and hint_to_sq is not None:
                         log.info(f"[Positions] Showing hint LEDs: {hint_move} ({hint_from_sq} -> {hint_to_sq})")
-                        board.ledFromTo(hint_from_sq, hint_to_sq, repeat=0)
+                        from DGTCentaurMods.utils.led import LED_SPEED_SLOW, LED_INTENSITY_DEFAULT
+                        # Use slow speed (hint-style) and standard intensity for position hints
+                        board.ledFromTo(hint_from_sq, hint_to_sq,
+                                        intensity=LED_INTENSITY_DEFAULT,
+                                        speed=LED_SPEED_SLOW,
+                                        repeat=0)
                     
                     # Board is correct - trigger turn event
                     if gm.event_callback is not None:
-                        if gm.chess_board.turn == chess.WHITE:
+                        if game_state.turn == chess.WHITE:
                             log.info("[Positions] White to move")
                             gm.event_callback(EVENT_WHITE_TURN)
                         else:
@@ -987,7 +993,7 @@ def _load_available_engines() -> List[str]:
     
     if not uci_dir.exists():
         log.warning(f"[Settings] UCI config directory not found: {uci_dir}")
-        return ['stockfish_pi']  # Default fallback
+        return ['stockfish']  # Default fallback
     
     engines = []
     for uci_file in uci_dir.glob("*.uci"):
@@ -1000,6 +1006,58 @@ def _load_available_engines() -> List[str]:
     _available_engines = sorted(engines)
     log.info(f"[Settings] Found {len(_available_engines)} engines: {_available_engines}")
     return _available_engines
+
+
+def _get_installed_engines() -> List[str]:
+    """Get list of installed engines only.
+    
+    Filters the available engines (those with .uci config files) to only include
+    engines that are actually installed on the system. This is the function that
+    should be used for engine selection menus where the user needs to pick an
+    engine to use.
+    
+    Returns:
+        List of installed engine names, sorted alphabetically.
+    """
+    from DGTCentaurMods.managers.engine_manager import get_engine_manager
+    
+    engine_manager = get_engine_manager()
+    available = _load_available_engines()
+    
+    installed = []
+    for engine_name in available:
+        if engine_manager.is_installed(engine_name):
+            installed.append(engine_name)
+    
+    log.debug(f"[Settings] Installed engines: {installed} (of {len(available)} available)")
+    return installed
+
+
+def _format_engine_label_with_compat(engine_name: str, is_selected: bool, show_compat: bool = True) -> str:
+    """Format an engine label with optional root_moves compatibility info.
+    
+    For engines that have been tested in Reverse Hand+Brain mode, appends
+    the percentage of times the engine respected root_moves constraints.
+    This helps users choose engines that work well with Reverse mode.
+    
+    Args:
+        engine_name: Name of the engine.
+        is_selected: Whether this engine is currently selected (adds * prefix).
+        show_compat: Whether to show compatibility info (True for Reverse H+B context).
+        
+    Returns:
+        Formatted label string.
+    """
+    label = f"* {engine_name}" if is_selected else engine_name
+    
+    if show_compat:
+        from DGTCentaurMods.players.hand_brain import get_root_moves_compatibility
+        compat = get_root_moves_compatibility(engine_name)
+        if compat is not None:
+            # Show compatibility percentage
+            label = f"{label} ({compat:.0f}%)"
+    
+    return label
 
 
 def _load_engine_elo_levels(engine_name: str, uci_path: pathlib.Path) -> List[str]:
@@ -1065,165 +1123,15 @@ def _get_engine_elo_levels(engine_name: str) -> List[str]:
 
 
 # ============================================================================
-# Menu Functions
+# Menu Functions (moved to DGTCentaurMods.menus helpers)
 # ============================================================================
-
-def create_main_menu_entries(centaur_available: bool = True) -> List[IconMenuEntry]:
-    """Create the standard main menu entry configuration.
-    
-    Layout (top to bottom):
-    1. Universal - prominent top button with large centered knight icon (2x height)
-       Uses vertical layout (icon on top, text below)
-    2. Settings - standard height, horizontal layout
-    3. Original Centaur - smaller bottom option (2/3 height, smaller knight)
-    
-    Args:
-        centaur_available: Whether DGT Centaur software is available
-        
-    Returns:
-        List of IconMenuEntry for main menu
-    """
-    entries = []
-    
-    # Universal at top - prominent with large centered knight icon
-    # Vertical layout: icon centered on top, text centered below
-    entries.append(IconMenuEntry(
-        key="Universal",
-        label="PLAY",
-        icon_name="universal_logo",
-        enabled=True,
-        height_ratio=2.0,
-        icon_size=80,
-        layout="vertical",
-        font_size=32,  # Larger text for prominent button
-        bold=True
-    ))
-    
-    # Settings in middle - standard height, horizontal layout
-    entries.append(IconMenuEntry(
-        key="Settings",
-        label="Settings",
-        icon_name="settings",
-        enabled=True,
-        height_ratio=1.0,
-        layout="horizontal",
-        font_size=16
-    ))
-    
-    # Original Centaur at bottom - smaller (2/3 height)
-    if centaur_available:
-        entries.append(IconMenuEntry(
-            key="Centaur",
-            label="Original\nCentaur",
-            icon_name="centaur",
-            enabled=True,
-            height_ratio=0.67,
-            icon_size=28,
-            layout="horizontal",
-            font_size=14  # Smaller text for compact button
-        ))
-    
-    return entries
-
-
-def _get_player_type_label(player_type: str) -> str:
-    """Get display label for player type."""
-    type_labels = {
-        'human': 'Human',
-        'engine': 'Engine',
-        'lichess': 'Lichess'
-    }
-    return type_labels.get(player_type, player_type.capitalize())
-
-
-def _get_players_summary() -> str:
-    """Get a summary string for current player configuration.
-
-    Returns a string like "Human vs Engine" or "Human vs Lichess".
-    """
-    p1_type = _get_player_type_label(_player1_settings['type'])
-    p2_type = _get_player_type_label(_player2_settings['type'])
-
-    # If player is engine, show which engine
-    if _player1_settings['type'] == 'engine':
-        p1_type = _player1_settings['engine'].capitalize()
-    if _player2_settings['type'] == 'engine':
-        p2_type = _player2_settings['engine'].capitalize()
-
-    return f"{p1_type}\nvs {p2_type}"
-
-
-def create_settings_entries() -> List[IconMenuEntry]:
-    """Create entries for the settings submenu.
-    
-    Uses current values from _game_settings.
-    Multi-line labels are used to show the setting name and current value.
-    Time control shows current setting and opens a selection menu.
-
-    Returns:
-        List of IconMenuEntry for settings menu
-    """
-    # Players summary for the Players menu item
-    players_label = _get_players_summary()
-    
-    # Time control: show current setting, icon indicates enabled/disabled
-    time_control = _game_settings['time_control']
-    if time_control == 0:
-        time_label = "Time\nDisabled"
-        time_icon = "timer"
-    else:
-        time_label = f"Time\n{time_control} min"
-        time_icon = "timer_checked"
-    
-    return [
-        IconMenuEntry(key="Players", label=players_label, icon_name="players", enabled=True, font_size=12, height_ratio=0.8),
-        IconMenuEntry(key="TimeControl", label=time_label, icon_name=time_icon, enabled=True, font_size=12, height_ratio=0.8),
-        IconMenuEntry(key="Positions", label="Positions", icon_name="positions", enabled=True, font_size=12, height_ratio=0.8),
-        IconMenuEntry(key="Chromecast", label="Chromecast", icon_name="cast", enabled=True, font_size=12, height_ratio=0.8),
-        IconMenuEntry(key="System", label="System", icon_name="system", enabled=True, font_size=12, height_ratio=0.8),
-        IconMenuEntry(key="About", label="About", icon_name="info", enabled=True, font_size=12, height_ratio=0.8),
-    ]
-
-
-def create_system_entries() -> List[IconMenuEntry]:
-    """Create entries for the system submenu.
-    
-    Includes sound, WiFi, sleep timer, shutdown, and reboot options.
-    Sleep timer uses checked box icon when enabled, empty box when disabled.
-
-    Returns:
-        List of IconMenuEntry for system menu
-    """
-    # Get current inactivity timeout for display
-    timeout = board.get_inactivity_timeout()
-    if timeout == 0:
-        timeout_label = "Sleep Timer\nDisabled"
-        timeout_icon = "timer"  # Empty box
-    else:
-        timeout_label = f"Sleep Timer\n{timeout // 60} min"
-        timeout_icon = "timer_checked"  # Checked box
-    
-    # Analysis mode checkbox
-    analysis_mode_icon = "checkbox_checked" if _game_settings['analysis_mode'] else "checkbox_empty"
-    
-    return [
-        IconMenuEntry(key="Display", label="Display", icon_name="display", enabled=True),
-        IconMenuEntry(key="WiFi", label="WiFi", icon_name="wifi", enabled=True),
-        IconMenuEntry(key="Bluetooth", label="Bluetooth", icon_name="bluetooth", enabled=True),
-        IconMenuEntry(key="Accounts", label="Accounts", icon_name="account", enabled=True),
-        IconMenuEntry(key="Sound", label="Sound", icon_name="sound", enabled=True),
-        IconMenuEntry(key="AnalysisMode", label="Analysis\nMode", icon_name=analysis_mode_icon, enabled=True),
-        IconMenuEntry(key="Inactivity", label=timeout_label, icon_name=timeout_icon, enabled=True),
-        IconMenuEntry(key="ResetSettings", label="Reset\nSettings", icon_name="cancel", enabled=True),
-        IconMenuEntry(key="Shutdown", label="Shutdown", icon_name="shutdown", enabled=True),
-        IconMenuEntry(key="Reboot", label="Reboot", icon_name="reboot", enabled=True),
-    ]
 
 
 def _show_menu(entries: List[IconMenuEntry], initial_index: int = 0) -> str:
     """Display a menu and wait for selection.
 
     Uses the MenuManager singleton for menu management.
+    MenuManager.show_menu() handles clearing widgets and adding status bar.
 
     Args:
         entries: List of menu entry configurations to display
@@ -1234,33 +1142,44 @@ def _show_menu(entries: List[IconMenuEntry], initial_index: int = 0) -> str:
     """
     global _menu_manager
 
+    # DEBUG: Log what initial_index we're receiving
+    entry_keys = [e.key for e in entries]
+    log.info(f"[DEBUG _show_menu] initial_index={initial_index}, entries={entry_keys}")
+
     # Clamp initial_index to valid range
     if initial_index < 0 or initial_index >= len(entries):
         initial_index = 0
 
-    # Clear existing widgets and add status bar
-    board.display_manager.clear_widgets()
-
-    # Use the MenuManager to show the menu
+    # MenuManager.show_menu() clears widgets and adds status bar
     result = _menu_manager.show_menu(entries, initial_index=initial_index)
     return result.key
 
 
-def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
+def _start_game_mode(
+    starting_fen: str = None,
+    is_position_game: bool = False,
+    suppress_initial_move_request: bool = False,
+):
     """Transition from menu to game mode.
 
     Initializes game handler and display manager, shows chess widgets.
-    Uses settings from _game_settings (configurable via Settings menu).
+    Uses settings from AllSettings (configurable via Settings menu).
     
     Args:
         starting_fen: FEN string for initial position. If None, uses standard starting position.
         is_position_game: If True, this is a practice position game:
                          - Database saving is disabled
                          - Back button returns directly to menu (no resign prompt)
+        suppress_initial_move_request: If True, suppresses the LocalController's initial
+                                      move request when players become ready. Used for
+                                      resume, where moves are replayed AFTER game mode starts.
     """
-    global app_state, protocol_manager, display_manager, _game_settings, _is_position_game
+    global app_state, protocol_manager, display_manager, controller_manager, _is_position_game
 
     log.info(f"[App] Transitioning to GAME mode (position_game={is_position_game})")
+    
+    # Clear saved menu state since we're now in a game
+    _clear_menu_state()
     _is_position_game = is_position_game
     app_state = AppState.GAME
     
@@ -1269,120 +1188,121 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     save_to_database = not is_position_game
     
     # Get player settings
-    player1_color = _player1_settings['color']
-    player1_type = _player1_settings['type']
-    player1_name = _player1_settings['name']
-    player1_engine = _player1_settings['engine']
-    player1_elo = _player1_settings['elo']
-    
-    player2_type = _player2_settings['type']
-    player2_name = _player2_settings['name']
-    player2_engine = _player2_settings['engine']
-    player2_elo = _player2_settings['elo']
+    settings = _get_settings()
+    p1 = settings.player1
+    p2 = settings.player2
 
     # Player 1 is at the bottom of the board
     # Determine which color each player plays
-    player1_is_white = (player1_color == 'white')
+    player1_is_white = (p1.color == 'white')
 
     # Create players based on settings
-    from DGTCentaurMods.players import HumanPlayer, HumanPlayerConfig, EnginePlayer, EnginePlayerConfig, LichessPlayer, LichessPlayerConfig, LichessGameMode
+    from DGTCentaurMods.players import (
+        HumanPlayer, HumanPlayerConfig, EnginePlayer, EnginePlayerConfig,
+        HandBrainPlayer, HandBrainConfig, HandBrainMode
+    )
+    from DGTCentaurMods.players.lichess import (
+        LichessPlayer, LichessPlayerConfig, LichessGameMode
+    )
+    from DGTCentaurMods.players.settings import PlayerSettings
 
-    def create_player(player_type: str, color: chess.Color, player_name: str, engine_name: str, engine_elo: str):
-        """Create a player based on type and color.
-        
+    def create_player(ps: PlayerSettings, color: chess.Color):
+        """Create a player based on PlayerSettings and color.
+
         Args:
-            player_type: 'human', 'engine', or 'lichess'
+            ps: PlayerSettings object with type, name, engine, elo, hand_brain_mode
             color: chess.WHITE or chess.BLACK
-            player_name: Custom name for human players (empty string uses default)
-            engine_name: Engine name (for engine type)
-            engine_elo: Engine ELO level (for engine type)
         """
-        if player_type == 'human':
-            # Use custom name if provided, otherwise default to 'Human'
-            name = player_name if player_name else "Human"
-            config = HumanPlayerConfig(name=name, color=color)
+        if ps.type == 'human':
+            name = ps.name if ps.name else "Human"
+            config = HumanPlayerConfig(
+                name=name, color=color,
+                engine=ps.engine, elo=ps.elo
+            )
             return HumanPlayer(config)
-        elif player_type == 'engine':
+        elif ps.type == 'engine':
             config = EnginePlayerConfig(
-                name=f"{engine_name} ({engine_elo})",
+                name=f"{ps.engine} ({ps.elo})",
                 color=color,
-                engine_name=engine_name,
-                elo_section=engine_elo,
+                engine_name=ps.engine,
+                elo_section=ps.elo,
                 time_limit_seconds=5.0
             )
             return EnginePlayer(config)
-        elif player_type == 'lichess':
-            # Name will be updated after Lichess authentication
+        elif ps.type == 'lichess':
             config = LichessPlayerConfig(
                 name="Lichess",
                 color=color,
                 mode=LichessGameMode.NEW,
             )
             return LichessPlayer(config)
+        elif ps.type == 'hand_brain':
+            mode = HandBrainMode.NORMAL if ps.hand_brain_mode == 'normal' else HandBrainMode.REVERSE
+            mode_str = 'N' if mode == HandBrainMode.NORMAL else 'R'
+            config = HandBrainConfig(
+                name=f"H+B {mode_str} ({ps.engine})",
+                color=color,
+                mode=mode,
+                engine_name=ps.engine,
+                elo_section=ps.elo,
+                time_limit_seconds=2.0
+            )
+            return HandBrainPlayer(config)
         else:
-            log.warning(f"[App] Unknown player type: {player_type}, defaulting to human")
+            log.warning(f"[App] Unknown player type: {ps.type}, defaulting to human")
             return HumanPlayer()
     
     # Create White and Black players
     if player1_is_white:
-        white_player = create_player(player1_type, chess.WHITE, player1_name, player1_engine, player1_elo)
-        black_player = create_player(player2_type, chess.BLACK, player2_name, player2_engine, player2_elo)
+        white_player = create_player(p1, chess.WHITE)
+        black_player = create_player(p2, chess.BLACK)
     else:
-        white_player = create_player(player2_type, chess.WHITE, player2_name, player2_engine, player2_elo)
-        black_player = create_player(player1_type, chess.BLACK, player1_name, player1_engine, player1_elo)
+        white_player = create_player(p2, chess.WHITE)
+        black_player = create_player(p1, chess.BLACK)
     
     log.info(f"[App] Created players: {white_player.name} (White) vs {black_player.name} (Black)")
     
     # Check for special modes
-    is_two_player = (player1_type == 'human' and player2_type == 'human')
-    is_hand_brain = False  # TODO: implement hand+brain as an option
+    is_two_player = (p1.type == 'human' and p2.type == 'human')
+    # Hand-brain mode is enabled if either player is a hand_brain player
+    is_hand_brain = (p1.type == 'hand_brain' or p2.type == 'hand_brain')
 
     # Get analysis engine path (only if analysis mode is enabled)
-    base_path = pathlib.Path(__file__).parent
-    analysis_mode = _game_settings['analysis_mode']
-    analysis_engine_path = str((base_path / "engines/ct800").resolve()) if analysis_mode else None
+    from DGTCentaurMods.paths import get_engine_path
+    game = settings.game
+    analysis_mode = game.analysis_mode
+    analysis_engine_path = get_engine_path(game.analysis_engine) if analysis_mode else None
+
+    # Create LED controller with configurable intensity
+    # LED brightness can be set in display settings (1-10, default 5)
+    from DGTCentaurMods.utils.led import LedController
+    led_intensity = game.led_brightness
+    led_controller = LedController(board, intensity=led_intensity)
+    led_callbacks = led_controller.get_callbacks()
+    log.info(f"[App] LED controller initialized (intensity={led_intensity})")
 
     # Create DisplayManager - handles all game widgets (chess board, analysis, clock)
     # Analysis runs in a background thread so it doesn't block move processing
+    # Hand-brain hints are set per-player via display_manager.set_brain_hint()
     display_manager = DisplayManager(
         flip_board=False,
-        show_analysis=_game_settings['show_analysis'],
+        show_analysis=game.show_analysis,
         analysis_engine_path=analysis_engine_path,
         on_exit=lambda: _return_to_menu("Menu exit"),
-        hand_brain_mode=is_hand_brain,
         initial_fen=starting_fen,
-        time_control=_game_settings['time_control'],
-        show_board=_game_settings['show_board'],
-        show_clock=_game_settings['show_clock'],
-        show_graph=_game_settings['show_graph'],
+        time_control=game.time_control,
+        show_board=game.show_board,
+        show_clock=game.show_clock,
+        show_graph=game.show_graph,
         analysis_mode=analysis_mode,
-        white_name=white_player.name,
-        black_name=black_player.name
+        led_from_to_hint_callback=led_callbacks.from_to_hint,
+        led_off_callback=led_callbacks.off
     )
-    log.info(f"[App] DisplayManager initialized (time_control={_game_settings['time_control']} min, "
+    log.info(f"[App] DisplayManager initialized (time_control={game.time_control} min, "
              f"analysis_mode={analysis_mode}, "
-             f"board={_game_settings['show_board']}, clock={_game_settings['show_clock']}, "
-             f"analysis={_game_settings['show_analysis']}, "
-             f"graph={_game_settings['show_graph']})")
-
-    # Display update callback for ProtocolManager
-    def update_display(fen):
-        """Update display manager with new position.
-        
-        Analysis is triggered but runs in a background thread, so it doesn't
-        block move validation or recording. Also updates the clock turn indicator.
-        """
-        if display_manager:
-            display_manager.update_position(fen)
-            # Trigger analysis (runs asynchronously in background thread)
-            try:
-                board_obj = chess.Board(fen)
-                display_manager.analyze_position(board_obj)
-                # Update clock turn indicator based on whose turn it is
-                current_turn = "white" if board_obj.turn == chess.WHITE else "black"
-                display_manager.set_clock_active(current_turn)
-            except Exception as e:
-                log.debug(f"Error triggering analysis: {e}")
+             f"board={game.show_board}, clock={game.show_clock}, "
+             f"analysis={game.show_analysis}, "
+             f"graph={game.show_graph})")
 
     # Back menu result handler
     def _on_back_menu_result(result: str):
@@ -1392,19 +1312,30 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         indicate which side is resigning.
         """
         # Reset the kings-in-center menu flag (in case this was triggered by that menu)
-        protocol_manager.reset_kings_in_center_menu_flag()
+        game_manager.reset_kings_in_center_menu()
+        
+        def _notify_players_resign(resign_color):
+            """Notify players of resignation."""
+            if player_manager:
+                player_manager.white_player.on_resign(resign_color)
+                player_manager.black_player.on_resign(resign_color)
         
         if result == "resign":
-            protocol_manager.handle_resign()
+            from DGTCentaurMods.state import get_chess_game
+            resign_color = get_chess_game().turn
+            game_manager.handle_resign(resign_color)
+            _notify_players_resign(resign_color)
             _return_to_menu("Resigned")
         elif result == "resign_white":
-            protocol_manager.handle_resign(chess.WHITE)
+            game_manager.handle_resign(chess.WHITE)
+            _notify_players_resign(chess.WHITE)
             _return_to_menu("White Resigned")
         elif result == "resign_black":
-            protocol_manager.handle_resign(chess.BLACK)
+            game_manager.handle_resign(chess.BLACK)
+            _notify_players_resign(chess.BLACK)
             _return_to_menu("Black Resigned")
         elif result == "draw":
-            protocol_manager.handle_draw()
+            game_manager.handle_draw()
             _return_to_menu("Draw")
         elif result == "exit":
             cleanup_and_exit(reason="User selected 'exit' from game menu", system_shutdown=True)
@@ -1414,7 +1345,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     def _on_position_game_back():
         """Handle back press for position games - signal return to positions menu.
         
-        We can't call _handle_positions_menu() directly here because we're inside
+        Cannot call handle_positions_menu() directly here because we're inside
         the key callback chain and _show_menu() would block waiting for key events
         from the same callback thread. Instead, set a flag and let the main loop handle it.
         """
@@ -1424,44 +1355,95 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         _return_to_positions_menu = True
         app_state = AppState.SETTINGS
 
-    # Suggestion callback for assistant modes (Hand+Brain, hints)
-    def _on_suggestion(piece_symbol: str, squares: list):
-        """Handle suggestion from assistant (engine analysis).
-        
-        Updates the display with the suggested piece type and lights up
-        squares containing that piece type.
-        """
-        if display_manager:
-            display_manager.set_brain_hint(piece_symbol)
-        # Light up squares with the suggested piece type
-        if squares:
-            board.ledArray(squares, repeat=20)
-    
     def _on_takeback():
-        """Handle takeback - remove last analysis score and switch clock back."""
-        display_manager.remove_last_analysis_score()
-        display_manager.switch_clock_turn()
-        log.debug("[App] Takeback: removed last analysis score and switched clock")
+        """Handle takeback - remove last analysis score.
+        
+        Note: Clock active color is updated automatically by DisplayManager._on_position_change
+        which observes game state changes. No explicit clock switch needed here.
+        """
+        from DGTCentaurMods.services.analysis import get_analysis_service
+        get_analysis_service().remove_last_score()
+        log.debug("[App] Takeback: removed last analysis score")
     
-    # Create ProtocolManager with user-configured settings
-    # Note: Key and field events are routed through universal.py's callbacks
-    protocol_manager = ProtocolManager(
-        sendMessage_callback=sendMessage,
-        client_type=None,
-        compare_mode=relay_mode,
+    # Create GameManager and set LED callbacks
+    from DGTCentaurMods.managers.game import GameManager
+    game_manager = GameManager(save_to_database=save_to_database)
+    game_manager.set_led_callbacks(led_callbacks)
+    
+    # Create ProtocolManager with GameManager dependency
+    protocol_manager = ProtocolManager(game_manager=game_manager)
+    
+    # Create PlayerManager (callbacks wired by game_manager.set_player_manager)
+    from DGTCentaurMods.players import PlayerManager
+    player_manager = PlayerManager(
         white_player=white_player,
         black_player=black_player,
-        display_update_callback=update_display,
-        save_to_database=save_to_database,
-        suggestion_callback=_on_suggestion if is_hand_brain else None,
-        takeback_callback=_on_takeback
+        status_callback=lambda msg: log.info(f"[Player] {msg}"),
     )
-    log.info(f"[App] ProtocolManager created: White={white_player.name}, Black={black_player.name}, hand_brain={is_hand_brain}, save_to_db={save_to_database}")
+    # Wires move_callback, error_callback, and pending_move_callback to GameManager
+    protocol_manager.set_player_manager(player_manager)
     
-    # Start players
-    if not protocol_manager.start_players():
-        log.error("[App] Failed to start players")
-        # Continue anyway - human players always succeed, engines may take time
+    log.info(f"[App] Game components created: White={white_player.name}, Black={black_player.name}, hand_brain={is_hand_brain}, save_to_db={save_to_database}")
+    
+    # Create ControllerManager for routing events to local/remote controllers
+    controller_manager = ControllerManager(game_manager)
+    
+    # Create local controller (for human/engine games)
+    local_controller = controller_manager.create_local_controller()
+    local_controller.set_player_manager(player_manager)
+    local_controller.set_suppress_move_requests(suppress_initial_move_request)
+    
+    # Wire up Hand+Brain hint display for NORMAL mode players
+    # HandBrainPlayer handles its own engine - just need to wire hint callback to display
+    if is_hand_brain:
+        def _on_brain_hint(color: str, piece_symbol: str) -> None:
+            """Display brain hint on the clock widget."""
+            display_manager.set_brain_hint(color, piece_symbol)
+        
+        def _on_piece_squares_led(squares: List[int]) -> None:
+            """Light up squares for piece type selection (REVERSE mode).
+            Uses standard LED speed/intensity.
+            """
+            led_callbacks.array(squares, repeat=0)
+        
+        def _on_invalid_selection_flash(squares: List[int], flash_count: int) -> None:
+            """Flash squares rapidly to indicate invalid piece selection (REVERSE mode).
+            Uses fast LED speed for urgent feedback.
+            """
+            led_callbacks.array_fast(squares, repeat=flash_count)
+        
+        # Wire hint callback to any HandBrainPlayer in NORMAL mode
+        # Wire LED callback to any HandBrainPlayer in REVERSE mode
+        if isinstance(white_player, HandBrainPlayer):
+            white_player.set_brain_hint_callback(_on_brain_hint)
+            white_player.set_piece_squares_led_callback(_on_piece_squares_led)
+            white_player.set_invalid_selection_flash_callback(_on_invalid_selection_flash)
+            log.info(f"[App] White Hand+Brain player: {white_player.mode.name} mode")
+        if isinstance(black_player, HandBrainPlayer):
+            black_player.set_brain_hint_callback(_on_brain_hint)
+            black_player.set_piece_squares_led_callback(_on_piece_squares_led)
+            black_player.set_invalid_selection_flash_callback(_on_invalid_selection_flash)
+            log.info(f"[App] Black Hand+Brain player: {black_player.mode.name} mode")
+    
+    local_controller.set_takeback_callback(_on_takeback)
+    
+    # Wire ready callback through local controller (respects active state)
+    # Note: move_callback is already wired by game_manager.set_player_manager()
+    # to GameManager._on_player_move which handles all player moves (human+engine)
+    player_manager.set_ready_callback(local_controller.on_all_players_ready)
+    
+    # Create remote controller (for Bluetooth app connections)
+    # Wire protocol detection callback to swap engine player with remote player
+    controller_manager.create_remote_controller(
+        send_callback=sendMessage,
+        protocol_detected_callback=protocol_manager.on_protocol_detected
+    )
+    
+    # Activate local controller by default (this starts players)
+    controller_manager.activate_local()
+    
+    # Note: Turn indicator comes from ChessGameState which the clock widget observes directly.
+    # No need to manually set clock active color here.
     
     # Wire up GameManager callbacks to DisplayManager
     protocol_manager.set_on_promotion_needed(display_manager.show_promotion_menu)
@@ -1477,14 +1459,14 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         ))
     
     # Kings-in-center gesture (DGT resign/draw) - only for 2-player mode
-    # In engine games, moving kings to center would just trigger correction mode
+    # In engine games, players should only move pieces indicated by LEDs
     # Uses the same back menu as the BACK button - just with a beep to confirm gesture
     if is_two_player and not is_position_game:
         def _on_kings_in_center():
             board.beep(board.SOUND_GENERAL, event_type='game_event')  # Beep to confirm gesture recognized
             display_manager.show_back_menu(_on_back_menu_result, is_two_player=True)
         protocol_manager.set_on_kings_in_center(_on_kings_in_center)
-        # Cancel callback simulates BACK key press to properly dismiss menu
+        # Cancel callback dismisses menu when pieces are returned to position
         protocol_manager.set_on_kings_in_center_cancel(display_manager.cancel_menu)
     
     # King-lift resign gesture - works in any game mode for human player's king
@@ -1492,18 +1474,28 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     def _on_king_lift_resign_result(result: str):
         """Handle result from king-lift resign menu."""
         # Reset the menu flag
-        protocol_manager.reset_king_lift_resign_menu_flag()
+        game_manager.reset_king_lift_resign_menu()
+        
+        def _notify_players_resign(resign_color):
+            """Notify players of resignation."""
+            if player_manager:
+                player_manager.white_player.on_resign(resign_color)
+                player_manager.black_player.on_resign(resign_color)
         
         if result == "resign":
             # Get the color of the king that was lifted
-            king_color = protocol_manager.get_king_lifted_color()
+            king_color = game_manager.move_state.king_lifted_color
             if king_color is not None:
-                protocol_manager.handle_resign(king_color)
+                game_manager.handle_resign(king_color)
+                _notify_players_resign(king_color)
                 color_name = "White" if king_color == chess.WHITE else "Black"
                 _return_to_menu(f"{color_name} Resigned")
             else:
                 # Fallback - shouldn't happen but handle gracefully
-                protocol_manager.handle_resign()
+                from DGTCentaurMods.state import get_chess_game
+                resign_color = get_chess_game().turn
+                game_manager.handle_resign(resign_color)
+                _notify_players_resign(resign_color)
                 _return_to_menu("Resigned")
         # cancel is handled by DisplayManager (restores display)
     
@@ -1519,13 +1511,12 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     def _on_terminal_position(result: str, termination: str):
         """Handle terminal position detection after correction mode exits."""
         log.info(f"[App] Terminal position detected: {termination} ({result})")
-        display_manager.show_game_over(result, termination)
+        # Set result triggers game over widget via observer
+        from DGTCentaurMods.state import get_chess_game
+        get_chess_game().set_result(result, termination)
+        display_manager.stop_clock()
     
     protocol_manager.set_on_terminal_position(_on_terminal_position)
-    
-    # Wire up display bridge to connect GameManager with DisplayManager
-    # Provides consolidated interface for: clock times, eval scores, alerts, position updates
-    protocol_manager.set_display_bridge(display_manager)
     
     # Wire up flag callback for when a player's time expires
     def _on_flag(color: str):
@@ -1537,7 +1528,8 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         """
         def _handle_flag():
             log.info(f"[App] {color.capitalize()} flagged (time expired)")
-            protocol_manager.handle_flag(color)
+            flagged_color = chess.WHITE if color == 'white' else chess.BLACK
+            game_manager.handle_flag(flagged_color)
             display_manager.stop_clock()
             # Game over will be shown via the event callback when handle_flag triggers termination event
         
@@ -1546,6 +1538,9 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     
     display_manager.set_on_flag(_on_flag)
     
+    # Set up resume callback to restore pending move LEDs
+    display_manager.set_on_resume(game_manager.restore_pending_move_leds)
+    
     # Wire up event callback to handle game events
     from DGTCentaurMods.managers import EVENT_NEW_GAME, EVENT_WHITE_TURN, EVENT_BLACK_TURN
     _clock_started = False
@@ -1553,38 +1548,38 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         nonlocal _clock_started
         global _switch_to_normal_game, _is_position_game
         if event == EVENT_NEW_GAME:
-            display_manager.reset_analysis()
+            from DGTCentaurMods.services.analysis import get_analysis_service
+            get_analysis_service().reset()
             display_manager.reset_clock()
             display_manager.clear_pause()
+            # Clear brain hints for both players on new game
+            display_manager.clear_brain_hint('white')
+            display_manager.clear_brain_hint('black')
+            # Note: GameOverWidget clears itself via position_change observer
             # Reset clock started flag for new game
             _clock_started = False
+            # Note: Turn indicator comes from ChessGameState - clock widget observes directly
             # If we're in a position game and the starting position is set up,
             # signal transition to normal game mode
             if _is_position_game:
                 log.info("[App] Starting position detected in position game - signaling switch to normal game")
                 _switch_to_normal_game = True
         elif event == EVENT_WHITE_TURN or event == EVENT_BLACK_TURN:
-            # Handle turn events for clock management
-            active_color = "white" if event == EVENT_WHITE_TURN else "black"
+            # Start clock on first turn event (game has truly started)
+            # Turn indicator is handled by ChessClockWidget observing ChessGameState directly
             if not _clock_started:
-                # Start the clock on the first turn event (game has truly started)
-                display_manager.start_clock(active_color)
+                display_manager.start_clock()
                 _clock_started = True
-                log.debug(f"[App] Clock started, {active_color} to move")
-            else:
-                # Switch clock on subsequent turn events
-                display_manager.switch_clock_turn()
+                log.debug("[App] Clock started")
         elif isinstance(event, str) and event.startswith("Termination."):
             # Game ended (checkmate, stalemate, resign, draw, etc.)
-            termination_type = event[12:]  # Remove "Termination." prefix
-            result = protocol_manager.get_result()
-            log.info(f"[App] Game terminated: {termination_type}, result={result}")
+            # GameOverWidget already showed itself via ChessGameState observer
+            # Just stop the clock
             display_manager.stop_clock()
-            display_manager.show_game_over(result, termination_type)
-    protocol_manager._external_event_callback = _on_game_event
+    local_controller.set_external_event_callback(_on_game_event)
     
-    # Register protocol_manager with ConnectionManager - this also processes any queued data
-    _connection_manager.set_protocol_manager(protocol_manager)
+    # Register controller_manager with ConnectionManager - this also processes any queued data
+    _connection_manager.set_controller_manager(controller_manager)
 
 
 def _cleanup_game():
@@ -1592,7 +1587,7 @@ def _cleanup_game():
     
     Used when exiting a game, whether returning to menu or positions menu.
     """
-    global protocol_manager, display_manager, _pending_piece_events, _is_position_game
+    global protocol_manager, display_manager, controller_manager, _pending_piece_events, _is_position_game
     
     # Clear position game flag
     _is_position_game = False
@@ -1602,6 +1597,14 @@ def _cleanup_game():
     
     # Clear ConnectionManager handler and pending data
     _connection_manager.clear_handler()
+    
+    # Clean up controller manager
+    if controller_manager is not None:
+        try:
+            controller_manager.cleanup()
+        except Exception as e:
+            log.debug(f"Error cleaning up controller manager: {e}")
+        controller_manager = None
     
     # Clean up game handler
     if protocol_manager is not None:
@@ -1645,1700 +1648,367 @@ def _return_to_menu(reason: str):
         app_state = AppState.MENU
 
 
-def _handle_settings():
+def _handle_settings(initial_selection: str = None):
     """Handle the Settings submenu.
     
     Displays settings options and handles their selection.
     Includes game settings (Engine, ELO, Color) and system settings (Sound, Shutdown, Reboot).
+    
+    Uses MenuContext for full navigation state tracking including selection indices
+    at each menu level.
+    
+    Args:
+        initial_selection: If provided, immediately navigate to this submenu
+                          (used when restoring menu state on startup).
     """
-    global app_state, _game_settings
+    global app_state
     from DGTCentaurMods.board import centaur
     
     app_state = AppState.SETTINGS
-    last_selected = 0  # Track last selected index for returning from submenus
+    ctx = _get_menu_context()
+    
+    # Enter Settings menu - handles both fresh navigation and restoration
+    last_selected = ctx.enter_menu("Settings", 0)
+    
+    # Handle initial selection for state restoration
+    pending_selection = initial_selection
     
     while app_state == AppState.SETTINGS:
-        entries = create_settings_entries()
-        result = _show_menu(entries, initial_index=last_selected)
+        entries = create_settings_entries(_game_settings_dict(), _player1_settings_dict(), _player2_settings_dict())
         
-        # Update last_selected for when we return from a submenu
-        last_selected = find_entry_index(entries, result)
+        # If we have a pending selection from state restoration, use it
+        if pending_selection:
+            result = pending_selection
+            pending_selection = None
+            # Find the index for this selection and update context
+            last_selected = find_entry_index(entries, result)
+            ctx.update_index(last_selected)
+        else:
+            result = _show_menu(entries, initial_index=last_selected)
+            # Update last_selected for when we return from a submenu
+            last_selected = find_entry_index(entries, result)
+            ctx.update_index(last_selected)
         
         # Handle special results that should break out of all menus
         if is_break_result(result):
+            ctx.clear()
             app_state = AppState.MENU
             return result
         
         if result == "BACK":
+            ctx.pop()  # Pop Settings from the stack
             app_state = AppState.MENU
             return
         
         if result == "SHUTDOWN":
+            ctx.clear()
             _shutdown("Shutdown")
             return
         
         if result == "Players":
+            ctx.enter_menu("Players", 0)
             players_result = _handle_players_menu()
+            ctx.leave_menu()  # Pop Players, restore to Settings level
             if is_break_result(players_result):
+                ctx.clear()
                 app_state = AppState.MENU
                 return players_result
             if players_result == "START_GAME":
                 # Player configuration complete, start game
+                ctx.clear()
                 app_state = AppState.MENU
                 _start_game_mode()
                 return
         
         elif result == "TimeControl":
-            # Time control selection submenu
-            time_entries = []
-            current_time = _game_settings['time_control']
-            
-            for minutes in TIME_CONTROL_OPTIONS:
-                is_selected = (minutes == current_time)
-                # Icon indicates selection - no need for star prefix
-                label = "Disabled" if minutes == 0 else f"{minutes} min"
-                icon = "timer_checked" if is_selected else "timer"
-                
-                time_entries.append(
-                    IconMenuEntry(key=str(minutes), label=label, icon_name=icon, enabled=True)
-                )
-            
-            time_result = _show_menu(time_entries)
+            time_result = handle_time_control_menu(
+                ctx=ctx,
+                game_settings=_game_settings_dict(),
+                time_control_options=TIME_CONTROL_OPTIONS,
+                show_menu=_show_menu,
+                find_entry_index=find_entry_index,
+                save_game_setting=_save_game_setting,
+                board=board,
+                log=log,
+            )
             if is_break_result(time_result):
+                ctx.clear()
                 app_state = AppState.MENU
                 return time_result
-            if time_result not in ["BACK", "SHUTDOWN", "HELP"]:
-                try:
-                    new_time = int(time_result)
-                    old_time = _game_settings['time_control']
-                    _save_game_setting('time_control', str(new_time))
-                    _game_settings['time_control'] = new_time
-                    log.info(f"[Settings] Time control changed: {old_time} -> {new_time} min")
-                    board.beep(board.SOUND_GENERAL, event_type='key_press')
-                except ValueError:
-                    pass
-            # Stay in settings menu to allow further configuration
         
         elif result == "Positions":
-            position_result = _handle_positions_menu()
+            ctx.enter_menu("Positions", 0)
+            position_result = handle_positions_menu(
+                ctx=ctx,
+                load_positions_config=lambda: load_positions_config(log),
+                start_from_position=_start_from_position,
+                show_menu=_show_menu,
+                find_entry_index=find_entry_index,
+                board=board,
+                log=log,
+                last_position_category_index_ref=[_last_position_category_index],
+                last_position_index_ref=[_last_position_index],
+                last_position_category_ref=[_last_position_category],
+            )
+            ctx.leave_menu()  # Pop Positions, restore to Settings level
             if is_break_result(position_result):
+                ctx.clear()
                 app_state = AppState.MENU
                 return position_result
             if position_result:
-                # Position was loaded, exit settings and go to game
+                ctx.clear()
                 return
         
         elif result == "Chromecast":
-            chromecast_result = _handle_chromecast_menu()
+            ctx.enter_menu("Chromecast", 0)
+            chromecast_result = handle_chromecast_menu(
+                show_menu=_show_menu,
+                board=board,
+                log=log,
+                get_chromecast_service=lambda: __import__("DGTCentaurMods.services", fromlist=["get_chromecast_service"]).get_chromecast_service(),
+            )
+            ctx.leave_menu()  # Pop Chromecast, restore to Settings level
             if is_break_result(chromecast_result):
+                ctx.clear()
                 app_state = AppState.MENU
                 return chromecast_result
         
         elif result == "System":
+            ctx.enter_menu("System", 0)
             system_result = _handle_system_menu()
+            ctx.leave_menu()  # Pop System, restore to Settings level
             if is_break_result(system_result):
+                ctx.clear()
                 app_state = AppState.MENU
                 return system_result
         
         elif result == "About":
-            about_result = _handle_about_menu()
+            ctx.enter_menu("About", 0)
+            from DGTCentaurMods.paths import get_resource_path
+            about_result = handle_about_menu(
+                ctx=ctx,
+                menu_manager=_menu_manager,
+                board=board,
+                log=log,
+                get_installed_version=_get_installed_version,
+                get_resource_path=get_resource_path,
+                update_system=centaur.UpdateSystem(),
+                handle_update_menu=handle_update_menu,
+                show_menu=_show_menu,
+                find_entry_index=find_entry_index,
+                set_active_about_widget=lambda w: globals().__setitem__('_active_about_widget', w),
+                clear_active_about_widget=lambda: globals().__setitem__('_active_about_widget', None),
+            )
+            ctx.leave_menu()
             if is_break_result(about_result):
+                ctx.clear()
                 app_state = AppState.MENU
                 return about_result
 
 
+# ============================================================================
+# Player Menu Handlers
+# These wrap the extracted handlers with the global dependencies.
+# ============================================================================
+
 def _handle_players_menu():
-    """Handle the Players submenu.
-
-    Shows Player One and Player Two configuration options.
-    Player One (bottom of board) can set color and type.
-    Player Two can set type.
-
-    Returns:
-        "START_GAME" if configuration complete and user wants to play.
-        Break result if user triggered a break action.
-        None if user pressed BACK.
-    """
-    while True:
-        # Create player summary labels
-        p1_color = _player1_settings['color'].capitalize()
-        p1_type = _get_player_type_label(_player1_settings['type'])
-        p2_type = _get_player_type_label(_player2_settings['type'])
-
-        # If engine, show engine name
-        if _player1_settings['type'] == 'engine':
-            p1_type = _player1_settings['engine']
-        if _player2_settings['type'] == 'engine':
-            p2_type = _player2_settings['engine']
-
-        entries = [
-            IconMenuEntry(
-                key="Player1",
-                label=f"Player 1\n{p1_type} ({p1_color})",
-                icon_name="white_piece" if _player1_settings['color'] == 'white' else "black_piece",
-                enabled=True
-            ),
-            IconMenuEntry(
-                key="Player2",
-                label=f"Player 2\n{p2_type}",
-                icon_name="universal_logo",
-                enabled=True
-            ),
-            IconMenuEntry(
-                key="StartGame",
-                label="Start\nGame",
-                icon_name="play",
-                enabled=True
-            ),
-        ]
-
-        result = _show_menu(entries)
-
-        if is_break_result(result):
-            return result
-        
-        if result == "BACK":
-            return None
-        
-        if result == "Player1":
-            p1_result = _handle_player1_menu()
-            if is_break_result(p1_result):
-                return p1_result
-        
-        elif result == "Player2":
-            p2_result = _handle_player2_menu()
-            if is_break_result(p2_result):
-                return p2_result
-        
-        elif result == "StartGame":
-            board.beep(board.SOUND_GENERAL, event_type='key_press')
-            return "START_GAME"
+    """Handle the Players submenu."""
+    return handle_players_menu(
+        get_menu_context=_get_menu_context,
+        player1_settings=_player1_settings_dict(),
+        player2_settings=_player2_settings_dict(),
+        show_menu=_show_menu,
+        find_entry_index=find_entry_index,
+        handle_player1_menu=_handle_player1_menu,
+        handle_player2_menu=_handle_player2_menu,
+        board=board,
+        log=log,
+    )
 
 
 def _handle_player1_menu():
-    """Handle Player 1 configuration submenu.
-
-    Player 1 is at the bottom of the board. Can set:
-    - Color (White/Black)
-    - Type (Human/Engine/Lichess)
-    - Engine and ELO (if type is engine)
-
-    Returns:
-        Break result if user triggered a break action.
-        None otherwise.
-    """
-    while True:
-        p1_color = _player1_settings['color'].capitalize()
-        p1_type = _get_player_type_label(_player1_settings['type'])
-
-        entries = [
-            IconMenuEntry(
-                key="Color",
-                label=f"Color\n{p1_color}",
-                icon_name="white_piece" if _player1_settings['color'] == 'white' else "black_piece",
-                enabled=True
-            ),
-            IconMenuEntry(
-                key="Type",
-                label=f"Type\n{p1_type}",
-                icon_name="universal_logo",
-                enabled=True
-            ),
-        ]
-
-        # If human type, add name entry
-        if _player1_settings['type'] == 'human':
-            name_display = _player1_settings['name'] or 'Human'
-            entries.append(IconMenuEntry(
-                key="Name",
-                label=f"Name\n{name_display}",
-                icon_name="universal_logo",
-                enabled=True
-            ))
-
-        # If engine type, add engine selection
-        if _player1_settings['type'] == 'engine':
-            entries.append(IconMenuEntry(
-                key="Engine",
-                label=f"Engine\n{_player1_settings['engine']}",
-                icon_name="engine",
-                enabled=True
-            ))
-            entries.append(IconMenuEntry(
-                key="ELO",
-                label=f"ELO\n{_player1_settings['elo']}",
-                icon_name="elo",
-                enabled=True
-            ))
-
-        # If Lichess type, add Lichess settings
-        if _player1_settings['type'] == 'lichess':
-            entries.append(IconMenuEntry(
-                key="LichessSettings",
-                label="Lichess\nSettings",
-                icon_name="lichess",
-                enabled=True
-            ))
-
-        result = _show_menu(entries)
-        
-        if is_break_result(result):
-            return result
-        
-        if result == "BACK":
-            return None
-        
-        if result == "Color":
-            color_result = _handle_player1_color_selection()
-            if is_break_result(color_result):
-                return color_result
-        
-        elif result == "Type":
-            type_result = _handle_player1_type_selection()
-            if is_break_result(type_result):
-                return type_result
-        
-        elif result == "Name":
-            name_result = _handle_player1_name_input()
-            if is_break_result(name_result):
-                return name_result
-        
-        elif result == "Engine":
-            engine_result = _handle_player1_engine_selection()
-            if is_break_result(engine_result):
-                return engine_result
-        
-        elif result == "ELO":
-            elo_result = _handle_player1_elo_selection()
-            if is_break_result(elo_result):
-                return elo_result
-        
-        elif result == "LichessSettings":
-            lichess_result = _handle_lichess_menu()
-            if is_break_result(lichess_result):
-                return lichess_result
+    """Handle Player 1 configuration submenu."""
+    return handle_player1_menu(
+        ctx=_get_menu_context(),
+        player1_settings=_player1_settings_dict(),
+        show_menu=_show_menu,
+        find_entry_index=find_entry_index,
+        is_break_result=is_break_result,
+        board=board,
+        log=log,
+        save_player1_setting=_save_player1_setting,
+        handle_color_selection=_handle_player1_color_selection,
+        handle_type_selection=_handle_player1_type_selection,
+        handle_name_input=_handle_player1_name_input,
+        handle_engine_selection=_handle_player1_engine_selection,
+        handle_elo_selection=_handle_player1_elo_selection,
+        handle_lichess_menu=_handle_lichess_menu,
+        toggle_hand_brain_mode_fn=toggle_hand_brain_mode,
+    )
 
 
 def _handle_player2_menu():
-    """Handle Player 2 configuration submenu.
-    
-    Player 2 is at the top of the board. Can set:
-    - Type (Human/Engine/Lichess)
-    - Engine and ELO (if type is engine)
-    
-    Returns:
-        Break result if user triggered a break action.
-        None otherwise.
-    """
-    while True:
-        p2_type = _get_player_type_label(_player2_settings['type'])
-        
-        entries = [
-            IconMenuEntry(
-                key="Type",
-                label=f"Type\n{p2_type}",
-                icon_name="universal_logo",
-                enabled=True
-            ),
-        ]
-        
-        # If human type, add name entry
-        if _player2_settings['type'] == 'human':
-            name_display = _player2_settings['name'] or 'Human'
-            entries.append(IconMenuEntry(
-                key="Name",
-                label=f"Name\n{name_display}",
-                icon_name="universal_logo",
-                enabled=True
-            ))
-        
-        # If engine type, add engine selection
-        if _player2_settings['type'] == 'engine':
-            entries.append(IconMenuEntry(
-                key="Engine",
-                label=f"Engine\n{_player2_settings['engine']}",
-                icon_name="engine",
-                enabled=True
-            ))
-            entries.append(IconMenuEntry(
-                key="ELO",
-                label=f"ELO\n{_player2_settings['elo']}",
-                icon_name="elo",
-                enabled=True
-            ))
-        
-        # If Lichess type, add Lichess settings
-        if _player2_settings['type'] == 'lichess':
-            entries.append(IconMenuEntry(
-                key="LichessSettings",
-                label="Lichess\nSettings",
-                icon_name="lichess",
-                enabled=True
-            ))
-        
-        result = _show_menu(entries)
-        
-        if is_break_result(result):
-            return result
-        
-        if result == "BACK":
-            return None
-        
-        if result == "Type":
-            type_result = _handle_player2_type_selection()
-            if is_break_result(type_result):
-                return type_result
-        
-        elif result == "Name":
-            name_result = _handle_player2_name_input()
-            if is_break_result(name_result):
-                return name_result
-        
-        elif result == "Engine":
-            engine_result = _handle_player2_engine_selection()
-            if is_break_result(engine_result):
-                return engine_result
-        
-        elif result == "ELO":
-            elo_result = _handle_player2_elo_selection()
-            if is_break_result(elo_result):
-                return elo_result
-        
-        elif result == "LichessSettings":
-            lichess_result = _handle_lichess_menu()
-            if is_break_result(lichess_result):
-                return lichess_result
+    """Handle Player 2 configuration submenu."""
+    return handle_player2_menu(
+        ctx=_get_menu_context(),
+        player2_settings=_player2_settings_dict(),
+        show_menu=_show_menu,
+        find_entry_index=find_entry_index,
+        is_break_result=is_break_result,
+        board=board,
+        log=log,
+        save_player2_setting=_save_player2_setting,
+        handle_type_selection=_handle_player2_type_selection,
+        handle_name_input=_handle_player2_name_input,
+        handle_engine_selection=_handle_player2_engine_selection,
+        handle_elo_selection=_handle_player2_elo_selection,
+        handle_lichess_menu=_handle_lichess_menu,
+        toggle_hand_brain_mode_fn=toggle_hand_brain_mode,
+    )
 
 
 def _handle_player1_color_selection():
-    """Handle color selection for Player 1.
-    
-    Returns:
-        Break result if user triggered a break action.
-        None otherwise.
-    """
-    current_color = _player1_settings['color']
-    
-    entries = [
-        IconMenuEntry(
-            key="white",
-            label="* White" if current_color == 'white' else "White",
-            icon_name="white_piece",
-            enabled=True
-        ),
-        IconMenuEntry(
-            key="black",
-            label="* Black" if current_color == 'black' else "Black",
-            icon_name="black_piece",
-            enabled=True
-        ),
-    ]
-    
-    result = _show_menu(entries)
-    
-    if is_break_result(result):
-        return result
-    
-    if result in ["white", "black"]:
-        old_color = _player1_settings['color']
-        _save_player1_setting('color', result)
-        log.info(f"[Settings] Player1 color changed: {old_color} -> {result}")
-        board.beep(board.SOUND_GENERAL, event_type='key_press')
-    
-    return None
+    """Handle color selection for Player 1."""
+    return handle_color_selection(
+        player_settings=_player1_settings_dict(),
+        show_menu=_show_menu,
+        save_player_setting=_save_player1_setting,
+        log=log,
+        board=board,
+    )
 
 
 def _handle_player1_type_selection():
-    """Handle type selection for Player 1.
-    
-    Returns:
-        Break result if user triggered a break action.
-        None otherwise.
-    """
-    current_type = _player1_settings['type']
-    
-    entries = [
-        IconMenuEntry(
-            key="human",
-            label="* Human" if current_type == 'human' else "Human",
-            icon_name="universal_logo",
-            enabled=True
-        ),
-        IconMenuEntry(
-            key="engine",
-            label="* Engine" if current_type == 'engine' else "Engine",
-            icon_name="engine",
-            enabled=True
-        ),
-        IconMenuEntry(
-            key="lichess",
-            label="* Lichess" if current_type == 'lichess' else "Lichess",
-            icon_name="lichess",
-            enabled=True
-        ),
-    ]
-    
-    result = _show_menu(entries)
-    
-    if is_break_result(result):
-        return result
-    
-    if result in ["human", "engine", "lichess"]:
-        old_type = _player1_settings['type']
-        _save_player1_setting('type', result)
-        log.info(f"[Settings] Player1 type changed: {old_type} -> {result}")
-        board.beep(board.SOUND_GENERAL, event_type='key_press')
-    
-    return None
-
-
-def _handle_player1_engine_selection():
-    """Handle engine selection for Player 1.
-    
-    Returns:
-        Break result if user triggered a break action.
-        None otherwise.
-    """
-    engines = _load_available_engines()
-    engine_entries = []
-    for engine in engines:
-        label = f"* {engine}" if engine == _player1_settings['engine'] else engine
-        engine_entries.append(
-            IconMenuEntry(key=engine, label=label, icon_name="engine", enabled=True)
-        )
-    
-    result = _show_menu(engine_entries)
-    
-    if is_break_result(result):
-        return result
-    
-    if result not in ["BACK", "SHUTDOWN", "HELP"]:
-        old_engine = _player1_settings['engine']
-        _save_player1_setting('engine', result)
-        log.info(f"[Settings] Player1 engine changed: {old_engine} -> {result}")
-        # Reset ELO to Default when engine changes
-        _save_player1_setting('elo', 'Default')
-        board.beep(board.SOUND_GENERAL, event_type='key_press')
-    
-    return None
-
-
-def _handle_player1_elo_selection():
-    """Handle ELO selection for Player 1.
-    
-    Returns:
-        Break result if user triggered a break action.
-        None otherwise.
-    """
-    current_engine = _player1_settings['engine']
-    elo_levels = _get_engine_elo_levels(current_engine)
-    elo_entries = []
-    for elo in elo_levels:
-        label = f"* {elo}" if elo == _player1_settings['elo'] else elo
-        elo_entries.append(
-            IconMenuEntry(key=elo, label=label, icon_name="elo", enabled=True)
-        )
-    
-    result = _show_menu(elo_entries)
-    
-    if is_break_result(result):
-        return result
-    
-    if result not in ["BACK", "SHUTDOWN", "HELP"]:
-        old_elo = _player1_settings['elo']
-        _save_player1_setting('elo', result)
-        log.info(f"[Settings] Player1 ELO changed: {old_elo} -> {result}")
-        board.beep(board.SOUND_GENERAL, event_type='key_press')
-    
-    return None
-
-
-def _handle_player1_name_input():
-    """Handle name input for Player 1.
-    
-    Opens a keyboard widget for the user to enter their name.
-    
-    Returns:
-        Break result if user triggered a break action.
-        None otherwise.
-    """
-    global _active_keyboard_widget
-    
-    log.info("[Settings] Opening keyboard for Player 1 name entry")
-    
-    # Clear display and show keyboard widget
-    board.display_manager.clear_widgets(addStatusBar=False)
-    
-    # Create keyboard widget with current name as initial text
-    current_name = _player1_settings['name']
-    keyboard = KeyboardWidget(title="Player 1 Name", max_length=20)
-    keyboard.text = current_name if current_name else ""
-    
-    _active_keyboard_widget = keyboard
-    
-    # Add widget to display
-    promise = board.display_manager.add_widget(keyboard)
-    if promise:
-        try:
-            promise.result(timeout=2.0)
-        except Exception:
-            pass
-    
-    try:
-        # Wait for input (blocking)
-        result = keyboard.wait_for_input(timeout=300.0)
-        
-        if result is not None:
-            # User confirmed - save the name (empty string allowed to reset to default)
-            _save_player1_setting('name', result)
-            log.info(f"[Settings] Player 1 name saved: '{result or '(default)'}'")
-            board.beep(board.SOUND_GENERAL)
-        else:
-            log.info("[Settings] Player 1 name entry cancelled")
-    finally:
-        _active_keyboard_widget = None
-    
-    return None
-
-
-def _handle_player2_name_input():
-    """Handle name input for Player 2.
-    
-    Opens a keyboard widget for the user to enter their name.
-    
-    Returns:
-        Break result if user triggered a break action.
-        None otherwise.
-    """
-    global _active_keyboard_widget
-    
-    log.info("[Settings] Opening keyboard for Player 2 name entry")
-    
-    # Clear display and show keyboard widget
-    board.display_manager.clear_widgets(addStatusBar=False)
-    
-    # Create keyboard widget with current name as initial text
-    current_name = _player2_settings['name']
-    keyboard = KeyboardWidget(title="Player 2 Name", max_length=20)
-    keyboard.text = current_name if current_name else ""
-    
-    _active_keyboard_widget = keyboard
-    
-    # Add widget to display
-    promise = board.display_manager.add_widget(keyboard)
-    if promise:
-        try:
-            promise.result(timeout=2.0)
-        except Exception:
-            pass
-    
-    try:
-        # Wait for input (blocking)
-        result = keyboard.wait_for_input(timeout=300.0)
-        
-        if result is not None:
-            # User confirmed - save the name (empty string allowed to reset to default)
-            _save_player2_setting('name', result)
-            log.info(f"[Settings] Player 2 name saved: '{result or '(default)'}'")
-            board.beep(board.SOUND_GENERAL)
-        else:
-            log.info("[Settings] Player 2 name entry cancelled")
-    finally:
-        _active_keyboard_widget = None
-    
-    return None
+    """Handle type selection for Player 1."""
+    return handle_type_selection(
+        player_settings=_player1_settings_dict(),
+        show_menu=_show_menu,
+        save_player_setting=_save_player1_setting,
+        log=log,
+        board=board,
+        player_label="Player1",
+    )
 
 
 def _handle_player2_type_selection():
-    """Handle type selection for Player 2.
-    
-    Returns:
-        Break result if user triggered a break action.
-        None otherwise.
-    """
-    current_type = _player2_settings['type']
-    
-    entries = [
-        IconMenuEntry(
-            key="human",
-            label="* Human" if current_type == 'human' else "Human",
-            icon_name="universal_logo",
-            enabled=True
-        ),
-        IconMenuEntry(
-            key="engine",
-            label="* Engine" if current_type == 'engine' else "Engine",
-            icon_name="engine",
-            enabled=True
-        ),
-        IconMenuEntry(
-            key="lichess",
-            label="* Lichess" if current_type == 'lichess' else "Lichess",
-            icon_name="lichess",
-            enabled=True
-        ),
-    ]
-    
-    result = _show_menu(entries)
-    
-    if is_break_result(result):
-        return result
-    
-    if result in ["human", "engine", "lichess"]:
-        old_type = _player2_settings['type']
-        _save_player2_setting('type', result)
-        log.info(f"[Settings] Player2 type changed: {old_type} -> {result}")
-        board.beep(board.SOUND_GENERAL, event_type='key_press')
-    
-    return None
+    """Handle type selection for Player 2."""
+    return handle_type_selection(
+        player_settings=_player2_settings_dict(),
+        show_menu=_show_menu,
+        save_player_setting=_save_player2_setting,
+        log=log,
+        board=board,
+        player_label="Player2",
+    )
+
+
+def _handle_player1_engine_selection():
+    """Handle engine selection for Player 1."""
+    return handle_engine_selection(
+        player_settings=_player1_settings_dict(),
+        show_menu=_show_menu,
+        is_break_result=is_break_result,
+        get_installed_engines=_get_installed_engines,
+        format_engine_label_with_compat=_format_engine_label_with_compat,
+        save_player_setting=_save_player1_setting,
+        log=log,
+        board=board,
+    )
 
 
 def _handle_player2_engine_selection():
-    """Handle engine selection for Player 2.
-    
-    Returns:
-        Break result if user triggered a break action.
-        None otherwise.
-    """
-    engines = _load_available_engines()
-    engine_entries = []
-    for engine in engines:
-        label = f"* {engine}" if engine == _player2_settings['engine'] else engine
-        engine_entries.append(
-            IconMenuEntry(key=engine, label=label, icon_name="engine", enabled=True)
-        )
-    
-    result = _show_menu(engine_entries)
-    
-    if is_break_result(result):
-        return result
-    
-    if result not in ["BACK", "SHUTDOWN", "HELP"]:
-        old_engine = _player2_settings['engine']
-        _save_player2_setting('engine', result)
-        log.info(f"[Settings] Player2 engine changed: {old_engine} -> {result}")
-        # Reset ELO to Default when engine changes
-        _save_player2_setting('elo', 'Default')
-        board.beep(board.SOUND_GENERAL, event_type='key_press')
-    
-    return None
+    """Handle engine selection for Player 2."""
+    return handle_engine_selection(
+        player_settings=_player2_settings_dict(),
+        show_menu=_show_menu,
+        is_break_result=is_break_result,
+        get_installed_engines=_get_installed_engines,
+        format_engine_label_with_compat=_format_engine_label_with_compat,
+        save_player_setting=_save_player2_setting,
+        log=log,
+        board=board,
+    )
+
+
+def _handle_player1_elo_selection():
+    """Handle ELO selection for Player 1."""
+    return handle_elo_selection(
+        player_settings=_player1_settings_dict(),
+        show_menu=_show_menu,
+        is_break_result=is_break_result,
+        get_engine_elo_levels=_get_engine_elo_levels,
+        save_player_setting=_save_player1_setting,
+        log=log,
+        board=board,
+    )
 
 
 def _handle_player2_elo_selection():
-    """Handle ELO selection for Player 2.
-    
-    Returns:
-        Break result if user triggered a break action.
-        None otherwise.
-    """
-    current_engine = _player2_settings['engine']
-    elo_levels = _get_engine_elo_levels(current_engine)
-    elo_entries = []
-    for elo in elo_levels:
-        label = f"* {elo}" if elo == _player2_settings['elo'] else elo
-        elo_entries.append(
-            IconMenuEntry(key=elo, label=label, icon_name="elo", enabled=True)
-        )
-    
-    result = _show_menu(elo_entries)
-    
-    if is_break_result(result):
-        return result
-    
-    if result not in ["BACK", "SHUTDOWN", "HELP"]:
-        old_elo = _player2_settings['elo']
-        _save_player2_setting('elo', result)
-        log.info(f"[Settings] Player2 ELO changed: {old_elo} -> {result}")
-        board.beep(board.SOUND_GENERAL, event_type='key_press')
-    
-    return None
+    """Handle ELO selection for Player 2."""
+    return handle_elo_selection(
+        player_settings=_player2_settings_dict(),
+        show_menu=_show_menu,
+        is_break_result=is_break_result,
+        get_engine_elo_levels=_get_engine_elo_levels,
+        save_player_setting=_save_player2_setting,
+        log=log,
+        board=board,
+    )
 
 
-def _handle_display_settings():
-    """Handle the Display settings submenu.
-    
-    Shows checkboxes for each widget that can be shown/hidden during game.
-    Settings take effect on the next game start.
-    
-    Returns:
-        Break result if user triggered a break action, None otherwise
-    """
-    global _game_settings
-    
-    while True:
-        # Build entries with current settings
-        entries = [
-            IconMenuEntry(
-                key="show_board",
-                label="Board",
-                icon_name="checkbox_checked" if _game_settings['show_board'] else "checkbox_empty",
-                enabled=True
-            ),
-            IconMenuEntry(
-                key="show_clock",
-                label="Clock",
-                icon_name="checkbox_checked" if _game_settings['show_clock'] else "checkbox_empty",
-                enabled=True
-            ),
-            IconMenuEntry(
-                key="show_analysis",
-                label="Analysis",
-                icon_name="checkbox_checked" if _game_settings['show_analysis'] else "checkbox_empty",
-                enabled=True
-            ),
-            IconMenuEntry(
-                key="show_graph",
-                label="Graph",
-                icon_name="checkbox_checked" if _game_settings['show_graph'] else "checkbox_empty",
-                enabled=_game_settings['show_analysis']  # Only enabled if analysis is on
-            ),
-        ]
-        
-        result = _show_menu(entries)
-        
-        if is_break_result(result):
-            return result
-        
-        if result == "BACK":
-            return None
-        
-        # Toggle the selected setting
-        if result in _game_settings and isinstance(_game_settings[result], bool):
-            new_value = not _game_settings[result]
-            _game_settings[result] = new_value
-            _save_game_setting(result, new_value)
-            log.info(f"[Display] {result} changed to {new_value}")
-            board.beep(board.SOUND_GENERAL, event_type='key_press')
-            # Continue loop to show updated menu
+def _handle_player1_name_input():
+    """Handle name input for Player 1."""
+    return handle_name_input(
+        player_settings=_player1_settings_dict(),
+        show_menu=_show_menu,
+        save_player_setting=_save_player1_setting,
+        log=log,
+        board=board,
+        keyboard_widget_class=KeyboardWidget,
+        player_label="Player 1",
+        set_active_keyboard_widget=_set_active_keyboard_widget,
+    )
 
 
-def _handle_reset_settings():
-    """Handle reset all settings to defaults.
-    
-    Shows a confirmation dialog, then clears all entries in the [game] section
-    of centaur.ini and reloads settings with defaults.
-    
-    Returns:
-        Break result if user triggered a break action, None otherwise
-    """
-    global _game_settings
-    
-    # Confirmation menu
-    entries = [
-        IconMenuEntry(key="confirm", label="Reset All\nSettings?", icon_name="cancel", enabled=True),
-        IconMenuEntry(key="cancel", label="Cancel", icon_name="cancel", enabled=True),
-    ]
-    
-    result = _show_menu(entries)
-    
-    if is_break_result(result):
-        return result
-    
-    if result == "confirm":
-        try:
-            from DGTCentaurMods.board.settings import Settings
-            import configparser
-            
-            # Read the current config
-            config = configparser.ConfigParser()
-            config.read(Settings.configfile)
-            
-            # Clear all player and game settings sections
-            for section in [SETTINGS_SECTION, PLAYER1_SECTION, PLAYER2_SECTION]:
-                if config.has_section(section):
-                    for key in list(config.options(section)):
-                        config.remove_option(section, key)
-            Settings.write_config(config)
-            log.info("[Settings] Cleared all game/player settings from centaur.ini")
-
-            # Reset in-memory settings to defaults
-            _player1_settings['color'] = 'white'
-            _player1_settings['type'] = 'human'
-            _player1_settings['name'] = ''
-            _player1_settings['engine'] = 'stockfish_pi'
-            _player1_settings['elo'] = 'Default'
-            
-            _player2_settings['type'] = 'engine'
-            _player2_settings['name'] = ''
-            _player2_settings['engine'] = 'stockfish_pi'
-            _player2_settings['elo'] = 'Default'
-            
-            _game_settings['time_control'] = 0
-            _game_settings['analysis_mode'] = True
-            _game_settings['show_board'] = True
-            _game_settings['show_clock'] = True
-            _game_settings['show_analysis'] = True
-            _game_settings['show_graph'] = True
-
-            # Reload from file (which will use defaults since sections are empty)
-            _load_game_settings()
-            
-            board.beep(board.SOUND_GENERAL, event_type='key_press')
-            log.info("[Settings] Settings reset to defaults")
-            
-        except Exception as e:
-            log.error(f"[Settings] Error resetting settings: {e}")
-            board.beep(board.SOUND_WRONG_MOVE, event_type='error')
-    
-    return None
-
-
-def _handle_positions_menu(return_to_last_position: bool = False) -> bool:
-    """Handle the Positions submenu.
-    
-    Shows categories of predefined positions, then positions within that category.
-    Loads the selected position and starts a game.
-    
-    Uses nested loops so that pressing BACK from position details returns to
-    the category menu, and pressing BACK from category menu exits entirely.
-    
-    Args:
-        return_to_last_position: If True, skip category menu and go directly to the
-                                 last selected position in the last selected category.
-    
-    Returns:
-        True if a position was loaded (caller should exit settings), False otherwise
-    """
-    global _last_position_category_index, _last_position_index, _last_position_category
-    
-    positions = _load_positions_config()
-    
-    if not positions:
-        log.warning("[Positions] No positions available")
-        board.beep(board.SOUND_WRONG_MOVE, event_type='error')
-        return False
-    
-    # Map category names to specific icons
-    category_icons = {
-        'test': 'positions_test',
-        'puzzles': 'positions_puzzles',
-        'endgames': 'positions_endgames',
-        'custom': 'positions_custom',
-    }
-    
-    # Build category entries once
-    category_entries = []
-    for category in positions.keys():
-        # Capitalize category name for display
-        display_name = category.replace('_', ' ').title()
-        count = len(positions[category])
-        # Use category-specific icon if available, otherwise default to positions
-        icon_name = category_icons.get(category, 'positions')
-        category_entries.append(IconMenuEntry(
-            key=category,
-            label=f"{display_name}\n({count})",
-            icon_name=icon_name,
-            enabled=True,
-            font_size=14,
-            height_ratio=1.5  # Taller buttons for two lines of text
-        ))
-    
-    # Use stored category index for returning from position list
-    last_category_index = _last_position_category_index
-    
-    # If returning to last position, skip category menu and go directly to positions
-    skip_category_menu = return_to_last_position and _last_position_category is not None
-    
-    # Outer loop for category menu - pressing BACK here exits positions menu
-    while True:
-        if skip_category_menu:
-            # Use stored category from last position game
-            category_result = _last_position_category
-            skip_category_menu = False  # Only skip once
-        else:
-            category_result = _show_menu(category_entries, initial_index=last_category_index)
-            
-            if is_break_result(category_result):
-                return category_result
-            if category_result in ["BACK", "SHUTDOWN", "HELP"]:
-                return False
-        
-        # Update last_category_index for when we return from position list
-        last_category_index = find_entry_index(category_entries, category_result)
-        _last_position_category_index = last_category_index
-        
-        # Show positions in selected category
-        category = category_result
-        if category not in positions:
-            continue
-        
-        # Build position entries for selected category
-        position_entries = []
-        for name, fen in positions[category].items():
-            # Format name for display - wrap text at word boundaries only if needed
-            display_name = name.replace('_', ' ').title()
-            
-            # Only wrap if text is too long to fit on one line
-            # Available width after icon is ~72px, font size 12 = ~6px/char = ~12 chars
-            # Use 11 as threshold to be safe
-            if len(display_name) <= 11:
-                # Short enough to fit on one line
-                wrapped_text = display_name
-                num_lines = 1
-            else:
-                # Need to wrap - use ~10 chars per line
-                max_line_width = 10
-                wrapped_lines = []
-                words = display_name.split()
-                current_line = ""
-                
-                for word in words:
-                    if not current_line:
-                        current_line = word
-                    elif len(current_line) + 1 + len(word) <= max_line_width:
-                        current_line += " " + word
-                    else:
-                        wrapped_lines.append(current_line)
-                        current_line = word
-                if current_line:
-                    wrapped_lines.append(current_line)
-                
-                wrapped_text = '\n'.join(wrapped_lines)
-                num_lines = len(wrapped_lines)
-            
-            # Adjust height ratio based on number of lines
-            # 1 line = 1.0, 2 lines = 1.5, 3+ lines = 2.0
-            if num_lines <= 1:
-                height_ratio = 1.0
-            elif num_lines == 2:
-                height_ratio = 1.5
-            else:
-                height_ratio = 2.0
-            
-            # Determine icon based on position name for test category, else use category icon
-            if category == 'test':
-                # Map test position names to specific icons
-                if 'en_passant' in name:
-                    position_icon = 'en_passant'
-                elif 'castling' in name:
-                    position_icon = 'castling'
-                elif 'promotion' in name:
-                    position_icon = 'promotion'
-                else:
-                    position_icon = 'positions_test'
-            else:
-                position_icon = category_icons.get(category, 'positions')
-            
-            position_entries.append(IconMenuEntry(
-                key=name,
-                label=wrapped_text,
-                icon_name=position_icon,
-                enabled=True,
-                font_size=12,
-                height_ratio=height_ratio
-            ))
-        
-        # Determine initial position index
-        # Use stored index if returning to same category, otherwise start at 0
-        if return_to_last_position and category == _last_position_category:
-            initial_position_index = _last_position_index
-        else:
-            initial_position_index = 0
-        
-        # Inner loop for position details - pressing BACK returns to category menu
-        position_result = _show_menu(position_entries, initial_index=initial_position_index)
-
-        if is_break_result(position_result):
-            return position_result
-        if position_result in ["BACK", "HELP"]:
-            # Go back to category menu (continue outer loop)
-            # last_category_index already set, so category will be pre-selected
-            # Clear last position category so we don't skip category menu next time
-            _last_position_category = None
-            continue
-        elif position_result == "SHUTDOWN":
-            return False
-        
-        # Load the selected position
-        if position_result in positions[category]:
-            fen, hint_move = positions[category][position_result]
-            display_name = position_result.replace('_', ' ').title()
-            
-            # Store the category and position for returning later
-            _last_position_category = category
-            _last_position_index = find_entry_index(position_entries, position_result)
-            
-            if _start_from_position(fen, display_name, hint_move):
-                return True
-
-
-def _get_current_wifi_status() -> tuple:
-    """Get current WiFi connection status.
-    
-    Returns:
-        Tuple of (ssid, ip_address) or (None, None) if not connected
-    """
-    import subprocess
-    
-    try:
-        result = subprocess.run(['iwgetid', '-r'], capture_output=True, text=True, timeout=5)
-        ssid = result.stdout.strip() if result.returncode == 0 and result.stdout.strip() else None
-    except Exception:
-        ssid = None
-    
-    ip_address = None
-    if ssid:
-        try:
-            result = subprocess.run(['hostname', '-I'], capture_output=True, text=True, timeout=5)
-            ips = result.stdout.strip().split()
-            ip_address = ips[0] if ips else None
-        except Exception:
-            pass
-    
-    return ssid, ip_address
-
-
-def _scan_wifi_networks() -> List[dict]:
-    """Scan for available WiFi networks.
-    
-    Returns:
-        List of dicts with 'ssid' and 'signal' keys, sorted by signal strength
-    """
-    import subprocess
-    import re
-    
-    networks = []
-    
-    try:
-        # Show scanning message (full screen, no status bar)
-        board.display_manager.clear_widgets(addStatusBar=False)
-        promise = board.display_manager.add_widget(SplashScreen(message="Scanning...", leave_room_for_status_bar=False))
-        if promise:
-            try:
-                promise.result(timeout=5.0)
-            except Exception:
-                pass
-        
-        # Use iwlist for scanning - more reliable than nmcli
-        result = subprocess.run(
-            ['sudo', 'iwlist', 'wlan0', 'scan'],
-            capture_output=True, text=True, timeout=30
-        )
-        
-        log.debug(f"[WiFi] iwlist return code: {result.returncode}")
-        if result.stderr:
-            log.debug(f"[WiFi] iwlist stderr: {result.stderr}")
-        
-        if result.returncode == 0:
-            seen_ssids = set()
-            current_ssid = None
-            current_signal = 0
-            current_security = ""
-            
-            for line in result.stdout.split('\n'):
-                line = line.strip()
-                
-                # New cell - save previous if exists
-                if line.startswith('Cell '):
-                    if current_ssid and current_ssid not in seen_ssids:
-                        seen_ssids.add(current_ssid)
-                        networks.append({
-                            'ssid': current_ssid,
-                            'signal': current_signal,
-                            'security': current_security
-                        })
-                    current_ssid = None
-                    current_signal = 0
-                    current_security = ""
-                
-                # Extract SSID
-                if 'ESSID:' in line:
-                    match = re.search(r'ESSID:"([^"]*)"', line)
-                    if match:
-                        current_ssid = match.group(1)
-                
-                # Extract signal quality
-                if 'Quality=' in line:
-                    match = re.search(r'Quality=(\d+)/(\d+)', line)
-                    if match:
-                        quality = int(match.group(1))
-                        max_quality = int(match.group(2))
-                        current_signal = int((quality / max_quality) * 100)
-                
-                # Extract encryption
-                if 'Encryption key:on' in line:
-                    current_security = "WPA"
-            
-            # Don't forget the last network
-            if current_ssid and current_ssid not in seen_ssids:
-                seen_ssids.add(current_ssid)
-                networks.append({
-                    'ssid': current_ssid,
-                    'signal': current_signal,
-                    'security': current_security
-                })
-            
-            # Sort by signal strength (strongest first)
-            networks.sort(key=lambda x: x['signal'], reverse=True)
-            log.info(f"[WiFi] Found {len(networks)} networks")
-        else:
-            log.error(f"[WiFi] iwlist failed: {result.stderr}")
-            
-    except subprocess.TimeoutExpired:
-        log.error("[WiFi] Network scan timed out")
-    except Exception as e:
-        log.error(f"[WiFi] Error scanning networks: {e}")
-        import traceback
-        log.error(traceback.format_exc())
-
-    return networks
-
-
-def _connect_to_wifi(ssid: str, password: str = None) -> bool:
-    """Connect to a WiFi network.
-    
-    Args:
-        ssid: Network SSID to connect to
-        password: Network password (None for open networks)
-    
-    Returns:
-        True if connection successful, False otherwise
-    """
-    import subprocess
-    
-    try:
-        # Show connecting message (full screen, no status bar)
-        board.display_manager.clear_widgets(addStatusBar=False)
-        promise = board.display_manager.add_widget(SplashScreen(message="Connecting...", leave_room_for_status_bar=False))
-        if promise:
-            try:
-                promise.result(timeout=5.0)
-            except Exception:
-                pass
-        
-        if password:
-            result = subprocess.run(
-                ['sudo', 'nmcli', 'device', 'wifi', 'connect', ssid, 'password', password],
-                capture_output=True, text=True, timeout=30
-            )
-        else:
-            result = subprocess.run(
-                ['sudo', 'nmcli', 'device', 'wifi', 'connect', ssid],
-                capture_output=True, text=True, timeout=30
-            )
-        
-        if result.returncode == 0:
-            log.info(f"[WiFi] Connected to {ssid}")
-            board.beep(board.SOUND_GENERAL, event_type='key_press')
-            return True
-        else:
-            log.error(f"[WiFi] Failed to connect: {result.stderr}")
-            board.beep(board.SOUND_WRONG, event_type='error')
-            return False
-            
-    except subprocess.TimeoutExpired:
-        log.error("[WiFi] Connection timed out")
-        board.beep(board.SOUND_WRONG, event_type='error')
-        return False
-    except Exception as e:
-        log.error(f"[WiFi] Error connecting: {e}")
-        board.beep(board.SOUND_WRONG, event_type='error')
-        return False
+def _handle_player2_name_input():
+    """Handle name input for Player 2."""
+    return handle_name_input(
+        player_settings=_player2_settings_dict(),
+        show_menu=_show_menu,
+        save_player_setting=_save_player2_setting,
+        log=log,
+        board=board,
+        keyboard_widget_class=KeyboardWidget,
+        player_label="Player 2",
+        set_active_keyboard_widget=_set_active_keyboard_widget,
+    )
 
 
 def _get_wifi_password_from_board(ssid: str) -> Optional[str]:
-    """Get WiFi password using board piece input.
-
-    Displays a keyboard widget on the e-paper where each board square
-    corresponds to a character. Lifting and placing a piece on a square
-    types that character.
-
-    Args:
-        ssid: SSID to display in the title
-
-    Returns:
-        Password string or None if cancelled
-    """
-    global _active_keyboard_widget
-    
-    log.info(f"[WiFi] Opening keyboard for password entry: {ssid}")
-    
-    # Clear display and show keyboard widget
-    board.display_manager.clear_widgets(addStatusBar=False)
-    
-    # Create keyboard widget
-    keyboard = KeyboardWidget(title=f"Password: {ssid[:10]}", max_length=64)
-    _active_keyboard_widget = keyboard
-    
-    # Add widget to display
-    promise = board.display_manager.add_widget(keyboard)
-    if promise:
-        try:
-            promise.result(timeout=2.0)
-        except Exception:
-            pass
-    
-    # Wait for user input (blocking)
-    try:
-        result = keyboard.wait_for_input(timeout=300.0)
-        log.info(f"[WiFi] Keyboard input complete, got {'password' if result else 'cancelled'}")
-        return result
-    finally:
-        # Clear keyboard widget reference
-        _active_keyboard_widget = None
-
-
-def _handle_wifi_settings():
-    """Handle WiFi settings submenu.
-
-    Shows WiFi status information with a toggle for enable/disable.
-    Displays:
-    - SSID, IP address, signal strength, frequency
-    - Scan button for connecting to networks
-    - Enable toggle (checkbox style)
-    
-    Uses the wifi_info module for status queries and control.
-    Subscribes to WiFi status updates to refresh the display when
-    connection status changes (connect, disconnect, signal change).
-    """
-    global _menu_manager
-    from DGTCentaurMods.epaper import wifi_info
-    
-    last_selected = 1  # Default to Scan button (first selectable after status display)
-    
-    # Callback to refresh menu when WiFi status changes
-    def _on_wifi_status_change(status: dict):
-        """Refresh the menu when WiFi status changes."""
-        if _menu_manager.active_widget is not None:
-            log.debug(f"[WiFi Settings] Status changed, refreshing menu: connected={status.get('connected')}")
-            _menu_manager.cancel_selection("WIFI_REFRESH")
-    
-    # Subscribe to WiFi status updates
-    wifi_info.subscribe(_on_wifi_status_change)
-    
-    try:
-        while True:
-            # Get current status
-            wifi_status = wifi_info.get_wifi_status()
-            
-            # Format status label
-            status_label = wifi_info.format_status_label(wifi_status)
-            
-            # Determine WiFi status icon based on actual state
-            # Uses same logic as WiFiStatusWidget from status bar
-            is_enabled = wifi_status['enabled']
-            is_connected = wifi_status['connected']
-            signal = wifi_status.get('signal', 0)
-            
-            if not is_enabled:
-                status_icon = "wifi_disabled"
-            elif not is_connected:
-                status_icon = "wifi_disconnected"
-            elif signal >= 70:
-                status_icon = "wifi_strong"
-            elif signal >= 40:
-                status_icon = "wifi_medium"
-            else:
-                status_icon = "wifi_weak"
-            
-            # Enable toggle uses checkbox icon
-            enable_icon = "timer_checked" if is_enabled else "timer"
-            enable_label = "Enabled" if is_enabled else "Disabled"
-
-            wifi_entries = [
-                # Status info display with dynamic WiFi icon (non-selectable)
-                IconMenuEntry(
-                    key="Info",
-                    label=status_label,
-                    icon_name=status_icon,
-                    enabled=True,
-                    selectable=False,
-                    height_ratio=1.8,
-                    icon_size=52,
-                    layout="vertical",
-                    font_size=12,
-                    border_width=1
-                ),
-                # Scan button
-                IconMenuEntry(
-                    key="Scan",
-                    label="Scan",
-                    icon_name="wifi",
-                    enabled=True,
-                    selectable=True,
-                    height_ratio=0.9,
-                    icon_size=28,
-                    layout="horizontal",
-                    font_size=14
-                ),
-                # Enable/Disable toggle (checkbox style)
-                IconMenuEntry(
-                    key="Toggle",
-                    label=enable_label,
-                    icon_name=enable_icon,
-                    enabled=True,
-                    selectable=True,
-                    height_ratio=0.7,
-                    layout="horizontal",
-                    font_size=14
-                ),
-            ]
-
-            wifi_result = _show_menu(wifi_entries, initial_index=last_selected)
-
-            # Handle break results - exit to main loop
-            if is_break_result(wifi_result):
-                return wifi_result
-
-            # Handle refresh from WiFi status change
-            if wifi_result == "WIFI_REFRESH":
-                # Keep current selection and rebuild menu
-                continue
-
-            # Update last_selected for when we return from a submenu
-            last_selected = find_entry_index(wifi_entries, wifi_result)
-
-            if wifi_result in ["BACK", "SHUTDOWN", "HELP"]:
-                return
-
-            if wifi_result == "Scan":
-                _handle_wifi_scan()
-            elif wifi_result == "Toggle":
-                # Toggle WiFi state
-                if is_enabled:
-                    wifi_info.disable_wifi()
-                else:
-                    if wifi_info.enable_wifi():
-                        board.beep(board.SOUND_GENERAL, event_type='key_press')
-    finally:
-        # Always unsubscribe when exiting the menu
-        wifi_info.unsubscribe(_on_wifi_status_change)
+    """Get WiFi password using keyboard widget (delegated to wifi_service)."""
+    def _factory(update_fn, title, max_len):
+        return KeyboardWidget(update_fn, title=title, max_length=max_len)
+    return get_wifi_password_from_board(
+        board=board,
+        log=log,
+        ssid=ssid,
+        keyboard_factory=_factory,
+        set_active_keyboard=lambda w: _set_active_keyboard_widget(w),
+        clear_active_keyboard=_clear_active_keyboard_widget,
+    )
 
 
 def _handle_wifi_scan():
     """Handle WiFi network scanning and selection."""
-    log.info("[WiFi] Starting network scan...")
-    networks = _scan_wifi_networks()
-    log.info(f"[WiFi] Scan complete, found {len(networks)} networks")
-
-    if not networks:
-        # Show no networks found message (full screen, no status bar)
-        board.display_manager.clear_widgets(addStatusBar=False)
-        promise = board.display_manager.add_widget(SplashScreen(message="No networks found", leave_room_for_status_bar=False))
-        if promise:
-            try:
-                promise.result(timeout=2.0)
-            except Exception:
-                pass
-        time.sleep(2)
-        return
-
-    # Create menu entries for networks
-    network_entries = []
-    for net in networks[:10]:  # Limit to 10 networks
-        # Signal strength determines icon (icon indicates strength visually)
-        signal = net['signal']
-        if signal >= 70:
-            icon_name = "wifi_strong"
-        elif signal >= 40:
-            icon_name = "wifi_medium"
-        else:
-            icon_name = "wifi_weak"
-
-        # Truncate SSID if too long - no signal text, icon shows strength
-        ssid_display = net['ssid'][:18] if len(net['ssid']) > 18 else net['ssid']
-
-        network_entries.append(
-            IconMenuEntry(key=net['ssid'], label=ssid_display, icon_name=icon_name, enabled=True, font_size=14)
-        )
-        log.debug(f"[WiFi] Added network entry: {net['ssid']} ({signal}%)")
-
-    log.info(f"[WiFi] Showing menu with {len(network_entries)} entries")
-    network_result = _show_menu(network_entries)
-    log.info(f"[WiFi] Menu result: {network_result}")
-
-    if is_break_result(network_result):
-        return network_result
-    if network_result in ["BACK", "SHUTDOWN", "HELP"]:
-        return
-    
-    # User selected a network - find it in the list
-    selected_network = None
-    for net in networks:
-        if net['ssid'] == network_result:
-            selected_network = net
-            break
-    
-    if not selected_network:
-        return
-    
-    # Check if network needs password
-    needs_password = selected_network.get('security', '') != ''
-    
-    if needs_password:
-        # Get password using board input
-        password = _get_wifi_password_from_board(selected_network['ssid'])
-        if password is None:
-            return
-        _connect_to_wifi(selected_network['ssid'], password)
-    else:
-        _connect_to_wifi(selected_network['ssid'])
-
-
-def _handle_bluetooth_settings():
-    """Handle Bluetooth settings submenu.
-    
-    Shows Bluetooth status information with a toggle for enable/disable.
-    Displays:
-    - Device name and MAC address
-    - Connection status and connected client type
-    - Advertised host names
-    - Enable toggle (checkbox style)
-    
-    Uses the bluetooth_status module for status queries and control.
-    """
-    from DGTCentaurMods.epaper import bluetooth_status
-    
-    def build_entries():
-        """Build Bluetooth settings menu entries."""
-        device_name = _args.device_name if _args else 'DGT PEGASUS'
-        bt_status = bluetooth_status.get_bluetooth_status(
-            device_name=device_name,
-            ble_manager=ble_manager,
-            rfcomm_connected=client_connected
-        )
-        status_label = bluetooth_status.format_status_label(bt_status)
-        advertised_label = bluetooth_status.get_advertised_names_label()
-        is_enabled = bt_status['enabled']
-        
-        return [
-            IconMenuEntry(
-                key="Info", label=status_label, icon_name="bluetooth",
-                enabled=True, selectable=False, height_ratio=1.5, icon_size=36,
-                layout="vertical", font_size=11, border_width=1
-            ),
-            IconMenuEntry(
-                key="Names", label=advertised_label, icon_name="bluetooth",
-                enabled=True, selectable=False, height_ratio=1.2, icon_size=24,
-                layout="vertical", font_size=10, border_width=1
-            ),
-            IconMenuEntry(
-                key="Toggle", label="Enabled" if is_enabled else "Disabled",
-                icon_name="timer_checked" if is_enabled else "timer",
-                enabled=True, selectable=True, height_ratio=0.8, layout="horizontal", font_size=14
-            ),
-        ]
-    
-    def handle_selection(result: MenuSelection):
-        """Handle Bluetooth toggle."""
-        if result.key == "Toggle":
-            device_name = _args.device_name if _args else 'DGT PEGASUS'
-            bt_status = bluetooth_status.get_bluetooth_status(
-                device_name=device_name, ble_manager=ble_manager, rfcomm_connected=client_connected
-            )
-            if bt_status['enabled']:
-                bluetooth_status.disable_bluetooth()
-            else:
-                if bluetooth_status.enable_bluetooth():
-                    board.beep(board.SOUND_GENERAL, event_type='key_press')
-        return None  # Continue loop
-    
-    return _menu_manager.run_menu_loop(build_entries, handle_selection, initial_index=2)
-
-
-def _handle_sound_settings():
-    """Handle sound settings submenu.
-    
-    Shows individual sound settings with toggle checkboxes:
-    - Piece events (beep on piece lift/place)
-    - Game events (beep on check, checkmate, etc.)
-    - Errors (beep on invalid moves)
-    - Key press (beep on button press)
-    - Master enable (global on/off)
-    
-    Uses the sound_settings module for settings management.
-    """
-    from DGTCentaurMods.epaper import sound_settings
-    
-    def build_entries():
-        """Build sound settings menu entries."""
-        settings = sound_settings.get_sound_settings()
-        return [
-            IconMenuEntry(
-                key="piece_event", label="Piece Events",
-                icon_name="timer_checked" if settings['piece_event'] else "timer",
-                enabled=True, selectable=True, height_ratio=0.8, layout="horizontal", font_size=14
-            ),
-            IconMenuEntry(
-                key="game_event", label="Game Events",
-                icon_name="timer_checked" if settings['game_event'] else "timer",
-                enabled=True, selectable=True, height_ratio=0.8, layout="horizontal", font_size=14
-            ),
-            IconMenuEntry(
-                key="error", label="Errors",
-                icon_name="timer_checked" if settings['error'] else "timer",
-                enabled=True, selectable=True, height_ratio=0.8, layout="horizontal", font_size=14
-            ),
-            IconMenuEntry(
-                key="key_press", label="Key Press",
-                icon_name="timer_checked" if settings['key_press'] else "timer",
-                enabled=True, selectable=True, height_ratio=0.8, layout="horizontal", font_size=14
-            ),
-            IconMenuEntry(
-                key="enabled", label="Sound Enabled",
-                icon_name="timer_checked" if settings['enabled'] else "timer",
-                enabled=True, selectable=True, height_ratio=0.8, layout="horizontal", font_size=14, bold=True
-            ),
-        ]
-    
-    def handle_selection(result: MenuSelection):
-        """Handle sound setting toggle."""
-        if result.key in sound_settings.SOUND_SETTINGS:
-            new_value = sound_settings.toggle_sound_setting(result.key)
-            if new_value and result.key == 'enabled':
-                # Play beep to confirm sound is enabled
-                board.beep(board.SOUND_GENERAL)
-        return None  # Continue loop
-    
-    return _menu_manager.run_menu_loop(build_entries, handle_selection, initial_index=4)
-
-
-def _handle_chromecast_menu():
-    """Handle Chromecast menu - discover and stream to Chromecast devices.
-    
-    Discovers available Chromecast devices on the network, presents a menu
-    for selection, and starts streaming via the ChromecastService.
-    
-    The menu also shows a "Stop Streaming" option if currently streaming.
-    
-    Returns:
-        Break result if interrupted, None otherwise.
-    """
-    from DGTCentaurMods.services import get_chromecast_service
-    
-    # Get the Chromecast service singleton
-    cc_service = get_chromecast_service()
-    
-    # If currently streaming, show option to stop
-    if cc_service.is_active:
-        device = cc_service.device_name or "Unknown"
-        display_device = device[:16] if len(device) > 16 else device
-        
-        entries = [
-            IconMenuEntry(key="STOP", label=f"Stop: {display_device}", icon_name="cast", enabled=True),
-            IconMenuEntry(key="CHANGE", label="Change Device", icon_name="cast", enabled=True),
-        ]
-        
-        result = _show_menu(entries)
-        
-        if is_break_result(result):
-            return result
-        if result in ["BACK", "SHUTDOWN", "HELP"]:
-            return None
-        
-        if result == "STOP":
-            cc_service.stop_streaming()
-            log.info("[Chromecast] Streaming stopped by user")
-            board.display_manager.clear_widgets()
-            promise = board.display_manager.add_widget(SplashScreen(message="Streaming\nstopped"))
-            if promise:
-                try:
-                    promise.result(timeout=2.0)
-                except Exception:
-                    pass
-            time.sleep(1)
-            board.beep(board.SOUND_GENERAL)
-            return None
-        # If "CHANGE", fall through to device discovery
-    
-    # Show discovering message
-    board.display_manager.clear_widgets()
-    promise = board.display_manager.add_widget(SplashScreen(message="Discovering\nChromecasts..."))
-    if promise:
-        try:
-            promise.result(timeout=2.0)
-        except Exception:
-            pass
-    
-    # Discover Chromecasts
-    try:
-        import pychromecast
-        chromecasts, browser = pychromecast.get_chromecasts()
-    except ImportError:
-        log.error("[Chromecast] pychromecast library not installed")
-        board.display_manager.clear_widgets()
-        promise = board.display_manager.add_widget(SplashScreen(message="pychromecast\nnot installed"))
-        if promise:
-            try:
-                promise.result(timeout=2.0)
-            except Exception:
-                pass
-        time.sleep(2)
-        return None
-    except Exception as e:
-        log.error(f"[Chromecast] Discovery failed: {e}")
-        board.display_manager.clear_widgets()
-        promise = board.display_manager.add_widget(SplashScreen(message="Discovery\nfailed"))
-        if promise:
-            try:
-                promise.result(timeout=2.0)
-            except Exception:
-                pass
-        time.sleep(2)
-        return None
-    
-    # Build menu of available Chromecasts (cast type only, not audio devices)
-    cast_entries = []
-    for cc in chromecasts:
-        if cc.device.cast_type == 'cast':
-            friendly_name = cc.device.friendly_name
-            cast_entries.append(
-                IconMenuEntry(key=friendly_name, label=friendly_name, icon_name="cast", enabled=True)
-            )
-    
-    # Stop the browser to clean up resources
-    try:
-        browser.stop_discovery()
-    except Exception:
-        pass
-    
-    if not cast_entries:
-        log.info("[Chromecast] No Chromecast devices found")
-        board.display_manager.clear_widgets()
-        promise = board.display_manager.add_widget(SplashScreen(message="No Chromecasts\nfound"))
-        if promise:
-            try:
-                promise.result(timeout=2.0)
-            except Exception:
-                pass
-        time.sleep(2)
-        return None
-    
-    log.info(f"[Chromecast] Found {len(cast_entries)} device(s)")
-    
-    # Show menu to select Chromecast
-    result = _show_menu(cast_entries)
-    
-    if is_break_result(result):
-        return result
-    if result in ["BACK", "SHUTDOWN", "HELP"]:
-        return None
-    
-    # Start streaming via the service
-    selected_name = result
-    
-    # Stop any existing stream first
-    if cc_service.is_active:
-        cc_service.stop_streaming()
-    
-    # Start streaming to selected device
-    cc_service.start_streaming(selected_name)
-    log.info(f"[Chromecast] Started streaming to: {selected_name}")
-    
-    # Show feedback
-    board.display_manager.clear_widgets()
-    # Truncate long names
-    display_name = selected_name[:18] if len(selected_name) > 18 else selected_name
-    promise = board.display_manager.add_widget(SplashScreen(message=f"Streaming to\n{display_name}"))
-    if promise:
-        try:
-            promise.result(timeout=2.0)
-        except Exception:
-            pass
-    time.sleep(2)
-    board.beep(board.SOUND_GENERAL)
-    
-    return None
+    return handle_wifi_scan_menu(
+        scan_networks=lambda: scan_wifi_networks(board, log),
+        show_menu=_show_menu,
+        is_break_result_fn=is_break_result,
+        get_password=_get_wifi_password_from_board,
+        connect_fn=lambda ssid, password=None: connect_to_wifi(board, log, ssid, password),
+        board=board,
+        log=log,
+    )
 
 
 def _get_installed_version() -> str:
@@ -3366,932 +2036,140 @@ def _get_installed_version() -> str:
     return ""
 
 
-def _handle_about_menu():
-    """Handle About menu - show version info and update options.
-    
-    Displays version information, QR code for support, and provides
-    access to update settings.
-    
-    Returns:
-        Break result if interrupted, None otherwise.
-    """
-    from DGTCentaurMods.board import centaur
-    
-    # Get update system for status display
-    update_system = centaur.UpdateSystem()
-    
-    def build_entries():
-        """Build about menu entries with current update status."""
-        version = _get_installed_version()
-        version_label = f"Version\n{version}" if version else "Version\nUnknown"
-        
-        # Get update status for display
-        update_status = update_system.getStatus()
-        update_label = f"Updates\n{update_status.capitalize()}"
-        update_icon = "checkbox_checked" if update_status == "enabled" else "checkbox_empty"
-        
-        return [
-            IconMenuEntry(
-                key="Version",
-                label=version_label,
-                icon_name="info",
-                enabled=True,
-                selectable=False  # Just for display
-            ),
-            IconMenuEntry(
-                key="Support",
-                label="Support\nQR Code",
-                icon_name="universal_logo",
-                enabled=True
-            ),
-            IconMenuEntry(
-                key="Updates",
-                label=update_label,
-                icon_name=update_icon,
-                enabled=True
-            ),
-        ]
-    
-    def handle_selection(result: MenuSelection):
-        """Handle about menu selection."""
-        if result.key == "Support":
-            # Show QR code screen
-            _show_support_qr()
-        elif result.key == "Updates":
-            sub_result = _handle_update_menu(update_system)
-            if is_break_result(sub_result):
-                return sub_result
-        return None  # Continue loop
-    
-    return _menu_manager.run_menu_loop(build_entries, handle_selection)
-
-
-def _show_support_qr():
-    """Display support QR code screen using AboutWidget.
-    
-    Shows a QR code linking to the DGTCentaurMods support page.
-    Waits for user button press to dismiss (with timeout).
-    """
-    global _active_about_widget
-    
-    from PIL import Image
-    from DGTCentaurMods.paths import get_resource_path
-    from DGTCentaurMods.epaper.about_widget import AboutWidget
-    
-    version = _get_installed_version()
-    
-    # Try to load QR code image
-    qr_img = None
-    try:
-        qr_path = get_resource_path("qr-support.png")
-        if qr_path:
-            qr_img = Image.open(qr_path)
-    except Exception as e:
-        log.debug(f"[About] Failed to load QR image: {e}")
-    
-    # Create and display the AboutWidget
-    board.display_manager.clear_widgets(addStatusBar=False)
-    
-    about_widget = AboutWidget(qr_image=qr_img, version=version)
-    _active_about_widget = about_widget
-    
-    promise = board.display_manager.add_widget(about_widget)
-    if promise:
-        try:
-            promise.result(timeout=2.0)
-        except Exception:
-            pass
-    
-    try:
-        # Wait for user to dismiss (button press handled by key_callback)
-        # The about widget will be dismissed when any button is pressed
-        about_widget.wait_for_dismiss(timeout=30.0)
-    finally:
-        _active_about_widget = None
-
-
-def _handle_update_menu(update_system):
-    """Handle update settings menu.
-    
-    Provides options to enable/disable updates, set channel, set policy,
-    and manually trigger updates.
-    
-    Args:
-        update_system: The UpdateSystem instance from centaur module.
-    
-    Returns:
-        Break result if interrupted, None otherwise.
-    """
-    import os
-    import urllib.request
-    import json
-    
-    def build_entries():
-        """Build update menu entries with current settings."""
-        status = update_system.getStatus()
-        channel = update_system.getChannel()
-        policy = update_system.getPolicy()
-        
-        status_icon = "checkbox_checked" if status == "enabled" else "checkbox_empty"
-        
-        entries = [
-            IconMenuEntry(
-                key="Status",
-                label=f"Auto-Update\n{status.capitalize()}",
-                icon_name=status_icon,
-                enabled=True
-            ),
-        ]
-        
-        # Only show channel/policy if updates are enabled
-        if status == "enabled":
-            entries.extend([
-                IconMenuEntry(
-                    key="Channel",
-                    label=f"Channel\n{channel.capitalize()}",
-                    icon_name="settings",
-                    enabled=True
-                ),
-                IconMenuEntry(
-                    key="Policy",
-                    label=f"Policy\n{policy.capitalize()}",
-                    icon_name="settings",
-                    enabled=True
-                ),
-            ])
-        
-        # Check for available .deb files in /home/pi
-        deb_files = []
-        try:
-            for f in os.listdir("/home/pi"):
-                if f.endswith(".deb") and f.startswith("dgtcentaurmods_"):
-                    deb_files.append(f)
-        except Exception:
-            pass
-        
-        # Add manual update options
-        entries.append(
-            IconMenuEntry(
-                key="CheckUpdate",
-                label="Check for\nUpdates",
-                icon_name="download",
-                enabled=True
-            )
-        )
-        
-        # Add any found .deb files as update options
-        for deb_file in deb_files:
-            # Extract version from filename
-            try:
-                version_part = deb_file[15:deb_file.find("_", 15)]
-            except Exception:
-                version_part = deb_file
-            entries.append(
-                IconMenuEntry(
-                    key=deb_file,
-                    label=f"Install\n{version_part}",
-                    icon_name="download",
-                    enabled=True
-                )
-            )
-        
-        return entries
-    
-    def handle_selection(result: MenuSelection):
-        """Handle update menu selection."""
-        if result.key == "Status":
-            # Toggle auto-update status
-            current = update_system.getStatus()
-            if current == "enabled":
-                update_system.disable()
-                log.info("[Update] Auto-update disabled")
-            else:
-                update_system.enable()
-                log.info("[Update] Auto-update enabled")
-            board.beep(board.SOUND_GENERAL)
-            return None  # Refresh menu
-        
-        elif result.key == "Channel":
-            # Show channel selection submenu
-            channel_entries = [
-                IconMenuEntry(
-                    key="stable",
-                    label="Stable",
-                    icon_name="checkbox_checked" if update_system.getChannel() == "stable" else "checkbox_empty",
-                    enabled=True
-                ),
-                IconMenuEntry(
-                    key="beta",
-                    label="Beta",
-                    icon_name="checkbox_checked" if update_system.getChannel() == "beta" else "checkbox_empty",
-                    enabled=True
-                ),
-            ]
-            channel_result = _menu_manager.show_menu(channel_entries)
-            if channel_result.is_break:
-                return channel_result
-            if channel_result.key not in ["BACK"]:
-                update_system.setChannel(channel_result.key)
-                log.info(f"[Update] Channel set to: {channel_result.key}")
-                board.beep(board.SOUND_GENERAL)
-        
-        elif result.key == "Policy":
-            # Show policy selection submenu
-            policy_entries = [
-                IconMenuEntry(
-                    key="always",
-                    label="Always\nUpdate",
-                    icon_name="checkbox_checked" if update_system.getPolicy() == "always" else "checkbox_empty",
-                    enabled=True
-                ),
-                IconMenuEntry(
-                    key="revision",
-                    label="Revisions\nOnly",
-                    icon_name="checkbox_checked" if update_system.getPolicy() == "revision" else "checkbox_empty",
-                    enabled=True
-                ),
-            ]
-            policy_result = _menu_manager.show_menu(policy_entries)
-            if policy_result.is_break:
-                return policy_result
-            if policy_result.key not in ["BACK"]:
-                update_system.setPolicy(policy_result.key)
-                log.info(f"[Update] Policy set to: {policy_result.key}")
-                board.beep(board.SOUND_GENERAL)
-        
-        elif result.key == "CheckUpdate":
-            # Check for updates from GitHub
-            _check_and_download_update(update_system)
-        
-        elif result.key.endswith(".deb"):
-            # User selected a .deb file to install
-            _install_deb_update(result.key, update_system)
-        
-        return None  # Continue loop
-    
-    return _menu_manager.run_menu_loop(build_entries, handle_selection)
-
-
-def _check_and_download_update(update_system):
-    """Check for updates from GitHub and download if available.
-    
-    Args:
-        update_system: The UpdateSystem instance.
-    """
-    import urllib.request
-    import json
-    
-    from DGTCentaurMods.board.settings import Settings
-    
-    # Show checking message
-    board.display_manager.clear_widgets()
-    promise = board.display_manager.add_widget(SplashScreen(message="Checking for\nupdates..."))
-    if promise:
-        try:
-            promise.result(timeout=2.0)
-        except Exception:
-            pass
-    
-    update_source = Settings.read('update', 'source', 'EdNekebno/DGTCentaurMods')
-    url = f'https://raw.githubusercontent.com/{update_source}/master/DGTCentaurMods/DEBIAN/versions'
-    
-    try:
-        with urllib.request.urlopen(url, timeout=10) as response:
-            ver_info = json.loads(response.read().decode())
-        
-        channel = update_system.getChannel()
-        if channel in ver_info:
-            release_version = ver_info[channel].get('release', '')
-            ota_version = ver_info[channel].get('ota', 'None')
-            
-            current_version = _get_installed_version()
-            
-            if ota_version != 'None' and ota_version != current_version:
-                # Update available - ask to download
-                board.display_manager.clear_widgets()
-                promise = board.display_manager.add_widget(
-                    SplashScreen(message=f"Update available\nv{ota_version}\n\nDownloading...")
-                )
-                if promise:
-                    try:
-                        promise.result(timeout=2.0)
-                    except Exception:
-                        pass
-                
-                # Download the update
-                download_url = f'https://github.com/{update_source}/releases/download/v{release_version}/dgtcentaurmods_{release_version}_armhf.deb'
-                try:
-                    urllib.request.urlretrieve(download_url, '/tmp/dgtcentaurmods_armhf.deb')
-                    log.info(f"[Update] Downloaded update to /tmp/dgtcentaurmods_armhf.deb")
-                    
-                    # Ask to install
-                    board.display_manager.clear_widgets()
-                    promise = board.display_manager.add_widget(
-                        SplashScreen(message=f"Downloaded\nv{release_version}\n\nInstall now?")
-                    )
-                    if promise:
-                        try:
-                            promise.result(timeout=2.0)
-                        except Exception:
-                            pass
-                    
-                    # Show confirm/cancel menu
-                    confirm_entries = [
-                        IconMenuEntry(key="Install", label="Install\nNow", icon_name="play", enabled=True),
-                        IconMenuEntry(key="Later", label="Install\nLater", icon_name="cancel", enabled=True),
-                    ]
-                    confirm_result = _menu_manager.show_menu(confirm_entries)
-                    
-                    if confirm_result.key == "Install":
-                        update_system.updateInstall()
-                        # updateInstall calls sys.exit()
-                    
-                except Exception as e:
-                    log.error(f"[Update] Download failed: {e}")
-                    board.display_manager.clear_widgets()
-                    promise = board.display_manager.add_widget(SplashScreen(message="Download\nfailed"))
-                    if promise:
-                        try:
-                            promise.result(timeout=2.0)
-                        except Exception:
-                            pass
-                    time.sleep(2)
-            else:
-                # No update available
-                board.display_manager.clear_widgets()
-                promise = board.display_manager.add_widget(
-                    SplashScreen(message=f"You have the\nlatest version\n\nv{current_version}")
-                )
-                if promise:
-                    try:
-                        promise.result(timeout=2.0)
-                    except Exception:
-                        pass
-                time.sleep(2)
-        else:
-            log.warning(f"[Update] Channel '{channel}' not found in version info")
-            board.display_manager.clear_widgets()
-            promise = board.display_manager.add_widget(SplashScreen(message="Channel not\nfound"))
-            if promise:
-                try:
-                    promise.result(timeout=2.0)
-                except Exception:
-                    pass
-            time.sleep(2)
-    
-    except Exception as e:
-        log.error(f"[Update] Failed to check for updates: {e}")
-        board.display_manager.clear_widgets()
-        promise = board.display_manager.add_widget(SplashScreen(message="Check failed\n\nNo network?"))
-        if promise:
-            try:
-                promise.result(timeout=2.0)
-            except Exception:
-                pass
-        time.sleep(2)
-
-
-def _install_deb_update(deb_file: str, update_system):
-    """Install a .deb file from /home/pi.
-    
-    Args:
-        deb_file: Name of the .deb file in /home/pi.
-        update_system: The UpdateSystem instance.
-    """
-    import os
-    import shutil
-    
-    source_path = f"/home/pi/{deb_file}"
-    if not os.path.exists(source_path):
-        log.error(f"[Update] .deb file not found: {source_path}")
-        return
-    
-    # Show confirmation
-    board.display_manager.clear_widgets()
-    promise = board.display_manager.add_widget(
-        SplashScreen(message=f"Install\n{deb_file[:20]}?")
-    )
-    if promise:
-        try:
-            promise.result(timeout=2.0)
-        except Exception:
-            pass
-    
-    confirm_entries = [
-        IconMenuEntry(key="Install", label="Install\nNow", icon_name="play", enabled=True),
-        IconMenuEntry(key="Cancel", label="Cancel", icon_name="cancel", enabled=True),
-    ]
-    confirm_result = _menu_manager.show_menu(confirm_entries)
-    
-    if confirm_result.key == "Install":
-        # Copy to /tmp and install
-        try:
-            shutil.copy(source_path, '/tmp/dgtcentaurmods_armhf.deb')
-            log.info(f"[Update] Copied {deb_file} to /tmp for installation")
-            update_system.updateInstall()
-            # updateInstall calls sys.exit()
-        except Exception as e:
-            log.error(f"[Update] Failed to prepare update: {e}")
-            board.display_manager.clear_widgets()
-            promise = board.display_manager.add_widget(SplashScreen(message="Install\nfailed"))
-            if promise:
-                try:
-                    promise.result(timeout=2.0)
-                except Exception:
-                    pass
-            time.sleep(2)
-
-
 def _handle_system_menu():
-    """Handle system submenu (display, sound, WiFi, Bluetooth, sleep timer, reset, shutdown, reboot)."""
+    """Handle system submenu (display, sound, WiFi, Bluetooth, sleep timer, reset, shutdown, reboot).
     
-    def handle_selection(result: MenuSelection):
-        """Handle system menu selection."""
-        # Route to submenus - propagate break results
-        # Use is_break_result() since some handlers return strings, some return MenuSelection
-        if result.key == "Display":
-            sub_result = _handle_display_settings()
-            if is_break_result(sub_result):
-                return sub_result
-        elif result.key == "Sound":
-            sub_result = _handle_sound_settings()
-            if is_break_result(sub_result):
-                return sub_result
-        elif result.key == "AnalysisMode":
-            # Toggle analysis mode
-            _game_settings['analysis_mode'] = not _game_settings['analysis_mode']
-            _save_game_setting('analysis_mode', _game_settings['analysis_mode'])
-            log.info(f"[Settings] Analysis mode set to {_game_settings['analysis_mode']}")
-            # Menu will refresh with updated checkbox
-            return None
-        elif result.key == "WiFi":
-            sub_result = _handle_wifi_settings()
-            if is_break_result(sub_result):
-                return sub_result
-        elif result.key == "Bluetooth":
-            sub_result = _handle_bluetooth_settings()
-            if is_break_result(sub_result):
-                return sub_result
-        elif result.key == "Chromecast":
-            sub_result = _handle_chromecast_menu()
-            if is_break_result(sub_result):
-                return sub_result
-        elif result.key == "Accounts":
-            sub_result = _handle_accounts_menu()
-            if is_break_result(sub_result):
-                return sub_result
-        elif result.key == "Inactivity":
-            sub_result = _handle_inactivity_timeout()
-            if is_break_result(sub_result):
-                return sub_result
-        elif result.key == "ResetSettings":
-            sub_result = _handle_reset_settings()
-            if is_break_result(sub_result):
-                return sub_result
-        elif result.key == "Shutdown":
-            _shutdown("Shutdown")
-            return result  # Exit after shutdown
-        elif result.key == "Reboot":
-            # LED cascade pattern for reboot
-            try:
-                for i in range(0, 8):
-                    board.led(i, repeat=0)
-                    time.sleep(0.2)
-            except Exception:
-                pass
-            _shutdown("Rebooting", reboot=True)
-            return result  # Exit after reboot
-        return None  # Continue loop
-    
-    return _menu_manager.run_menu_loop(create_system_entries, handle_selection)
+    Uses MenuContext for tracking selection state.
+    """
+    ctx = _get_menu_context()
+    return handle_system_menu(
+        ctx=ctx,
+        board=board,
+        game_settings=_game_settings_dict(),
+        menu_manager=_menu_manager,
+        create_entries=lambda: create_system_entries(board, _game_settings_dict()),
+        handle_display_settings=lambda: handle_display_settings(
+            game_settings=_game_settings_dict(),
+            show_menu=_show_menu,
+            save_game_setting=_save_game_setting,
+            log=log,
+            board=board,
+        ),
+        handle_sound_settings=lambda: handle_sound_settings(
+            menu_manager=_menu_manager,
+            board=board,
+        ),
+        handle_analysis_mode_menu=lambda: handle_analysis_mode_menu(
+            game_settings=_game_settings_dict(),
+            menu_manager=_menu_manager,
+            save_game_setting=_save_game_setting,
+            handle_analysis_engine_selection=lambda: handle_analysis_engine_selection(
+                game_settings=_game_settings_dict(),
+                show_menu=_show_menu,
+                get_installed_engines=_get_installed_engines,
+                save_game_setting=_save_game_setting,
+                log=log,
+                board=board,
+            ),
+            log=log,
+            board=board,
+        ),
+        handle_engine_manager_menu=lambda: handle_engine_manager_menu(
+            menu_manager=_menu_manager,
+            board=board,
+            log=log,
+            handle_detail_menu=lambda engine_info: handle_engine_detail_menu(
+                engine_info=engine_info,
+                menu_manager=_menu_manager,
+                board=board,
+                log=log,
+                show_install_progress=lambda em, en, dn, mins: show_engine_install_progress(
+                    engine_manager=em,
+                    engine_name=en,
+                    display_name=dn,
+                    estimated_minutes=mins,
+                    board=board,
+                    log=log,
+                ),
+            ),
+        ),
+        handle_wifi_settings=lambda: handle_wifi_settings_menu(
+            menu_manager=_menu_manager,
+            wifi_info_module=__import__("DGTCentaurMods.epaper.wifi_info", fromlist=["get_wifi_status"]),
+            show_menu=_show_menu,
+            find_entry_index=find_entry_index,
+            on_scan=_handle_wifi_scan,
+            on_toggle_enable=lambda is_enabled: (
+                __import__("DGTCentaurMods.epaper.wifi_info", fromlist=["disable_wifi"]).disable_wifi()
+                if is_enabled
+                else __import__("DGTCentaurMods.epaper.wifi_info", fromlist=["enable_wifi"]).enable_wifi()
+            ),
+            board=board,
+            log=log,
+        ),
+        handle_bluetooth_settings=lambda: handle_bluetooth_menu(
+            menu_manager=_menu_manager,
+            bluetooth_status_module=__import__("DGTCentaurMods.epaper.bluetooth_status", fromlist=["get_bluetooth_status"]),
+            show_menu=_show_menu,
+            find_entry_index=find_entry_index,
+            args_device_name=_args.device_name if _args else "DGT PEGASUS",
+            ble_manager=ble_manager,
+            rfcomm_connected=(rfcomm_server.connected if rfcomm_server else False),
+            board=board,
+            log=log,
+        ),
+        handle_chromecast_menu=lambda: handle_chromecast_menu(
+            show_menu=_show_menu,
+            board=board,
+            log=log,
+            get_chromecast_service=lambda: __import__("DGTCentaurMods.services", fromlist=["get_chromecast_service"]).get_chromecast_service(),
+        ),
+        handle_accounts_menu=_handle_accounts_menu,
+        handle_inactivity_timeout=lambda: handle_inactivity_timeout(
+            board=board,
+            log=log,
+            menu_manager=_menu_manager,
+        ),
+        handle_reset_settings=lambda: handle_reset_settings(
+            show_menu=_show_menu,
+            load_game_settings=_load_game_settings,
+            log=log,
+            board=board,
+            settings_section=SETTINGS_SECTION,
+            player1_section=PLAYER1_SECTION,
+            player2_section=PLAYER2_SECTION,
+        ),
+        shutdown_fn=lambda reason, reboot=False: _shutdown(reason, reboot=reboot),
+        log=log,
+    )
 
 
 # =============================================================================
 # Lichess Online Play
 # =============================================================================
 
-def _get_lichess_client():
-    """Get a berserk Lichess API client.
-    
-    Returns:
-        Tuple (client, username, error) where:
-        - client: berserk Client if successful, None otherwise
-        - username: Lichess username if successful, None otherwise
-        - error: Error type string if failed, None if successful
-            - "no_token": No token configured
-            - "invalid_token": Token is invalid or expired
-            - "no_berserk": berserk library not installed
-            - "network": Network or other connection error
-    """
-    from DGTCentaurMods.board import centaur
-    
-    token = centaur.get_lichess_api()
-    if not token or token == "tokenhere":
-        log.warning("[Lichess] No valid API token configured")
-        return None, None, "no_token"
-    
-    try:
-        import berserk
-        session = berserk.TokenSession(token)
-        client = berserk.Client(session=session)
-        # Verify token by getting user info
-        user_info = client.account.get()
-        username = user_info.get('username', '')
-        log.info(f"[Lichess] Authenticated as: {username}")
-        return client, username, None
-    except ImportError:
-        log.error("[Lichess] berserk library not installed")
-        return None, None, "no_berserk"
-    except Exception as e:
-        error_str = str(e).lower()
-        if "401" in error_str or "unauthorized" in error_str or "no such token" in error_str:
-            log.error(f"[Lichess] Invalid or expired token: {e}")
-            return None, None, "invalid_token"
-        else:
-            log.error(f"[Lichess] API authentication failed: {e}")
-            return None, None, "network"
-
-
 def _handle_lichess_menu():
-    """Handle Lichess submenu with New Game, Ongoing, and Challenges options.
-    
-    Returns:
-        True if a Lichess game was started, break result if break action,
-        None/False otherwise.
-    """
-    from DGTCentaurMods.players.lichess import LichessPlayerConfig as LichessConfig, LichessGameMode
-    
-    # First verify we have a valid token
-    client, username, error = _get_lichess_client()
-    if client is None:
-        # Show appropriate error message based on error type
-        # Token-related errors show the "Go to Accounts" button
-        if error == "no_token":
-            result = _show_lichess_error(
-                "No API Token",
-                "Configure in\nSystem > Accounts",
-                show_accounts_button=True
-            )
-        elif error == "invalid_token":
-            result = _show_lichess_error(
-                "Invalid Token",
-                "Token expired or\nrevoked",
-                show_accounts_button=True
-            )
-        elif error == "no_berserk":
-            _show_lichess_error("Missing Library", "berserk package\nnot installed")
-            result = None
-        else:
-            _show_lichess_error("Connection Error", "Could not reach\nLichess server")
-            result = None
-        
-        # If user chose to go to Accounts, open that menu
-        if result == "accounts":
-            _handle_accounts_menu()
-        
-        return None
-    
-    def build_entries():
-        """Build Lichess menu entries."""
-        return [
-            IconMenuEntry(
-                key="NewGame",
-                label="New Game",
-                icon_name="lichess",
-                enabled=True,
-                font_size=14
-            ),
-            IconMenuEntry(
-                key="Ongoing",
-                label="Ongoing",
-                icon_name="positions",
-                enabled=True,
-                font_size=14
-            ),
-            IconMenuEntry(
-                key="Challenges",
-                label="Challenges",
-                icon_name="random",
-                enabled=True,
-                font_size=14
-            ),
-        ]
-    
-    # Track if game was started successfully
-    game_started = False
-    
-    def handle_selection(result: MenuSelection):
-        """Handle Lichess menu selection."""
-        nonlocal game_started
-        
-        if result.key == "NewGame":
-            # Use current game settings for color and time
-            # For Lichess, the local player's color is determined by player1_color
-            color = _player1_settings['color']
-            
-            time_minutes = _game_settings['time_control']
-            if time_minutes == 0:
-                time_minutes = 10  # Default to 10 min if clock disabled
-            
-            config = LichessConfig(
-                mode=LichessGameMode.NEW,
-                time_minutes=time_minutes,
-                increment_seconds=0,
-                rated=False,
-                color_preference=color
-            )
-            
-            if _start_lichess_game(config):
-                game_started = True
-                return result  # Exit menu loop
-            return None
-        
-        elif result.key == "Ongoing":
-            game_id = _show_lichess_ongoing_games(client)
-            if game_id:
-                config = LichessConfig(
-                    mode=LichessGameMode.ONGOING,
-                    game_id=game_id
-                )
-                if _start_lichess_game(config):
-                    game_started = True
-                    return result  # Exit menu loop
-            return None
-        
-        elif result.key == "Challenges":
-            challenge = _show_lichess_challenges(client)
-            if challenge:
-                config = LichessConfig(
-                    mode=LichessGameMode.CHALLENGE,
-                    challenge_id=challenge['id'],
-                    challenge_direction=challenge['direction']
-                )
-                if _start_lichess_game(config):
-                    game_started = True
-                    return result  # Exit menu loop
-            return None
-        
-        return None
-    
-    result = _menu_manager.run_menu_loop(build_entries, handle_selection)
-    
-    if is_break_result(result):
-        return result
-    
-    return game_started
+    """Handle Lichess submenu - delegates to service."""
+    from DGTCentaurMods.services.lichess_service import handle_lichess_menu
+    from DGTCentaurMods.board import centaur
 
-
-def _show_lichess_error(title: str, message: str, show_accounts_button: bool = False):
-    """Show a Lichess error message on the display.
-    
-    Uses an info box pattern with OK and optional Accounts buttons.
-    Similar to the WiFi and Bluetooth info displays.
-    
-    Args:
-        title: Error title
-        message: Error message (can be multi-line)
-        show_accounts_button: If True, show a button to navigate to Accounts menu
-        
-    Returns:
-        "accounts" if user pressed Accounts button, None otherwise
-    """
-    log.info(f"[Lichess] Showing error: {title} - {message}")
-    
-    go_to_accounts = False
-    
-    def build_entries():
-        """Build error display entries."""
-        entries = [
-            # Info box showing error message
-            IconMenuEntry(
-                key="Info",
-                label=f"{title}\n{message}",
-                icon_name="lichess",
-                enabled=True,
-                selectable=False,
-                height_ratio=1.5,
-                icon_size=36,
-                layout="vertical",
-                font_size=11,
-                border_width=1
-            ),
-        ]
-        
-        if show_accounts_button:
-            entries.append(IconMenuEntry(
-                key="Accounts",
-                label="Go to Accounts",
-                icon_name="settings",
-                enabled=True,
-                selectable=True,
-                height_ratio=0.8,
-                layout="horizontal",
-                font_size=14
-            ))
-        
-        # OK button to dismiss
-        entries.append(IconMenuEntry(
-            key="OK",
-            label="OK",
-            icon_name="checkbox_checked",
-            enabled=True,
-            selectable=True,
-            height_ratio=0.8,
-            layout="horizontal",
-            font_size=14
-        ))
-        
-        return entries
-    
-    def handle_selection(result: MenuSelection):
-        """Handle button press."""
-        nonlocal go_to_accounts
-        if result.key == "Accounts":
-            go_to_accounts = True
-            return result  # Exit menu
-        if result.key == "OK":
-            return result  # Exit menu
-        return None  # Continue loop
-    
-    # Show menu with info box and buttons
-    # Select Accounts button if shown, otherwise OK
-    initial = 1 if show_accounts_button else 1
-    _menu_manager.run_menu_loop(build_entries, handle_selection, initial_index=initial)
-    
-    return "accounts" if go_to_accounts else None
-
-
-def _show_lichess_ongoing_games(client) -> str:
-    """Show list of ongoing Lichess games and return selected game ID.
-    
-    Args:
-        client: berserk Lichess client
-        
-    Returns:
-        Game ID if selected, None if cancelled
-    """
-    try:
-        ongoing = client.games.get_ongoing(count=10)
-        
-        if not ongoing:
-            _show_lichess_error("No Games", "No ongoing\ngames found")
-            return None
-        
-        # Build menu entries for each game
-        entries = []
-        for game in ongoing:
-            game_id = game.get('gameId', '')
-            opponent = game.get('opponent', {})
-            opponent_name = opponent.get('username', 'Unknown')
-            opponent_rating = opponent.get('rating', '')
-            color = 'W' if game.get('color') == 'white' else 'B'
-            
-            label = f"{opponent_name}\n({opponent_rating}) {color}"
-            entries.append(IconMenuEntry(
-                key=game_id,
-                label=label,
-                icon_name="lichess",
-                enabled=True,
-                font_size=12
-            ))
-        
-        result = _menu_manager.show_menu(entries)
-        
-        if result.is_break or result.key == "BACK":
-            return None
-        
-        return result.key
-        
-    except AttributeError as e:
-        log.error(f"[Lichess] berserk API method not found: {e}")
-        _show_lichess_error(
-            "API Not Supported",
-            "Ongoing games API\nnot available.\nUpdate berserk:\npip install -U berserk"
-        )
-        return None
-    except Exception as e:
-        error_msg = str(e)
-        log.error(f"[Lichess] Error fetching ongoing games: {e}")
-        # Show a more descriptive error
-        if "401" in error_msg or "unauthorized" in error_msg.lower():
-            _show_lichess_error("Auth Error", "Token does not have\nboard:play permission")
-        elif "network" in error_msg.lower() or "connection" in error_msg.lower():
-            _show_lichess_error("Network Error", "Could not connect\nto Lichess")
-        else:
-            # Show truncated error message
-            short_error = error_msg[:40] + "..." if len(error_msg) > 40 else error_msg
-            _show_lichess_error("Error", f"Games failed:\n{short_error}")
-        return None
-
-
-def _show_lichess_challenges(client) -> dict:
-    """Show list of Lichess challenges and return selected challenge.
-    
-    Args:
-        client: berserk Lichess client
-        
-    Returns:
-        Dict with 'id' and 'direction' if selected, None if cancelled
-    """
-    try:
-        # Get incoming and outgoing challenges
-        # Try different berserk API versions
-        challenges_data = None
-        try:
-            # Newer berserk versions
-            challenges_data = client.challenges.get_mine()
-        except AttributeError:
-            # Older berserk versions - try alternative methods
-            try:
-                challenges_data = client.challenges.list()
-            except AttributeError:
-                pass
-        
-        if challenges_data is None:
-            log.error("[Lichess] berserk library does not support challenges API")
-            _show_lichess_error(
-                "API Not Supported",
-                "Challenges require\nberserk >= 0.13\nUpdate with:\npip install -U berserk"
-            )
-            return None
-        
-        incoming = list(challenges_data.get('in', []))
-        outgoing = list(challenges_data.get('out', []))
-        
-        if not incoming and not outgoing:
-            _show_lichess_error("No Challenges", "No pending\nchallenges")
-            return None
-        
-        # Build menu entries
-        entries = []
-        
-        for challenge in incoming:
-            c_id = challenge.get('id', '')
-            challenger = challenge.get('challenger', {})
-            name = challenger.get('name', 'Unknown')
-            rating = challenger.get('rating', '')
-            
-            label = f"IN: {name}\n({rating})"
-            entries.append(IconMenuEntry(
-                key=f"in:{c_id}",
-                label=label,
-                icon_name="lichess",
-                enabled=True,
-                font_size=12
-            ))
-        
-        for challenge in outgoing:
-            c_id = challenge.get('id', '')
-            dest = challenge.get('destUser', {})
-            name = dest.get('name', 'Unknown')
-            rating = dest.get('rating', '')
-            
-            label = f"OUT: {name}\n({rating})"
-            entries.append(IconMenuEntry(
-                key=f"out:{c_id}",
-                label=label,
-                icon_name="lichess",
-                enabled=True,
-                font_size=12
-            ))
-        
-        result = _menu_manager.show_menu(entries)
-        
-        if result.is_break or result.key == "BACK":
-            return None
-        
-        # Parse direction and ID from key
-        direction, c_id = result.key.split(':', 1)
-        return {'id': c_id, 'direction': direction}
-        
-    except AttributeError as e:
-        log.error(f"[Lichess] berserk API method not found: {e}")
-        _show_lichess_error(
-            "API Not Supported",
-            "Challenges require\nberserk >= 0.13\nUpdate with:\npip install -U berserk"
-        )
-        return None
-    except Exception as e:
-        error_msg = str(e)
-        log.error(f"[Lichess] Error fetching challenges: {e}")
-        # Show a more descriptive error
-        if "401" in error_msg or "unauthorized" in error_msg.lower():
-            _show_lichess_error("Auth Error", "Token does not have\nchallenge permissions")
-        elif "network" in error_msg.lower() or "connection" in error_msg.lower():
-            _show_lichess_error("Network Error", "Could not connect\nto Lichess")
-        else:
-            # Show truncated error message
-            short_error = error_msg[:40] + "..." if len(error_msg) > 40 else error_msg
-            _show_lichess_error("Error", f"Challenges failed:\n{short_error}")
-        return None
+    return handle_lichess_menu(
+        get_lichess_client_fn=lambda: get_lichess_client(centaur, log),
+        get_settings_fn=_get_settings,
+        menu_manager=_menu_manager,
+        keyboard_factory=lambda update_fn, title, max_len: KeyboardWidget(update_fn, title=title, max_length=max_len),
+        start_lichess_game_fn=_start_lichess_game,
+        handle_accounts_menu_fn=_handle_accounts_menu,
+        centaur_module=centaur,
+        board=board,
+        log=log,
+    )
 
 
 def _start_lichess_game(lichess_config) -> bool:
     """Start a Lichess game with the given configuration.
     
-    Similar to _start_game_mode() but for Lichess online play.
-    Shows a waiting screen while seeking, then transitions to game board.
-    BACK button during waiting cancels and returns to Lichess menu.
+    Delegates to lichess_service.start_lichess_game_service and updates global managers.
     
     Args:
         lichess_config: LichessConfig with game parameters
@@ -4299,308 +2177,35 @@ def _start_lichess_game(lichess_config) -> bool:
     Returns:
         True if game started successfully, False otherwise
     """
-    global app_state, protocol_manager, display_manager
-    from DGTCentaurMods.players.lichess import LichessGameMode
+    global app_state, protocol_manager, display_manager, controller_manager
+    from DGTCentaurMods.services.lichess_service import start_lichess_game_service
+    from DGTCentaurMods.paths import get_engine_path
     
-    log.info(f"[App] Starting Lichess game (mode={lichess_config.mode})")
-    app_state = AppState.GAME
-    
-    # Get analysis engine path (only if analysis mode is enabled)
-    import pathlib
-    base_path = pathlib.Path(__file__).parent
-    analysis_mode = _game_settings['analysis_mode']
-    analysis_engine_path = str((base_path / "engines/ct800").resolve()) if analysis_mode else None
-    
-    # Create DisplayManager first (this initializes game widgets)
-    display_manager = DisplayManager(
-        flip_board=False,  # Will be updated based on player color
-        show_analysis=_game_settings['show_analysis'],
-        analysis_engine_path=analysis_engine_path,
-        on_exit=lambda: _return_to_menu("Lichess exit"),
-        hand_brain_mode=False,
-        initial_fen=None,
-        time_control=0,  # Lichess manages its own clock (display shows turn indicator only)
-        show_board=_game_settings['show_board'],
-        show_clock=True,  # Show clock for Lichess (time comes from server)
-        show_graph=_game_settings['show_graph'],
-        analysis_mode=analysis_mode
-    )
-    log.info(f"[App] DisplayManager initialized for Lichess (analysis_mode={analysis_mode}, "
-             f"show_analysis={_game_settings['show_analysis']}, show_graph={_game_settings['show_graph']})")
-    
-    # Show waiting screen while seeking/connecting (overlay on top of DisplayManager)
-    waiting_message = "Finding Game..."
-    if lichess_config.mode == LichessGameMode.ONGOING:
-        waiting_message = "Connecting..."
-    elif lichess_config.mode == LichessGameMode.CHALLENGE:
-        waiting_message = "Loading\nChallenge..."
-    
-    # Add splash screen as modal overlay (covers game widgets)
-    waiting_splash = SplashScreen(message=waiting_message)
-    board.display_manager.add_widget(waiting_splash)
-    log.info(f"[App] Showing Lichess waiting screen: {waiting_message}")
-    
-    # Track if game has connected
-    game_connected = False
-    user_cancelled = False
-    
-    def update_display(fen):
-        """Update display manager with new position."""
-        if display_manager:
-            display_manager.update_position(fen)
-    
-    def on_game_connected():
-        """Called when Lichess game is connected and ready to play.
-        
-        Removes the waiting splash to reveal game display.
-        """
-        nonlocal game_connected
-        if game_connected:
-            return
-        game_connected = True
-        
-        log.info("[App] Lichess game connected - removing waiting screen")
-        # Remove splash to reveal game widgets
-        board.display_manager.remove_widget(waiting_splash)
-    
-    def on_back_during_waiting():
-        """Handle BACK button during waiting/seeking state."""
+    def set_app_state(state):
         global app_state
-        nonlocal user_cancelled
-        if game_connected:
-            # Game started, use normal back menu
-            display_manager.show_back_menu(
-                _on_lichess_back_menu_result,
-                is_two_player=False
-            )
-        else:
-            # Still waiting - cancel and return to Lichess menu
-            log.info("[App] User cancelled Lichess seek")
-            user_cancelled = True
-            protocol_manager.stop_lichess()
-            _cleanup_game()
-            app_state = AppState.SETTINGS
+        app_state = state
     
-    # Create Lichess player for the remote opponent
-    # The human is the local player, Lichess provides the remote opponent
-    from DGTCentaurMods.players import HumanPlayer, LichessPlayer, LichessPlayerConfig
-    
-    # Create LichessPlayer from the lichess_config
-    lichess_player_config = LichessPlayerConfig(
-        name="Lichess",
-        mode=lichess_config.mode,
-        time_minutes=lichess_config.time_minutes,
-        increment_seconds=lichess_config.increment_seconds,
-        rated=lichess_config.rated,
-        color_preference=getattr(lichess_config, 'color_preference', 'random'),
-        game_id=getattr(lichess_config, 'game_id', ''),
-        challenge_id=getattr(lichess_config, 'challenge_id', ''),
-        challenge_direction=getattr(lichess_config, 'challenge_direction', 'in'),
-    )
-    lichess_player = LichessPlayer(lichess_player_config)
-    human_player = HumanPlayer()
-    
-    # Players will be assigned colors after Lichess connection determines color
-    # For now, put Lichess as black (will be updated when game info arrives)
-    white_player = human_player
-    black_player = lichess_player
-    
-    # Create ProtocolManager with Lichess player
-    protocol_manager = ProtocolManager(
-        white_player=white_player,
-        black_player=black_player,
-        display_update_callback=update_display,
-        save_to_database=True,
+    result = start_lichess_game_service(
+        lichess_config=lichess_config,
+        game_settings=_game_settings_dict(),
+        board=board,
+        log=log,
+        menu_manager=_menu_manager,
+        connection_manager=_connection_manager,
+        return_to_menu_fn=_return_to_menu,
+        cleanup_game_fn=_cleanup_game,
+        set_app_state_fn=set_app_state,
+        app_state_game=AppState.GAME,
+        app_state_settings=AppState.SETTINGS,
+        get_engine_path=get_engine_path,
     )
     
-    # Set up display bridge for consolidated display operations
-    protocol_manager.set_display_bridge(display_manager)
+    if result.success:
+        protocol_manager = result.protocol_manager
+        display_manager = result.display_manager
+        controller_manager = result.controller_manager
     
-    # Wire up GameManager callbacks to DisplayManager
-    protocol_manager.set_on_promotion_needed(display_manager.show_promotion_menu)
-    
-    # Set callback for when game is connected
-    protocol_manager.set_lichess_on_game_connected(on_game_connected)
-    
-    # Info overlay widget for displaying messages like "Draw offered"
-    from DGTCentaurMods.epaper import InfoOverlayWidget
-    _info_overlay = InfoOverlayWidget()
-    board.display_manager.add_widget(_info_overlay)
-    
-    # Lichess callbacks
-    def _on_lichess_game_over(result: str, termination: str, winner):
-        """Handle Lichess game over event."""
-        log.info(f"[App] Lichess game over: result={result}, termination={termination}, winner={winner}")
-        display_manager.stop_clock()
-        move_count = len(protocol_manager.game_manager.chess_board.move_stack) if protocol_manager.game_manager else 0
-        display_manager.show_game_over(result, termination, move_count)
-    
-    def _on_lichess_takeback_offer(accept_fn, decline_fn):
-        """Handle takeback offer from opponent - show confirmation menu."""
-        log.info("[App] Lichess takeback offer received")
-        board.beep(board.SOUND_GENERAL)
-        
-        # Show confirmation menu
-        entries = [
-            IconMenuEntry(key="accept", label="Accept\nTakeback", icon_name="undo"),
-            IconMenuEntry(key="decline", label="Decline", icon_name="cancel"),
-        ]
-        result = _menu_manager.show_menu(entries)
-        
-        if result.key == "accept":
-            log.info("[App] User accepted takeback")
-            accept_fn()
-        else:
-            log.info("[App] User declined takeback")
-            decline_fn()
-    
-    def _on_lichess_draw_offer(accept_fn, decline_fn):
-        """Handle draw offer from opponent - show confirmation menu."""
-        log.info("[App] Lichess draw offer received")
-        board.beep(board.SOUND_GENERAL)
-        
-        # Show confirmation menu
-        entries = [
-            IconMenuEntry(key="accept", label="Accept\nDraw", icon_name="draw"),
-            IconMenuEntry(key="decline", label="Decline", icon_name="cancel"),
-        ]
-        result = _menu_manager.show_menu(entries)
-        
-        if result.key == "accept":
-            log.info("[App] User accepted draw")
-            accept_fn()
-        else:
-            log.info("[App] User declined draw")
-            decline_fn()
-    
-    def _on_lichess_info_message(message: str):
-        """Handle info message from Lichess - show overlay."""
-        log.info(f"[App] Lichess info message: {message}")
-        _info_overlay.show_message(message, duration_seconds=5.0)
-    
-    # Wire up Lichess callbacks
-    protocol_manager.set_lichess_game_over_callback(_on_lichess_game_over)
-    protocol_manager.set_lichess_takeback_offer_callback(_on_lichess_takeback_offer)
-    protocol_manager.set_lichess_draw_offer_callback(_on_lichess_draw_offer)
-    protocol_manager.set_lichess_info_message_callback(_on_lichess_info_message)
-    
-    # Lichess games: BACK behavior depends on state
-    def _on_lichess_back_menu_result(action: str):
-        """Handle Lichess back menu result (resign/abort/cancel)."""
-        if action == "resign":
-            log.info("[App] User resigned Lichess game")
-            protocol_manager.lichess_resign()
-            _return_to_menu("Lichess resign")
-        elif action == "abort":
-            log.info("[App] User aborted Lichess game")
-            protocol_manager.lichess_abort()
-            _return_to_menu("Lichess abort")
-        elif action == "draw":
-            log.info("[App] User offered draw in Lichess game")
-            protocol_manager.lichess_offer_draw()
-            # Don't exit - continue game, opponent may accept or decline
-        # cancel: do nothing, return to game
-    
-    # Use the waiting-aware back handler
-    protocol_manager.set_on_back_pressed(on_back_during_waiting)
-    
-    # Track clock state
-    from DGTCentaurMods.managers import EVENT_WHITE_TURN, EVENT_BLACK_TURN
-    _clock_started = False
-    
-    def _on_lichess_game_event(event):
-        """Handle game events for Lichess - updates clock widget on turn changes.
-        
-        Game over is handled separately by _on_lichess_game_over callback
-        which receives authoritative data from the Lichess stream.
-        """
-        nonlocal _clock_started
-        
-        if event == EVENT_WHITE_TURN or event == EVENT_BLACK_TURN:
-            active_color = "white" if event == EVENT_WHITE_TURN else "black"
-            if not _clock_started:
-                # Start clock on first turn event
-                display_manager.start_clock(active_color)
-                _clock_started = True
-                log.debug(f"[App] Lichess clock started, {active_color} to move")
-            else:
-                # Switch clock on subsequent turn events
-                display_manager.switch_clock_turn()
-            # Hide info overlay on new moves
-            _info_overlay.hide()
-    
-    # Register event callback for clock/turn updates
-    protocol_manager._external_event_callback = _on_lichess_game_event
-    
-    # Start the Lichess connection
-    if not protocol_manager.start_lichess():
-        log.error("[App] Failed to start Lichess connection")
-        _cleanup_game()
-        _show_lichess_error("Connection Failed", "Could not connect\nto Lichess")
-        app_state = AppState.SETTINGS
-        return False
-    
-    log.info("[App] Lichess connection started - waiting for game match")
-    return True
-
-
-def _handle_inactivity_timeout():
-    """Handle inactivity timeout setting submenu.
-
-    The currently active timeout option displays a timer icon with a checkmark
-    overlay to indicate selection. Other options show a plain timer icon.
-    
-    This is a one-shot selection menu - select a timeout and return.
-    """
-    # Available timeout options in minutes (0 = disabled)
-    timeout_options = [
-        (0, "Disabled"),
-        (5, "5 min"),
-        (10, "10 min"),
-        (15, "15 min"),
-        (30, "30 min"),
-        (60, "1 hour"),
-    ]
-
-    current_timeout = board.get_inactivity_timeout()
-
-    entries = []
-    for minutes, label in timeout_options:
-        seconds = minutes * 60
-        is_current = seconds == current_timeout
-        icon = "timer_checked" if is_current else "timer"
-        entries.append(IconMenuEntry(key=str(seconds), label=label, icon_name=icon, enabled=True))
-
-    result = _menu_manager.show_menu(entries)
-
-    if result.is_break:
-        return result
-    
-    if not result.is_exit():
-        try:
-            new_timeout = int(result.key)
-            board.set_inactivity_timeout(new_timeout)
-            log.info(f"[Settings] Inactivity timeout set to {new_timeout}s")
-        except ValueError:
-            pass
-    
-    return result
-
-
-def _mask_token(token: str) -> str:
-    """Mask a token for display, showing only first and last few characters.
-    
-    Args:
-        token: The token to mask
-        
-    Returns:
-        Masked token string (e.g., "lip_ab...xy" or "Not set")
-    """
-    if not token:
-        return "Not set"
-    if len(token) <= 8:
-        return token[:2] + "..." + token[-2:] if len(token) > 4 else "****"
-    return token[:6] + "..." + token[-4:]
+    return result.success
 
 
 def _handle_accounts_menu():
@@ -4610,83 +2215,25 @@ def _handle_accounts_menu():
     Each entry displays the current credential status (masked).
     """
     from DGTCentaurMods.board import centaur
-    
-    def build_entries():
-        """Build accounts menu entries with current status."""
-        token = centaur.get_lichess_api()
-        masked = _mask_token(token)
-        
-        return [
-            IconMenuEntry(
-                key="Lichess",
-                label=f"Lichess\n{masked}",
-                icon_name="lichess",
-                enabled=True,
-                font_size=12,
-                max_height=47  # ~1/6 of available screen height (280px)
-            ),
-        ]
-    
-    def handle_selection(result: MenuSelection):
-        """Handle accounts menu selection."""
-        if result.key == "Lichess":
-            sub_result = _handle_lichess_token()
-            if is_break_result(sub_result):
-                return sub_result
-        return None  # Continue loop
-    
-    return _menu_manager.run_menu_loop(build_entries, handle_selection)
+    return handle_accounts_menu(
+        menu_manager=_menu_manager,
+        get_lichess_api=centaur.get_lichess_api,
+        handle_lichess_token_fn=_handle_lichess_token,
+    )
 
 
 def _handle_lichess_token():
-    """Handle Lichess API token entry using keyboard widget.
-    
-    Shows the keyboard widget for entering/editing the Lichess API token.
-    The token is saved immediately when confirmed (no restart required).
-    
-    Returns:
-        MenuSelection or result indicating success/cancel
-    """
-    global _active_keyboard_widget
+    """Handle Lichess API token entry using service helper."""
     from DGTCentaurMods.board import centaur
-    
-    log.info("[Accounts] Opening keyboard for Lichess token entry")
-    
-    # Clear display and show keyboard widget
-    board.display_manager.clear_widgets(addStatusBar=False)
-    
-    # Create keyboard widget with current token as initial text
-    current_token = centaur.get_lichess_api()
-    keyboard = KeyboardWidget(title="Lichess Token", max_length=64)
-    # Pre-fill with current token if exists (user can edit or clear)
-    keyboard.text = current_token if current_token else ""
-    
-    _active_keyboard_widget = keyboard
-    
-    # Add widget to display
-    promise = board.display_manager.add_widget(keyboard)
-    if promise:
-        try:
-            promise.result(timeout=5.0)
-        except Exception as e:
-            log.warning(f"[Accounts] Keyboard display timeout: {e}")
-    
-    try:
-        # Wait for input (blocking)
-        result = keyboard.wait_for_input(timeout=300.0)
-        
-        if result is not None:
-            # User confirmed - save the token
-            centaur.set_lichess_api(result)
-            log.info(f"[Accounts] Lichess token saved ({len(result)} chars)")
-            board.beep(board.SOUND_GENERAL)
-        else:
-            log.info("[Accounts] Lichess token entry cancelled")
-        
-        return result
-    finally:
-        # Clear keyboard widget reference
-        _active_keyboard_widget = None
+    keyboard_factory = lambda update_fn, title, max_len: KeyboardWidget(update_fn, title=title, max_length=max_len)
+    return ensure_token(
+        menu_manager=_menu_manager,
+        keyboard_factory=keyboard_factory,
+        get_token=centaur.get_lichess_api,
+        set_token=centaur.set_lichess_api,
+        log=log,
+        board=board,
+    )
 
 
 def _shutdown(message: str, reboot: bool = False):
@@ -4697,7 +2244,7 @@ def _shutdown(message: str, reboot: bool = False):
         reboot: If True, reboot instead of shutdown
     """
     board.display_manager.clear_widgets(addStatusBar=False)
-    promise = board.display_manager.add_widget(SplashScreen(message=message, leave_room_for_status_bar=False))
+    promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message=message, leave_room_for_status_bar=False))
     if promise:
         try:
             promise.result(timeout=10.0)
@@ -4715,7 +2262,7 @@ def _run_centaur():
     """
     # Show loading screen (full screen, no status bar)
     board.display_manager.clear_widgets(addStatusBar=False)
-    promise = board.display_manager.add_widget(SplashScreen(message="Loading", leave_room_for_status_bar=False))
+    promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="Loading", leave_room_for_status_bar=False))
     if promise:
         try:
             promise.result(timeout=10.0)
@@ -4775,7 +2322,7 @@ def _on_ble_connected(client_type: str):
     Args:
         client_type: Type of client ('millennium', 'pegasus', 'chessnut')
     """
-    global protocol_manager, app_state, _menu_manager, _pending_ble_client_type
+    global protocol_manager, controller_manager, app_state, _menu_manager, _pending_ble_client_type
     
     log.info(f"[BLE] Client connected: {client_type}")
     
@@ -4797,7 +2344,9 @@ def _on_ble_connected(client_type: str):
         _pending_ble_client_type = client_type
         return
     
-    # Case 4: Other states - notify game handler if available
+    # Case 4: Other states - switch to remote controller and notify protocol manager
+    if controller_manager:
+        controller_manager.activate_remote()
     if protocol_manager:
         protocol_manager.on_app_connected()
 
@@ -4814,18 +2363,22 @@ def _show_ble_connection_confirm(client_type: str):
     
     def _on_confirm_result(result: str):
         """Handle confirmation dialog result."""
-        global protocol_manager, app_state
+        global protocol_manager, controller_manager, app_state
         
         if result == "new_game":
             log.info("[BLE] User chose to abandon game and start new one")
             # Clean up current game and start new one
             _cleanup_game()
             _start_game_mode()
+            if controller_manager:
+                controller_manager.activate_remote()
             if protocol_manager:
                 protocol_manager.on_app_connected()
         else:
             # Cancel - keep current game
             log.info("[BLE] User cancelled - keeping current game")
+            if controller_manager:
+                controller_manager.activate_remote()
             if protocol_manager:
                 protocol_manager.on_app_connected()
     
@@ -4840,7 +2393,7 @@ def _show_ble_connection_confirm(client_type: str):
         ]
         
         confirm_menu = _IconMenuWidget(
-            x=0, y=0, width=128, height=296,
+            0, 0, 128, 296, board.display_manager.update,
             entries=entries,
             selected_index=1  # Default to Cancel
         )
@@ -4865,11 +2418,13 @@ def _show_ble_connection_confirm(client_type: str):
 def _on_ble_disconnected():
     """Handle BLE client disconnection.
     
-    Notifies ProtocolManager that the app has disconnected.
+    Switches back to local controller and notifies ProtocolManager.
     """
-    global protocol_manager
+    global protocol_manager, controller_manager
     
     log.info("[BLE] Client disconnected")
+    if controller_manager:
+        controller_manager.on_bluetooth_disconnected()
     if protocol_manager:
         protocol_manager.on_app_disconnected()
 
@@ -4877,18 +2432,17 @@ def _on_ble_disconnected():
 # sendMessage callback for ProtocolManager
 # ============================================================================
 
-def sendMessage(data, message_type=None):
+def sendMessage(data):
     """Send a message via BLE or BT classic.
     
     Routes data to the appropriate transport based on current connection state:
     - BLE: Uses BleManager.send_notification() which routes to correct protocol
-    - RFCOMM: Direct socket send
+    - RFCOMM: Uses RfcommServer.send()
     
     Args:
         data: Message data bytes (already formatted with messageType, length, payload)
-        message_type: Optional message type hint (currently unused, routing is automatic)
     """
-    global _last_message, relay_mode, ble_manager, client_connected, client_sock
+    global _last_message, relay_mode, ble_manager, rfcomm_server
 
     tosend = bytearray(data)
     _last_message = tosend
@@ -4907,60 +2461,14 @@ def sendMessage(data, message_type=None):
         except Exception as e:
             log.error(f"[sendMessage] Error sending via BLE: {e}")
     
-    # Send via BT classic if connected
-    if client_connected and client_sock is not None:
-        try:
-            client_sock.send(bytes(tosend))
-        except Exception as e:
-            log.error(f"[sendMessage] Error sending via BT classic: {e}")
-
-
-# ============================================================================
-# RFCOMM Client Reader
-# ============================================================================
-
-def client_reader():
-    """Read data from RFCOMM client.
-    
-    Processes data through ProtocolManager and optionally forwards to relay target.
-    """
-    global running, client_sock, client_connected, protocol_manager, relay_mode, relay_manager
-    
-    log.info("Starting Client reader thread")
-    try:
-        while running and not kill:
-            try:
-                if not client_connected or client_sock is None:
-                    time.sleep(0.1)
-                    continue
-                
-                data = client_sock.recv(1024)
-                if len(data) == 0:
-                    log.info("RFCOMM client disconnected")
-                    client_connected = False
-                    protocol_manager.on_app_disconnected()
-                    break
-                
-                # Route through ConnectionManager (handles queuing and relay)
-                _connection_manager.receive_data(bytes(data), "rfcomm")
-                    
-            except bluetooth.BluetoothError as e:
-                if running:
-                    log.error(f"Bluetooth error: {e}")
-                client_connected = False
-                break
-            except Exception as e:
-                if running:
-                    log.error(f"Error: {e}")
-                break
-    except Exception as e:
-        log.error(f"Thread error: {e}")
-    finally:
-        log.info("Client reader thread stopped")
-        client_connected = False
+    # Send via RFCOMM if connected
+    if rfcomm_server is not None and rfcomm_server.connected:
+        if not rfcomm_server.send(bytes(tosend)):
+            log.error(f"[sendMessage] Error sending via RFCOMM")
 
 
 _cleanup_done = False  # Guard against running cleanup twice
+_shutdown_requested = False  # Flag to request shutdown from main thread (set by events thread)
 
 
 def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False, reboot: bool = False):
@@ -4980,8 +2488,8 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
         system_shutdown: If True, trigger system shutdown/reboot after cleanup
         reboot: If True and system_shutdown is True, reboot instead of poweroff
     """
-    global kill, running, client_sock, server_sock, client_connected, mainloop
-    global protocol_manager, display_manager, rfcomm_manager, ble_manager, relay_manager
+    global kill, running, mainloop
+    global protocol_manager, display_manager, controller_manager, rfcomm_server, ble_manager, relay_manager
     global _cleanup_done
     
     # Guard against running cleanup twice (signal handler + finally block)
@@ -4995,16 +2503,16 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
         kill = 1
         running = False
         
-        # Stop RFCOMM manager pairing thread and bt-agent
-        log.info("[Cleanup] Stopping RFCOMM manager...")
-        if rfcomm_manager is not None:
+        # Stop RFCOMM server (handles pairing manager, sockets, and threads)
+        log.info("[Cleanup] Stopping RFCOMM server...")
+        if rfcomm_server is not None:
             try:
-                rfcomm_manager.stop_pairing_thread()
-                log.info("[Cleanup] RFCOMM manager stopped")
+                rfcomm_server.stop()
+                log.info("[Cleanup] RFCOMM server stopped")
             except Exception as e:
-                log.error(f"[Cleanup] Error stopping rfcomm_manager: {e}", exc_info=True)
+                log.error(f"[Cleanup] Error stopping rfcomm_server: {e}", exc_info=True)
         else:
-            log.info("[Cleanup] RFCOMM manager was None")
+            log.info("[Cleanup] RFCOMM server was None")
         
         # Stop relay manager (shadow target connection)
         log.info("[Cleanup] Stopping relay manager...")
@@ -5017,6 +2525,17 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
         else:
             log.info("[Cleanup] Relay manager was None")
         
+        # Clean up controller manager
+        log.info("[Cleanup] Cleaning up controller manager...")
+        if controller_manager is not None:
+            try:
+                controller_manager.cleanup()
+                log.info("[Cleanup] Controller manager cleaned up")
+            except Exception as e:
+                log.error(f"[Cleanup] Error cleaning up controller manager: {e}", exc_info=True)
+        else:
+            log.info("[Cleanup] Controller manager was None")
+        
         # Clean up game handler (stops game manager thread and closes standalone engine)
         log.info("[Cleanup] Cleaning up protocol manager...")
         if protocol_manager is not None:
@@ -5028,32 +2547,17 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
         else:
             log.info("[Cleanup] Protocol manager was None")
         
-        # Clean up display manager (analysis engine and widgets)
-        log.info("[Cleanup] Cleaning up display manager...")
-        if display_manager is not None:
-            try:
-                display_manager.cleanup(for_shutdown=True)
-                log.info("[Cleanup] Display manager cleaned up")
-            except Exception as e:
-                log.error(f"[Cleanup] Error cleaning up display manager: {e}", exc_info=True)
-        else:
-            log.info("[Cleanup] Display manager was None")
+        # Stop services
+        log.info("[Cleanup] Stopping services...")
+        try:
+            from DGTCentaurMods.services import get_system_service
+            get_system_service().stop()
+            log.info("[Cleanup] SystemPollingService stopped")
+        except Exception as e:
+            log.error(f"[Cleanup] Error stopping system service: {e}", exc_info=True)
         
-        # Close sockets
-        log.info("[Cleanup] Closing sockets...")
-        if client_sock:
-            try:
-                client_sock.close()
-                log.info("[Cleanup] Client socket closed")
-            except Exception as e:
-                log.error(f"[Cleanup] Error closing client socket: {e}")
-        
-        if server_sock:
-            try:
-                server_sock.close()
-                log.info("[Cleanup] Server socket closed")
-            except Exception as e:
-                log.error(f"[Cleanup] Error closing server socket: {e}")
+        # NOTE: Display manager cleanup is deferred until after shutdown splash/LEDs
+        # so the display can show the shutdown message
         
         # Stop BLE manager
         log.info("[Cleanup] Stopping BLE manager...")
@@ -5077,8 +2581,6 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
         else:
             log.info("[Cleanup] Mainloop was None")
         
-        client_connected = False
-        
         # For system shutdown (not reboot), check for pending update first,
         # then display splash, call board.shutdown() for visual feedback (beep, LEDs)
         # and to send the sleep command to the controller. This prevents battery drain.
@@ -5094,14 +2596,18 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
                 # Display update splash
                 try:
                     if display_manager is not None:
-                        update_splash = SplashScreen(message="Installing\nupdate...")
+                        update_splash = SplashScreen(display_manager.update, message="Installing\nupdate...")
                         display_manager.add_widget(update_splash)
                 except Exception as e:
                     log.debug(f"[Cleanup] Failed to show update splash: {e}")
                 
                 # All LEDs for update install
                 try:
-                    board.ledArray([0,1,2,3,4,5,6,7], intensity=6, repeat=0)
+                    from DGTCentaurMods.utils.led import LED_SPEED_NORMAL, LED_INTENSITY_DEFAULT
+                    board.ledArray([0,1,2,3,4,5,6,7],
+                                   intensity=LED_INTENSITY_DEFAULT,
+                                   speed=LED_SPEED_NORMAL,
+                                   repeat=0)
                 except Exception:
                     pass
                 
@@ -5117,8 +2623,10 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
             log.info("[Cleanup] Displaying shutdown splash screen...")
             try:
                 if display_manager is not None:
-                    shutdown_splash = SplashScreen(message="Press [\u25b6]")
-                    display_manager.add_widget(shutdown_splash)
+                    shutdown_splash = SplashScreen(display_manager.update, message="Press [\u25b6]")
+                    future = display_manager.add_widget(shutdown_splash)
+                    if future:
+                        future.result(timeout=5.0)
             except Exception as e:
                 log.debug(f"[Cleanup] Failed to show shutdown splash: {e}")
             
@@ -5133,8 +2641,10 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
             log.info("[Cleanup] Performing LED cascade...")
             try:
                 import time as _time
+                from DGTCentaurMods.utils.led import LED_SPEED_NORMAL, LED_INTENSITY_DEFAULT
                 for i in range(7, -1, -1):
-                    board.led(i, repeat=1)
+                    board.led(i, intensity=LED_INTENSITY_DEFAULT,
+                              speed=LED_SPEED_NORMAL, repeat=1)
                     _time.sleep(0.2)
             except Exception as e:
                 log.error(f"[Cleanup] LED pattern failed: {e}")
@@ -5158,6 +2668,18 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
                     log.error("[Cleanup] Controller did not acknowledge sleep command - battery may drain")
             except Exception as e:
                 log.error(f"[Cleanup] Error sending sleep command: {e}")
+        
+        # Clean up display manager (analysis engine and widgets) - do this after
+        # shutdown splash/LEDs so the display can show the shutdown message
+        log.info("[Cleanup] Cleaning up display manager...")
+        if display_manager is not None:
+            try:
+                display_manager.cleanup(for_shutdown=True)
+                log.info("[Cleanup] Display manager cleaned up")
+            except Exception as e:
+                log.error(f"[Cleanup] Error cleaning up display manager: {e}", exc_info=True)
+        else:
+            log.info("[Cleanup] Display manager was None")
         
         # Pause board events
         log.info("[Cleanup] Pausing board events...")
@@ -5267,10 +2789,14 @@ def key_callback(key_id):
     
     # Always handle LONG_PLAY for shutdown
     if key_id == board.Key.LONG_PLAY:
-        log.info("[App] LONG_PLAY key event received")
+        log.info("[App] LONG_PLAY key event received - setting shutdown flags")
+        # Set flags to trigger clean shutdown from main thread
+        # Don't call cleanup_and_exit here - it runs in events thread and sys.exit()
+        # would only exit this thread, not the main thread
+        global _shutdown_requested
+        _shutdown_requested = True
         running = False
         kill = 1
-        cleanup_and_exit(reason="LONG_PLAY key event from universal.py", system_shutdown=True)
         _reset_unhandled_key_count()
         return
     
@@ -5327,12 +2853,47 @@ def key_callback(key_id):
             _reset_unhandled_key_count()
             return
         
+        # Check for MenuManager menu overlay (display settings from LONG_HELP)
+        # This handles the case where a menu is shown over the game via _pending_display_settings
+        if _menu_manager is not None and _menu_manager.active_widget is not None:
+            handled = _menu_manager.active_widget.handle_key(key_id)
+            if handled:
+                log.info(f"[App] Key {key_id} handled by MenuManager overlay in GAME mode")
+                _reset_unhandled_key_count()
+                return
+        
         # Handle app-level keys
         if key_id == board.Key.HELP:
-            # Show move hint (best move from analysis engine)
+            # Show move hint - behavior depends on game mode
             if display_manager and protocol_manager and protocol_manager.game_manager:
-                gm = protocol_manager.game_manager
-                hint_move = display_manager.get_hint_move(gm.chess_board)
+                from DGTCentaurMods.state import get_chess_game
+                game_board = get_chess_game().board
+                hint_move = None
+                
+                # Check if current player is a Hand+Brain player
+                player_manager = protocol_manager.game_manager.player_manager
+                if player_manager:
+                    current_player = player_manager.get_current_player(game_board)
+                    from DGTCentaurMods.players.hand_brain import HandBrainPlayer, HandBrainMode
+                    if isinstance(current_player, HandBrainPlayer):
+                        # Use Hand+Brain specific hint
+                        hint_move = current_player.get_hint(game_board)
+                        if hint_move:
+                            if current_player.mode == HandBrainMode.NORMAL:
+                                # NORMAL mode: show full move (user decides which piece of that type)
+                                display_manager.show_hint(hint_move)
+                                log.info(f"[App] Hand+Brain NORMAL hint: {hint_move.uci()}")
+                            else:
+                                # REVERSE mode: get_hint already lit up piece type squares
+                                # Don't show full move - only piece type is the hint
+                                log.info(f"[App] Hand+Brain REVERSE hint: piece type shown on LEDs")
+                        else:
+                            log.info("[App] Hand+Brain hint not available yet")
+                        _reset_unhandled_key_count()
+                        return
+                
+                # Standard hint from analysis engine
+                hint_move = display_manager.get_hint_move(game_board)
                 if hint_move:
                     # Show hint on display widget and LEDs
                     display_manager.show_hint(hint_move)
@@ -5343,11 +2904,12 @@ def key_callback(key_id):
             return
         
         if key_id == board.Key.LONG_HELP:
-            # Long press HELP: Show display settings menu
-            _handle_display_settings()
-            # Apply changes by reinitializing widgets
-            if display_manager:
-                display_manager._init_widgets()
+            # Long press HELP: Signal main thread to show display settings menu
+            # Cannot call handle_display_settings() here because it blocks on menu selection,
+            # which would block the events thread and prevent further key events.
+            global _pending_display_settings
+            _pending_display_settings = True
+            log.info("[App] LONG_HELP in game - signaling main thread to show display settings")
             _reset_unhandled_key_count()
             return
         
@@ -5362,25 +2924,30 @@ def key_callback(key_id):
             _reset_unhandled_key_count()
             return
         
-        # Forward other keys to protocol_manager -> game_manager
-        if protocol_manager:
+        # Route through controller manager or protocol_manager
+        if controller_manager:
+            controller_manager.on_key_event(key_id)
+            _reset_unhandled_key_count()
+        elif protocol_manager:
             protocol_manager.receive_key(key_id)
             _reset_unhandled_key_count()
-            
-            # Check if GameManager wants us to exit:
-            # - BACK with no game in progress (no moves made)
-            # - BACK after game over (checkmate, stalemate, etc.)
-            if key_id == board.Key.BACK:
-                if protocol_manager.is_game_over():
-                    log.info("[App] BACK after game over - returning to menu")
-                    _return_to_menu("Game over - BACK pressed")
-                elif not protocol_manager.is_game_in_progress():
-                    log.info("[App] BACK with no game - returning to menu")
-                    _return_to_menu("BACK pressed")
+        else:
+            # No controller or protocol_manager in GAME mode - should not happen
+            _handle_unhandled_key(key_id, "No controller or protocol_manager in GAME mode")
             return
-        
-        # No protocol_manager in GAME mode - should not happen
-        _handle_unhandled_key(key_id, "No protocol_manager in GAME mode")
+            
+        # Check if we should exit to menu:
+        # - BACK after game over (checkmate, stalemate, resign, time forfeit)
+        # - BACK with no game in progress (no moves made)
+        if key_id == board.Key.BACK:
+            from DGTCentaurMods.state import get_chess_game
+            game_state = get_chess_game()
+            if game_state.is_game_over:
+                log.info("[App] BACK after game over - returning to menu")
+                _return_to_menu("Game over - BACK pressed")
+            elif not game_state.is_game_in_progress:
+                log.info("[App] BACK with no game - returning to menu")
+                _return_to_menu("BACK pressed")
         return
     
     # Unknown app_state or fell through all handlers
@@ -5440,7 +3007,11 @@ def field_callback(piece_event, field, time_in_seconds):
             log.info("[App] Game unpaused by piece event")
             return  # Don't process the piece event that unpaused
         
-        if protocol_manager:
+        # Route through controller manager (handles local vs remote routing)
+        if controller_manager:
+            controller_manager.on_field_event(piece_event, field, time_in_seconds)
+        elif protocol_manager:
+            # Fallback to protocol manager if controller not ready
             protocol_manager.receive_field(piece_event, field, time_in_seconds)
         else:
             # Game handler not yet created - queue event for when it's ready
@@ -5455,9 +3026,10 @@ def main():
     BLE/RFCOMM connections can trigger auto-transition to game mode.
     """
     log.info("[Main] Entering main()")
-    global server_sock, client_sock, client_connected, running, kill
+    global running, kill
     global mainloop, relay_mode, protocol_manager, relay_manager, app_state, _args
     global _pending_piece_events, _return_to_positions_menu, _switch_to_normal_game, _menu_manager
+    global _pending_display_settings
     
     try:
         log.info("[Main] Parsing arguments...")
@@ -5476,8 +3048,8 @@ def main():
                            help="Disable BLE (GATT) server")
         parser.add_argument("--no-rfcomm", action="store_true",
                            help="Disable RFCOMM server")
-        parser.add_argument("--standalone-engine", type=str, default="stockfish_pi",
-                           help="UCI engine for standalone play when no app connected (e.g., stockfish_pi, maia, ct800)")
+        parser.add_argument("--standalone-engine", type=str, default="stockfish",
+                           help="UCI engine for standalone play when no app connected (e.g., stockfish, maia, ct800)")
         parser.add_argument("--engine-elo", type=str, default="Default",
                            help="ELO level from engine's .uci file (e.g., 1350, 1700, 2000, Default)")
         parser.add_argument("--player-color", type=str, default="white", choices=["white", "black", "random"],
@@ -5537,7 +3109,7 @@ def main():
         # Create splash screen if early init didn't work (full screen, no status bar)
         if startup_splash is None:
             board.display_manager.clear_widgets(addStatusBar=False)
-            startup_splash = SplashScreen(message="Starting...", leave_room_for_status_bar=False)
+            startup_splash = SplashScreen(board.display_manager.update, message="Starting...", leave_room_for_status_bar=False)
             promise = board.display_manager.add_widget(startup_splash)
             if promise:
                 try:
@@ -5576,12 +3148,33 @@ def main():
     signal.signal(signal.SIGTERM, signal_handler)
     log.info("[Main] Signal handlers registered")
     
+    # Initialize and start services
+    try:
+        log.info("[Main] Starting services...")
+        if startup_splash:
+            startup_splash.set_message("Services...")
+        
+        # Start system polling service (battery, wifi, bluetooth)
+        from DGTCentaurMods.services import get_system_service
+        _system_service = get_system_service()
+        _system_service.start()
+        log.info("[Main] SystemPollingService started")
+        
+        # Initialize chess game service (registers for position change callbacks)
+        from DGTCentaurMods.services import get_chess_game_service
+        _game_service = get_chess_game_service()
+        log.info("[Main] ChessGameService initialized")
+        
+    except Exception as e:
+        log.error(f"[Main] Failed to start services: {e}", exc_info=True)
+        # Continue anyway - services are not critical for basic operation
+    
     # Setup BLE if enabled
     global ble_manager
     if not args.no_ble:
         try:
             if startup_splash:
-                startup_splash.set_message("Bluetooth...")
+                startup_splash.set_message("BLE...")
             log.info("[Main] Initializing BLE manager...")
             ble_manager = BleManager(
                 device_name=args.device_name,
@@ -5622,106 +3215,48 @@ def main():
     else:
         log.info("[Main] BLE disabled by command line argument")
     
-    # Setup RFCOMM if enabled (runs asynchronously to improve startup time)
-    global rfcomm_manager
+    # Setup RFCOMM if enabled
+    global rfcomm_server
     if not args.no_rfcomm:
-        def rfcomm_setup_and_accept():
-            """Initialize RFCOMM and accept connections in background thread.
+        def _on_rfcomm_connected():
+            """Handle RFCOMM client connection."""
+            global app_state, _pending_ble_client_type
             
-            Runs all RFCOMM setup (bluetoothctl commands, socket creation) in background
-            to avoid blocking startup. Once setup is complete, accepts connections.
-            """
-            global rfcomm_manager, server_sock, client_sock, client_connected
-            global app_state, _menu_manager, _pending_ble_client_type
-            
-            log.info("[RFCOMM] Starting background initialization...")
-            
-            # Kill any existing rfcomm processes
-            os.system('sudo service rfcomm stop 2>/dev/null')
-            time.sleep(0.5)
-            
-            for p in psutil.process_iter(attrs=['pid', 'name']):
-                if str(p.info["name"]) == "rfcomm":
-                    try:
-                        p.kill()
-                    except:
-                        pass
-            
-            time.sleep(0.3)
-            
-            # Create RFCOMM manager for pairing
-            rfcomm_manager = RfcommManager(device_name=args.device_name)
-            rfcomm_manager.enable_bluetooth()
-            rfcomm_manager.set_device_name(args.device_name)
-            rfcomm_manager.start_pairing_thread()
-            
-            time.sleep(0.5)
-            
-            # Initialize server socket
-            log.info("[RFCOMM] Setting up server socket...")
-            server_sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
-            server_sock.bind(("", args.port if args.port else bluetooth.PORT_ANY))
-            server_sock.settimeout(0.5)
-            server_sock.listen(1)
-            port = server_sock.getsockname()[1]
-            uuid = "94f39d29-7d6d-437d-973b-fba39e49d4ee"
-            
-            try:
-                bluetooth.advertise_service(server_sock, args.device_name, service_id=uuid,
-                                          service_classes=[uuid, bluetooth.SERIAL_PORT_CLASS],
-                                          profiles=[bluetooth.SERIAL_PORT_PROFILE])
-                log.info(f"[RFCOMM] Service '{args.device_name}' advertised on channel {port}")
-            except Exception as e:
-                log.error(f"[RFCOMM] Failed to advertise service: {e}")
-            
-            log.info("[RFCOMM] Initialization complete, accepting connections...")
-            
-            # Accept connections loop
-            while running and not kill:
-                try:
-                    sock, client_info = server_sock.accept()
-                    client_sock = sock
-                    client_connected = True
-                    log.info("=" * 60)
-                    log.info("RFCOMM CLIENT CONNECTED")
-                    log.info("=" * 60)
-                    log.info(f"Client address: {client_info}")
-                    
-                    # Handle connection - same logic as BLE
-                    if app_state == AppState.GAME and protocol_manager is not None:
-                        # Already in game - show confirmation dialog
-                        log.info("[RFCOMM] Client connected while in game - showing confirmation dialog")
-                        _show_ble_connection_confirm("rfcomm")
-                    elif (app_state == AppState.MENU or app_state == AppState.SETTINGS) and _menu_manager.active_widget is not None:
-                        # In menu/settings with active widget - cancel to start game
-                        log.info(f"[RFCOMM] Client connected while in {app_state.name} - transitioning to game")
-                        _menu_manager.cancel_selection("CLIENT_CONNECTED")
-                    elif app_state == AppState.MENU or app_state == AppState.SETTINGS:
-                        # Between menus - set flag for main loop
-                        log.info(f"[RFCOMM] Client connected between menus ({app_state.name}) - setting flag")
-                        _pending_ble_client_type = "rfcomm"
-                    elif protocol_manager:
-                        protocol_manager.on_app_connected()
-                    
-                    # Start client reader thread
-                    reader_thread = threading.Thread(target=client_reader, daemon=True)
-                    reader_thread.start()
-                    
-                    # Wait for client to disconnect before accepting new connection
-                    while client_connected and running and not kill:
-                        time.sleep(0.5)
-                    
-                except bluetooth.BluetoothError:
-                    time.sleep(0.1)
-                except Exception as e:
-                    if running:
-                        log.error(f"[RFCOMM] Error accepting connection: {e}")
-                    time.sleep(0.1)
+            if app_state == AppState.GAME and protocol_manager is not None:
+                log.info("[RFCOMM] Client connected while in game - showing confirmation dialog")
+                _show_ble_connection_confirm("rfcomm")
+            elif (app_state == AppState.MENU or app_state == AppState.SETTINGS) and _menu_manager.active_widget is not None:
+                log.info(f"[RFCOMM] Client connected while in {app_state.name} - transitioning to game")
+                _menu_manager.cancel_selection("CLIENT_CONNECTED")
+            elif app_state == AppState.MENU or app_state == AppState.SETTINGS:
+                log.info(f"[RFCOMM] Client connected between menus ({app_state.name}) - setting flag")
+                _pending_ble_client_type = "rfcomm"
+            elif protocol_manager:
+                protocol_manager.on_app_connected()
         
-        # Start RFCOMM setup in background thread (doesn't block startup)
-        rfcomm_thread = threading.Thread(target=rfcomm_setup_and_accept, daemon=True)
-        rfcomm_thread.start()
-        log.info("[RFCOMM] Background thread started")
+        def _on_rfcomm_disconnected():
+            """Handle RFCOMM client disconnection."""
+            if protocol_manager:
+                protocol_manager.on_app_disconnected()
+        
+        def _on_rfcomm_data(data: bytes):
+            """Handle data received from RFCOMM client."""
+            _connection_manager.receive_data(data, "rfcomm")
+        
+        # Create pairing manager
+        rfcomm_pairing_manager = RfcommManager(device_name=args.device_name)
+        
+        # Create and start RFCOMM server
+        rfcomm_server = RfcommServer(
+            device_name=args.device_name,
+            on_connected=_on_rfcomm_connected,
+            on_disconnected=_on_rfcomm_disconnected,
+            on_data_received=_on_rfcomm_data,
+            port=args.port,
+            rfcomm_manager=rfcomm_pairing_manager,
+        )
+        rfcomm_server.start(startup_splash)
+        log.info("[RFCOMM] Server started")
     
     # Connect to shadow target if relay mode
     if relay_mode:
@@ -5734,20 +3269,19 @@ def main():
         # Callback for data received from shadow target
         def _on_shadow_data(data: bytes):
             """Handle data received from shadow target."""
-            # Compare with emulator if in compare mode
-            if protocol_manager is not None and protocol_manager.compare_mode:
-                match, emulator_response = protocol_manager.compare_with_shadow(data)
+            # Compare with emulator if in compare mode (using RemoteController)
+            if controller_manager is not None and controller_manager.remote_controller is not None:
+                remote = controller_manager.remote_controller
+                match, emulator_response = remote.compare_with_shadow(data)
                 if match is False:
                     log.error("[Relay] MISMATCH: Emulator response differs from shadow host")
                 elif match is True:
                     log.info("[Relay] MATCH: Emulator response matches shadow host")
             
             # Forward to RFCOMM client if connected
-            if client_connected and client_sock is not None:
-                try:
-                    client_sock.send(data)
-                except Exception as e:
-                    log.error(f"[Relay] Error sending to RFCOMM client: {e}")
+            if rfcomm_server is not None and rfcomm_server.connected:
+                if not rfcomm_server.send(data):
+                    log.error(f"[Relay] Error sending to RFCOMM client")
             
             # Forward to BLE client if connected
             if ble_manager is not None and ble_manager.connected:
@@ -5813,7 +3347,22 @@ def main():
     
     # Check if Centaur software is available
     centaur_available = os.path.exists(CENTAUR_SOFTWARE)
-    main_menu_last_selected = 0  # Track last selected index for returning from submenus
+    
+    # Load saved menu state for restoration (only if not resuming a game)
+    # MenuContext tracks full navigation path with indices at each level
+    ctx = _get_menu_context()
+    restore_path = ctx.get_restore_path() if app_state == AppState.MENU else []
+    
+    # Determine if we should restore to a submenu
+    restore_to_settings = False
+    restore_settings_submenu = None
+    
+    if restore_path and restore_path[0][0] == "Settings":
+        restore_to_settings = True
+        # If there's a submenu beyond Settings, extract it
+        if len(restore_path) > 1:
+            restore_settings_submenu = restore_path[1][0]
+        log.info(f"[App] Will restore to Settings menu (submenu={restore_settings_submenu}, full_path={ctx.path_str()})")
     
     try:
         while running and not kill:
@@ -5836,27 +3385,54 @@ def main():
                     while _pending_piece_events:
                         pe, field, ts = _pending_piece_events.pop(0)
                         log.info(f"[App] Forwarding piece event: field={field}, event={pe}")
-                        if protocol_manager:
+                        if controller_manager:
+                            controller_manager.on_field_event(pe, field, ts)
+                        elif protocol_manager:
                             protocol_manager.receive_field(pe, field, ts)
-                    if (ble_manager and ble_manager.connected) or client_connected:
+                    if (ble_manager and ble_manager.connected) or (rfcomm_server and rfcomm_server.connected):
+                        if controller_manager:
+                            controller_manager.activate_remote()
                         if protocol_manager:
                             protocol_manager.on_app_connected()
                     continue  # Re-check app_state (now should be GAME)
                 
-                # Show main menu
-                entries = create_main_menu_entries(centaur_available=centaur_available)
-                result = _show_menu(entries, initial_index=main_menu_last_selected)
+                # Check if we need to restore to Settings menu (on startup)
+                if restore_to_settings:
+                    restore_to_settings = False
+                    log.info(f"[App] Restoring to Settings menu (submenu={restore_settings_submenu})")
+                    settings_result = _handle_settings(initial_selection=restore_settings_submenu)
+                    restore_settings_submenu = None  # Clear after use
+                    if is_break_result(settings_result):
+                        _start_game_mode()
+                        if protocol_manager:
+                            protocol_manager.on_app_connected()
+                    continue  # After settings, loop back to check state
                 
-                # Update last_selected for when we return from a submenu
-                main_menu_last_selected = find_entry_index(entries, result)
+                # Show main menu
+                # Use MenuContext to track main menu selection (at root level)
+                entries = create_main_menu_entries(centaur_available=centaur_available)
+                
+                # Get initial index from context if at root, else use 0
+                main_menu_index = ctx.current_index() if ctx.depth() == 0 else 0
+                result = _show_menu(entries, initial_index=main_menu_index)
+                
+                # Update context with current selection (at root level, we just track the index)
+                selected_index = find_entry_index(entries, result)
+                if ctx.depth() == 0:
+                    # At root level - save main menu selection directly
+                    # We don't push "Main" since it's the root
+                    from DGTCentaurMods.board.settings import Settings
+                    Settings.write(MENU_STATE_SECTION, 'path', '')
+                    Settings.write(MENU_STATE_SECTION, 'indices', str(selected_index))
                 
                 log.info(f"[App] Main menu selection: {result}")
                 
                 if result == "BACK":
                     # Show idle screen and wait for TICK
+                    ctx.clear()  # Clear any saved state when going to idle
                     board.beep(board.SOUND_POWER_OFF, event_type='key_press')
                     board.display_manager.clear_widgets()
-                    promise = board.display_manager.add_widget(SplashScreen(message="Press [OK]"))
+                    promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="Press [OK]"))
                     if promise:
                         try:
                             promise.result(timeout=10.0)
@@ -5867,14 +3443,17 @@ def main():
                     continue
                 
                 elif result == "SHUTDOWN":
+                    ctx.clear()
                     _shutdown("Shutdown")
                 
                 elif result == "Centaur":
+                    ctx.clear()
                     _run_centaur()
                     # Note: _run_centaur() exits the process
                 
                 elif result == "Universal" or result == "CLIENT_CONNECTED" or result == "PIECE_MOVED":
-                    # Start game mode
+                    # Start game mode - clear menu state
+                    ctx.clear()
                     _start_game_mode()
                     
                     # Forward all pending piece events (may have accumulated during _start_game_mode)
@@ -5883,11 +3462,15 @@ def main():
                     while _pending_piece_events:
                         pe, field, ts = _pending_piece_events.pop(0)
                         log.info(f"[App] Forwarding piece event: field={field}, event={pe}")
-                        if protocol_manager:
+                        if controller_manager:
+                            controller_manager.on_field_event(pe, field, ts)
+                        elif protocol_manager:
                             protocol_manager.receive_field(pe, field, ts)
                     
-                    # Notify ProtocolManager if client is already connected
-                    if (ble_manager and ble_manager.connected) or client_connected:
+                    # If client is already connected, switch to remote controller
+                    if (ble_manager and ble_manager.connected) or (rfcomm_server and rfcomm_server.connected):
+                        if controller_manager:
+                            controller_manager.activate_remote()
                         if protocol_manager:
                             protocol_manager.on_app_connected()
                 
@@ -5895,7 +3478,10 @@ def main():
                     settings_result = _handle_settings()
                     # Check if a BLE client connected during settings
                     if is_break_result(settings_result):
+                        ctx.clear()
                         _start_game_mode()
+                        if controller_manager:
+                            controller_manager.activate_remote()
                         if protocol_manager:
                             protocol_manager.on_app_connected()
                     # After settings, continue to main menu
@@ -5911,6 +3497,23 @@ def main():
                     log.info("[App] Switching from position game to normal game")
                     _cleanup_game()
                     _start_game_mode(starting_fen=None, is_position_game=False)
+                # Check if display settings menu was requested (LONG_HELP)
+                elif _pending_display_settings:
+                    _pending_display_settings = False
+                    log.info("[App] Showing display settings menu from game mode")
+                    handle_display_settings(
+                        game_settings=_game_settings_dict(),
+                        show_menu=_show_menu,
+                        save_game_setting=_save_game_setting,
+                        log=log,
+                        board=board,
+                    )
+                    # Recreate widgets with updated settings
+                    # _init_widgets() now preserves game state:
+                    # - Uses _current_fen for board position
+                    # - ChessClock service preserves times (not reset if already running)
+                    if display_manager:
+                        display_manager._init_widgets()
                 else:
                     # Stay in game mode - key_callback handles exit via _return_to_menu
                     time.sleep(0.5)
@@ -5920,7 +3523,20 @@ def main():
                 if _return_to_positions_menu:
                     _return_to_positions_menu = False
                     # Return directly to the last selected position in the menu
-                    position_result = _handle_positions_menu(return_to_last_position=True)
+                    ctx = _get_menu_context()
+                    position_result = handle_positions_menu(
+                        ctx=ctx,
+                        load_positions_config=lambda: load_positions_config(log),
+                        start_from_position=_start_from_position,
+                        show_menu=_show_menu,
+                        find_entry_index=find_entry_index,
+                        board=board,
+                        log=log,
+                        last_position_category_index_ref=[_last_position_category_index],
+                        last_position_index_ref=[_last_position_index],
+                        last_position_category_ref=[_last_position_category],
+                        return_to_last_position=True,
+                    )
                     if is_break_result(position_result):
                         # BLE client connected during positions menu
                         _start_game_mode()
@@ -5941,8 +3557,14 @@ def main():
         log.info("[App] Interrupted by Ctrl+C")
     except Exception as e:
         log.error(f"[App] Error in main loop: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
-        cleanup_and_exit("Main loop ended")
+        # Check if shutdown was requested from events thread (e.g., LONG_PLAY key)
+        if _shutdown_requested:
+            cleanup_and_exit("LONG_PLAY shutdown requested", system_shutdown=True)
+        else:
+            cleanup_and_exit("Main loop ended")
 
 
 if __name__ == "__main__":

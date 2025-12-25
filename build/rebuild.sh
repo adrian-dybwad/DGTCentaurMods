@@ -9,7 +9,13 @@ log() {
 }
 
 BRANCH_OR_TAG="${1:-AsyncController}"
-REPO_DIR="$HOME/DGTCentaurMods"
+
+# Support both project names
+if [ -d "$HOME/DGTCentaurUniversal" ]; then
+  REPO_DIR="$HOME/DGTCentaurUniversal"
+else
+  REPO_DIR="$HOME/DGTCentaurMods"
+fi
 BUILD_DIR="$REPO_DIR/build"
 RELEASES_DIR="$BUILD_DIR/releases"
 
@@ -39,7 +45,8 @@ cd "$BUILD_DIR"
 ./build.sh "$BRANCH_OR_TAG"
 
 log "4/8 Locating latest .deb artifact"
-artifact=$(ls -1t "$RELEASES_DIR"/dgtcentaurmods_*_armhf.deb 2>/dev/null | head -n1 || true)
+# Multi-arch package uses _all.deb
+artifact=$(ls -1t "$RELEASES_DIR"/dgtcentaurmods_*_all.deb 2>/dev/null | head -n1 || true)
 if [ -z "${artifact:-}" ] || [ ! -f "$artifact" ]; then
   echo "No .deb artifact found in $RELEASES_DIR" >&2
   exit 1

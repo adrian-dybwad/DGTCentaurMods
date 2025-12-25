@@ -3,21 +3,24 @@
 # This file is part of the DGTCentaurUniversal project
 # ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
 #
-# Centralizes BLE and RFCOMM data routing to ProtocolManager.
-# Buffers incoming protocol data when ProtocolManager is not yet ready
+# Centralizes BLE and RFCOMM data routing to ControllerManager.
+# Buffers incoming protocol data when ControllerManager is not yet ready
 # (e.g., during menu -> game transition).
 #
 # Licensed under the GNU General Public License v3.0 or later.
 # See LICENSE.md for details.
 
 from DGTCentaurMods.board.logging import log
-from typing import Callable, Optional, List, Tuple
+from typing import Callable, Optional, List, Tuple, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from DGTCentaurMods.controllers import ControllerManager
 
 
 class ConnectionManager:
-    """Manages protocol data routing between BLE/RFCOMM connections and ProtocolManager.
+    """Manages protocol data routing between BLE/RFCOMM connections and ControllerManager.
     
-    Buffers incoming data when ProtocolManager is not ready (e.g., during menu -> game
+    Buffers incoming data when ControllerManager is not ready (e.g., during menu -> game
     transition) and processes queued data once a handler is registered.
     
     Also handles relay mode forwarding to shadow targets.
@@ -43,7 +46,7 @@ class ConnectionManager:
             return
         
         self._initialized = True
-        self._protocol_manager = None
+        self._controller_manager: Optional['ControllerManager'] = None
         self._relay_manager = None
         self._relay_mode = False
         
@@ -53,17 +56,17 @@ class ConnectionManager:
         
         log.info("[ConnectionManager] Initialized")
     
-    def set_protocol_manager(self, handler) -> None:
-        """Register the ProtocolManager for data routing.
+    def set_controller_manager(self, controller_manager: 'ControllerManager') -> None:
+        """Register the ControllerManager for data routing.
         
         When a handler is registered, any queued data is immediately processed.
         
         Args:
-            handler: ProtocolManager instance, or None to clear
+            controller_manager: ControllerManager instance, or None to clear
         """
-        self._protocol_manager = handler
+        self._controller_manager = controller_manager
         
-        if handler is not None:
+        if controller_manager is not None:
             self._process_pending_data()
     
     def set_relay_manager(self, relay_manager, relay_mode: bool) -> None:
@@ -79,7 +82,7 @@ class ConnectionManager:
     def receive_data(self, data: bytes, source: str) -> None:
         """Receive protocol data from BLE or RFCOMM connection.
         
-        Routes data to ProtocolManager if available, otherwise queues for later.
+        Routes data to ControllerManager if available, otherwise queues for later.
         Also forwards to relay target if relay mode is enabled.
         
         Args:
@@ -89,9 +92,9 @@ class ConnectionManager:
         hex_str = ' '.join(f'{b:02x}' for b in data)
         log.info(f"[{source.upper()} RX] {len(data)} bytes - {hex_str}")
         
-        if self._protocol_manager is not None:
+        if self._controller_manager is not None:
             for byte_val in data:
-                self._protocol_manager.receive_data(byte_val)
+                self._controller_manager.receive_bluetooth_data(byte_val)
         else:
             log.info(f"[ConnectionManager] Queuing {len(data)} bytes from {source} - handler not ready")
             self._pending_data.append((bytes(data), source))
@@ -101,14 +104,14 @@ class ConnectionManager:
             self._relay_manager.send_to_target(data)
     
     def _process_pending_data(self) -> None:
-        """Process any data queued before ProtocolManager was ready.
+        """Process any data queued before ControllerManager was ready.
         
-        Called automatically when a ProtocolManager is registered via set_protocol_manager().
+        Called automatically when a ControllerManager is registered via set_controller_manager().
         """
         if not self._pending_data:
             return
         
-        if self._protocol_manager is None:
+        if self._controller_manager is None:
             log.warning("[ConnectionManager] Cannot process pending data - no handler")
             return
         
@@ -118,7 +121,7 @@ class ConnectionManager:
             hex_str = ' '.join(f'{b:02x}' for b in data)
             log.info(f"[ConnectionManager] Processing queued {source} data: {len(data)} bytes - {hex_str}")
             for byte_val in data:
-                self._protocol_manager.receive_data(byte_val)
+                self._controller_manager.receive_bluetooth_data(byte_val)
         
         self._pending_data.clear()
     
@@ -132,17 +135,17 @@ class ConnectionManager:
         self._pending_data.clear()
     
     def clear_handler(self) -> None:
-        """Clear the registered ProtocolManager and pending data.
+        """Clear the registered ControllerManager and pending data.
         
         Called during game cleanup.
         """
-        self._protocol_manager = None
+        self._controller_manager = None
         self.clear_pending_data()
     
     @property
     def has_handler(self) -> bool:
-        """Check if a ProtocolManager is currently registered."""
-        return self._protocol_manager is not None
+        """Check if a ControllerManager is currently registered."""
+        return self._controller_manager is not None
     
     @property
     def pending_count(self) -> int:

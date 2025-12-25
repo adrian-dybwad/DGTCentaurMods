@@ -52,10 +52,10 @@ class GameMove(Base):
     move_at = Column(DateTime, server_default=func.now())
     move = Column(String(10), nullable=True)
     fen = Column(String(255), nullable=True)
-    # Clock times in seconds remaining after this move (nullable for backward compatibility)
+    # Clock times in seconds remaining after this move (nullable for existing databases)
     white_clock = Column(Integer, nullable=True)
     black_clock = Column(Integer, nullable=True)
-    # Analysis score (centipawns from white's perspective, nullable for backward compatibility)
+    # Analysis score in centipawns from white's perspective (nullable for existing databases)
     eval_score = Column(Integer, nullable=True)
 
     game = relationship("Game")

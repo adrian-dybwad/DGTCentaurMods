@@ -138,13 +138,20 @@ class Pegasus:
         Args:
             payload: List of payload bytes
             
-        Returns:
-            True if handled successfully, False otherwise
+        Payload formats:
+            - Mode 0 (single byte 0x00): Turn all LEDs off
+            - Mode 2 (payload[0]==2, payload[1:2]==00 00): Turn all LEDs off  
+            - Mode 5 (payload[0]==5): Set LED array with speed/intensity/fields
         """
         # LEDS control from mobile app
         # Format: 96, [len-2], 5, speed, mode, intensity, fields..., 0
         log.info(f"[Pegasus LED packet] raw: {' '.join(f'{b:02x}' for b in payload)}")
-        if payload[0] == 2:
+        if payload[0] == 0:
+            # Mode 0: Turn LEDs off (single byte payload 0x00)
+            # Received from DGT app as: 60 02 00 00 (LED_CONTROL, length=2, mode=0, terminator)
+            board.ledsOff()
+            log.info("[Pegasus board] ledsOff() mode=0 (LED off command)")
+        elif payload[0] == 2:
             if payload[1] == 0 and payload[2] == 0:
                 board.ledsOff()
                 log.info("[Pegasus board] ledsOff() because mode==2")
@@ -315,7 +322,10 @@ class Pegasus:
         """Handle battery status packet.
         """
         log.info(f"[Pegasus Battery status] getting battery status")
-        batterylevel, chargerconnected = board.getBatteryLevel()
+        from DGTCentaurMods.state import get_system
+        state = get_system()
+        batterylevel = state.battery_level if state.battery_level is not None else 10
+        chargerconnected = 1 if state.charger_connected else 0
         log.warning(f"[Pegasus Battery status] battery status={batterylevel} chargerconnected={chargerconnected}")
 
         self.send_packet(command.BATTERY_STATUS_RESP, [0x58,0,0,0,0,0,0,0,2])

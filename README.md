@@ -85,6 +85,19 @@ Note: when installing Raspbian please select Bullseye (legacy) and not the new "
 - The SQLite database is created at runtime at `/opt/DGTCentaurMods/db/centaur.db` on first run; it is not tracked in git.
  - The current FEN position is written to `/opt/DGTCentaurMods/tmp/fen.log` by runtime services.
 
+## Local Python env (direnv + venv)
+
+- This repo expects the bundled virtualenv at `.venv`. Helper scripts `bin/python` and `bin/pytest` wrap it.
+- Auto-activate via direnv:
+  1. Install direnv: `brew install direnv`
+  2. Ensure shell hook is present:
+     ```
+     grep -q 'direnv hook zsh' ~/.zshrc || echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc
+     source ~/.zshrc
+     ```
+  3. From repo root, allow: `direnv allow`
+- After that, entering the repo activates the venv; run tests with `bin/pytest ...` or python with `bin/python ...`.
+
 ## Support
 
 Join us on Discord: https://discord.gg/zqgUGK2x49

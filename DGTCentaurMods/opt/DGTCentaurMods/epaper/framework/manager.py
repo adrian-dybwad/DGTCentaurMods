@@ -33,17 +33,20 @@ class Manager:
         self._background = None  # Optional BackgroundWidget for dithered backgrounds
         self._initialized = False
         self._shutting_down = False
+        self._update_in_progress = False  # Re-entrancy guard for update()
+        self._pending_update = False  # Whether another update was requested during current update
+        self._pending_full = False  # Whether the pending update needs full refresh
         log.debug(f"Manager.__init__() completed - Manager id: {id(self)}, EPD id: {id(self._epd)}")
     
-    def initialize(self, background_shade: int = 4) -> Future:
-        """Initialize the display.
+    def initialize(self) -> Future:
+        """Initialize the display hardware.
+        
+        Initializes the e-paper hardware and scheduler. Does not set any background -
+        callers should explicitly call set_background() if they want a dithered background.
+        By default, the display will have a plain white background.
         
         The status bar is not added by default during initialization.
         The caller is responsible for adding it when appropriate (e.g., when showing a menu).
-        This prevents the status bar from briefly appearing before a splash screen is shown.
-        
-        Args:
-            background_shade: Default background shade 0-16 (0=white, 16=black, default=4)
         """
         if self._initialized:
             return
@@ -55,9 +58,6 @@ class Manager:
             
             self._scheduler.start()
             time.sleep(0.1)
-            
-            # Set default background for visual depth
-            self.set_background(shade=background_shade)
             
             self._initialized = True
             return self.clear_widgets(addStatusBar=False)
@@ -156,7 +156,7 @@ class Manager:
         from ..background import BackgroundWidget
         
         if self._background is None:
-            self._background = BackgroundWidget(self._epd.width, self._epd.height, shade)
+            self._background = BackgroundWidget(self._epd.width, self._epd.height, self.update, shade)
         else:
             self._background.set_shade(shade)
     
@@ -192,11 +192,19 @@ class Manager:
             return None
     
     def clear_widgets(self, addStatusBar: bool = True) -> Future:
-        """Clear all widgets from the display.
+        """Clear all widgets and background from the display.
         
-        Stops all widget background threads, clears the widget list, and
-        clears any pending refresh requests to prevent stale updates.
+        Stops all widget background threads, clears the widget list, clears
+        the background, and resets partial mode to trigger display re-initialization
+        on the next update.
+        
+        When transitioning between screens, resetting partial mode causes the scheduler
+        to call init() and Clear() on the next partial update, which clears any ghosting
+        from dithered backgrounds (like splash screens) without the jarring full refresh flash.
+        
+        Callers that want a dithered background should call set_background() after this.
         """
+        had_widgets = len(self._widgets) > 0
         log.debug(f"Manager.clear_widgets() called, clearing {len(self._widgets)} widgets")
         
         # Clear pending refresh requests first to prevent stale updates
@@ -209,29 +217,33 @@ class Manager:
                 widget.stop()
             except Exception as e:
                 log.debug(f"Error stopping widget {widget.__class__.__name__} during clear: {e}")
-            # Clear the widget's update callback to prevent stale updates
-            try:
-                widget.set_update_callback(None)
-            except Exception:
-                pass
         
         self._widgets.clear()
         
+        # Clear background to revert to plain white
+        self._background = None
+        
         # Create and add status bar widget
         if addStatusBar:
-            status_bar_widget = StatusBarWidget(0, 0)
+            status_bar_widget = StatusBarWidget(0, 0, self.update)
             return self.add_widget(status_bar_widget)
 
         return None
     
-    def update(self, full: bool = False) -> Future:
+    def update(self, full: bool = False, immediate: bool = False) -> Future:
         """Update the display with current widget states.
         
         If any widget has is_modal=True, only that widget is rendered.
         Otherwise, all visible widgets are rendered.
         
+        This method has re-entrancy protection: if called while an update is
+        already in progress (e.g., from a widget's draw_on method), the request
+        is queued and processed after the current update completes.
+        
         Args:
             full: If True, force a full refresh instead of partial refresh.
+            immediate: If True, wake scheduler immediately to bypass batching delay.
+                      Use for time-sensitive UI like menu navigation.
         
         Returns:
             Future: A Future that completes when the display refresh finishes.
@@ -245,6 +257,38 @@ class Manager:
             future.set_result("not-initialized")
             return future
         
+        # Re-entrancy protection: if update is already in progress, queue it
+        if self._update_in_progress:
+            self._pending_update = True
+            self._pending_full = self._pending_full or full  # Full takes priority
+            # Return a placeholder future - the actual update will happen later
+            from concurrent.futures import Future
+            future = Future()
+            future.set_result("queued")
+            return future
+        
+        self._update_in_progress = True
+        try:
+            return self._do_update(full, immediate)
+        finally:
+            self._update_in_progress = False
+            # Process any pending update that was requested during this update
+            if self._pending_update:
+                self._pending_update = False
+                pending_full = self._pending_full
+                self._pending_full = False
+                # Schedule on next tick to avoid deep recursion
+                self._scheduler.submit_deferred(lambda: self.update(pending_full))
+    
+    def _do_update(self, full: bool = False, immediate: bool = False) -> Future:
+        """Internal method that performs the actual update rendering.
+        
+        This should only be called from update() with the re-entrancy guard held.
+        
+        Args:
+            full: If True, force a full refresh instead of partial refresh.
+            immediate: If True, wake scheduler immediately to bypass batching delay.
+        """
         # Get canvas and render background
         canvas = self._framebuffer.get_canvas()
         if self._background is not None:
@@ -283,7 +327,15 @@ class Manager:
         
         # Submit refresh with the captured snapshot and return Future
         # The on_refresh callback is invoked by Scheduler after display update
-        return self._scheduler.submit(full=full, image=snapshot)
+        return self._scheduler.submit(full=full, immediate=immediate, image=snapshot)
+    
+    def cleanup(self, for_shutdown: bool = False) -> None:
+        """Clean up display resources.
+        
+        Args:
+            for_shutdown: If True, also puts display to sleep.
+        """
+        self.shutdown()
     
     def shutdown(self) -> None:
         """Shutdown the display."""

@@ -2,7 +2,7 @@
 Base widget class for ePaper display.
 """
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from PIL import Image
 from typing import Optional, TYPE_CHECKING, Callable
 
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 import logging
 log = logging.getLogger(__name__)
-log.setLevel(logging.INFO)
+#log.setLevel(logging.INFO)
 
 
 # 8x8 Bayer matrix for ordered dithering threshold values (0-63)
@@ -63,7 +63,9 @@ class Widget(ABC):
     # When a modal widget is present, only it is rendered.
     is_modal: bool = False
     
-    def __init__(self, x: int, y: int, width: int, height: int, background_shade: int = 0):
+    def __init__(self, x: int, y: int, width: int, height: int, 
+                 update_callback: Callable[[bool, bool], object],
+                 background_shade: int = 0):
         """Initialize a widget.
         
         Args:
@@ -71,17 +73,25 @@ class Widget(ABC):
             y: Y position on display
             width: Widget width in pixels
             height: Widget height in pixels
+            update_callback: Callback to trigger display updates. Must not be None.
+                            Accepts 'full' and 'immediate' boolean parameters and returns a Future.
             background_shade: Dithered background shade 0-16 (0=white, 8=50% gray, 16=black)
+        
+        Raises:
+            ValueError: If update_callback is None
         """
+        if update_callback is None:
+            raise ValueError(f"{self.__class__.__name__}: update_callback must not be None")
+        
         self.x = x
         self.y = y
         self.width = width
         self.height = height
         self.visible = True  # Whether the widget should be rendered by the Manager
         self._background_shade = max(0, min(16, background_shade))
-        self._last_rendered: Optional[Image.Image] = None
+        self._cached_sprite: Optional[Image.Image] = None  # Cached rendered image for fast blit
         self._scheduler: Optional['Scheduler'] = None
-        self._update_callback: Optional[Callable[[bool], object]] = None
+        self._update_callback: Callable[[bool], object] = update_callback
         log.debug(f"Widget.__init__(): Created {self.__class__.__name__} instance id={id(self)} at ({x}, {y}) size {width}x{height}")
     
     def set_scheduler(self, scheduler: 'Scheduler') -> None:
@@ -89,12 +99,22 @@ class Widget(ABC):
         self._scheduler = scheduler
         log.debug(f"Widget.set_scheduler(): {self.__class__.__name__} id={id(self)} scheduler set")
     
-    def set_update_callback(self, callback: Callable[[bool], object]) -> None:
+    def set_update_callback(self, callback: Callable[[bool, bool], object]) -> None:
         """Set a callback to trigger Manager.update() when widget state changes.
         
-        The callback should accept a 'full' boolean parameter and return a Future.
+        The callback should accept 'full' and 'immediate' boolean parameters and return a Future.
         This allows widgets to trigger full update cycles that render all widgets.
+        
+        Composite widgets should override this to propagate the callback to child widgets.
+        
+        Args:
+            callback: The update callback (full, immediate) -> Future. Must not be None.
+            
+        Raises:
+            ValueError: If callback is None
         """
+        if callback is None:
+            raise ValueError(f"{self.__class__.__name__}: update_callback must not be None")
         self._update_callback = callback
         log.debug(f"Widget.set_update_callback(): {self.__class__.__name__} id={id(self)} update callback set")
             
@@ -102,7 +122,7 @@ class Widget(ABC):
         """Get the scheduler for this widget."""
         return self._scheduler
     
-    def request_update(self, full: bool = False, forced: bool = False):
+    def request_update(self, full: bool = False, forced: bool = False, immediate: bool = False):
         """Request a display update.
         
         This method should be called by widgets when their state changes
@@ -116,10 +136,12 @@ class Widget(ABC):
         Args:
             full: If True, force a full refresh instead of partial refresh.
             forced: If True, ignore visibility check (used by show/hide to update display).
+            immediate: If True, wake scheduler immediately to bypass batching delay.
+                      Use for time-sensitive UI like menu navigation.
         
         Returns:
             Future: A Future that completes when the display refresh finishes.
-            Returns None if update callback is not available or widget is hidden.
+            Returns None if widget is hidden.
         
         Note:
             Widgets should NOT call the scheduler directly. The Manager must
@@ -135,12 +157,7 @@ class Widget(ABC):
         else:
             log.debug(f"Widget.request_update(): {self.__class__.__name__} id={id(self)} requesting partial update")
         
-        if self._update_callback is not None:
-            return self._update_callback(full)
-        
-        # No callback available - cannot update without Manager
-        log.debug(f"Widget.request_update(): {self.__class__.__name__} id={id(self)} ignored (no update callback)")
-        return None
+        return self._update_callback(full, immediate)
     
     def set_background_shade(self, shade: int) -> None:
         """Set the background shade level.
@@ -151,57 +168,90 @@ class Widget(ABC):
         shade = max(0, min(16, shade))
         if shade != self._background_shade:
             self._background_shade = shade
-            self._last_rendered = None
+            self.invalidate_cache()
             self.request_update(full=False)
     
-    def draw_background(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw dithered background pattern onto a region of the target image.
+    def invalidate_cache(self) -> None:
+        """Invalidate the cached sprite, forcing re-render on next draw.
         
-        Draws the widget's dithered background pattern directly onto the
-        target image at the specified coordinates. Widgets should call this
-        at the start of draw_on() to apply their background.
+        Subclasses should call this when their state changes and they need
+        to be re-rendered. This is more efficient than re-rendering immediately
+        as multiple state changes can be batched into a single render.
+        """
+        self._cached_sprite = None
+    
+    def draw_background_on_sprite(self, sprite: Image.Image) -> None:
+        """Draw dithered background pattern onto the sprite image.
+        
+        Draws the widget's dithered background pattern onto the sprite.
+        Called by render() implementations before drawing content.
         
         Uses an 8x8 Bayer matrix for ordered dithering, which provides
         smoother gradients and less obvious tiling than 4x4 patterns.
         
         Args:
-            img: Target image to draw the background onto.
-            draw_x: X coordinate on target image where background starts.
-            draw_y: Y coordinate on target image where background starts.
+            sprite: The widget's sprite image to draw the background onto.
         """
         if self._background_shade == 0:
-            # Pure white background - fill the region with white
-            from PIL import ImageDraw
-            draw = ImageDraw.Draw(img)
-            draw.rectangle(
-                [(draw_x, draw_y), (draw_x + self.width - 1, draw_y + self.height - 1)],
-                fill=255
-            )
+            # Pure white background - already white from Image.new()
             return
         
         pattern = DITHER_PATTERNS.get(self._background_shade, DITHER_PATTERNS[0])
-        pixels = img.load()
+        pixels = sprite.load()
         for y in range(self.height):
             pattern_row = pattern[y % 8]
             for x in range(self.width):
                 if pattern_row[x % 8] == 1:
-                    pixels[draw_x + x, draw_y + y] = 0  # Black pixel
-                else:
-                    pixels[draw_x + x, draw_y + y] = 255  # White pixel
+                    pixels[x, y] = 0  # Black pixel
+                # White pixels already set from Image.new()
     
-    @abstractmethod
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw the widget content onto the target image.
+    def draw_on(self, canvas: Image.Image, draw_x: int, draw_y: int) -> None:
+        """Draw the widget onto the canvas using sprite caching.
         
-        Widgets should first call self.draw_background(img, draw_x, draw_y)
-        to apply their background, then draw their content.
+        If the sprite cache is valid, pastes the cached image (fast blit).
+        If cache is invalidated, calls render() to generate a new sprite,
+        caches it, then pastes it.
+        
+        This is called by the Manager during display updates.
+        Thread-safe: captures sprite reference to avoid race with invalidate_cache().
         
         Args:
-            img: Target image to draw onto.
-            draw_x: X coordinate on target image where widget starts.
-            draw_y: Y coordinate on target image where widget starts.
+            canvas: Target canvas image to draw onto.
+            draw_x: X coordinate on canvas where widget starts.
+            draw_y: Y coordinate on canvas where widget starts.
         """
-        pass
+        # Capture sprite reference to avoid race condition with background threads
+        # calling invalidate_cache() between the check and the paste
+        sprite = self._cached_sprite
+        if sprite is None:
+            # Cache miss - render to new sprite
+            sprite = Image.new('1', (self.width, self.height), 255)
+            self.render(sprite)
+            self._cached_sprite = sprite
+            log.debug(f"Widget.draw_on(): {self.__class__.__name__} cache miss, rendered new sprite")
+        
+        # Fast blit from cache to canvas
+        canvas.paste(sprite, (draw_x, draw_y))
+    
+    def render(self, sprite: Image.Image) -> None:
+        """Render the widget content onto the sprite image.
+        
+        Subclasses should implement this to draw their content. The sprite is
+        pre-sized to the widget dimensions and pre-filled with white.
+        
+        Typical implementation:
+            1. Call self.draw_background_on_sprite(sprite) if using dithered background
+            2. Draw content using PIL ImageDraw
+        
+        Widgets that override draw_on() entirely (e.g., for transparency or
+        special compositing) don't need to implement render().
+        
+        Args:
+            sprite: The widget's sprite image to render onto (0,0 is top-left of widget).
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} must implement render() or override draw_on()"
+        )
     
     def show(self) -> None:
         """Show the widget (make it visible).
@@ -211,7 +261,7 @@ class Widget(ABC):
         """
         if not self.visible:
             self.visible = True
-            self._last_rendered = None  # Force re-render
+            self.invalidate_cache()  # Force re-render
             log.info(f"Widget.show(): {self.__class__.__name__} id={id(self)} now visible")
             self.request_update(full=False, forced=True)
     
@@ -226,7 +276,7 @@ class Widget(ABC):
         """
         if self.visible:
             self.visible = False
-            self._last_rendered = None
+            self.invalidate_cache()
             log.info(f"Widget.hide(): {self.__class__.__name__} id={id(self)} now hidden")
             self.request_update(full=False, forced=True)
     

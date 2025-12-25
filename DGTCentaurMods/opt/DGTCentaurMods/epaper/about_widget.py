@@ -38,20 +38,22 @@ class AboutWidget(Widget):
     APP_NAME_Y = 150
     APP_SUBTITLE_Y = 165
     VERSION_Y = 185
+    WARNING_Y = 205
     INSTRUCTION_Y = 280
     
-    def __init__(self, 
+    def __init__(self, update_callback,
                  qr_image: Optional[Image.Image] = None,
                  version: str = "",
                  background_shade: int = 0):
         """Initialize the about widget.
         
         Args:
+            update_callback: Callback to trigger display updates. Must not be None.
             qr_image: Optional QR code image. If None, displays text fallback.
             version: Application version string.
             background_shade: Background shade 0-16 (0=white, 16=black).
         """
-        super().__init__(0, 0, 128, 296, background_shade=background_shade)
+        super().__init__(0, 0, 128, 296, update_callback, background_shade=background_shade)
         self._qr_image = qr_image
         self._version = version
         self._dismissed = threading.Event()
@@ -64,18 +66,16 @@ class AboutWidget(Widget):
             self._font_loader = ResourceLoader("/opt/DGTCentaurMods/resources", "/home/pi/resources")
         return self._font_loader
     
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw the about widget onto the target image.
+    def render(self, sprite: Image.Image) -> None:
+        """Render the about widget onto the sprite.
         
         Args:
-            img: Target image to draw onto.
-            draw_x: X coordinate on target image where widget starts.
-            draw_y: Y coordinate on target image where widget starts.
+            sprite: Sprite image to render onto (0,0 is top-left of widget).
         """
         # Draw background
-        self.draw_background(img, draw_x, draw_y)
+        self.draw_background_on_sprite(sprite)
         
-        draw = ImageDraw.Draw(img)
+        draw = ImageDraw.Draw(sprite)
         loader = self._get_font_loader()
         
         # Load fonts
@@ -83,7 +83,7 @@ class AboutWidget(Widget):
         version_font = loader.get_font(10)
         
         # Draw title
-        draw.text((draw_x + 64, draw_y + self.TITLE_Y), "Get Support", 
+        draw.text((64, self.TITLE_Y), "Get Support", 
                   font=title_font, fill=0, anchor="mm")
         
         # Draw QR code or fallback text
@@ -93,30 +93,39 @@ class AboutWidget(Widget):
             if qr.mode != "1":
                 qr = qr.convert("1")
             
-            qr_x = draw_x + (self.width - self.QR_SIZE) // 2
-            img.paste(qr, (qr_x, draw_y + self.QR_Y))
+            qr_x = (self.width - self.QR_SIZE) // 2
+            sprite.paste(qr, (qr_x, self.QR_Y))
         else:
             # Fallback: display URL as text
-            draw.text((draw_x + 64, draw_y + 85), "github.com/", 
+            draw.text((64, 85), "github.com/", 
                       font=version_font, fill=0, anchor="mm")
-            draw.text((draw_x + 64, draw_y + 100), "EdNekebno/", 
+            draw.text((64, 100), "EdNekebno/", 
                       font=version_font, fill=0, anchor="mm")
-            draw.text((draw_x + 64, draw_y + 115), "DGTCentaurMods", 
+            draw.text((64, 115), "DGTCentaurMods", 
                       font=version_font, fill=0, anchor="mm")
         
         # Draw app name
-        draw.text((draw_x + 64, draw_y + self.APP_NAME_Y), "DGTCentaur", 
+        draw.text((64, self.APP_NAME_Y), "DGTCentaur", 
                   font=title_font, fill=0, anchor="mm")
-        draw.text((draw_x + 64, draw_y + self.APP_SUBTITLE_Y), "Mods", 
+        draw.text((64, self.APP_SUBTITLE_Y), "Mods", 
                   font=title_font, fill=0, anchor="mm")
         
         # Draw version if provided
         if self._version:
-            draw.text((draw_x + 64, draw_y + self.VERSION_Y), f"v{self._version}", 
+            draw.text((64, self.VERSION_Y), f"v{self._version}", 
                       font=version_font, fill=0, anchor="mm")
         
+        # Draw incomplete shutdown warning if detected
+        try:
+            import DGTCentaurMods.universal as universal_module
+            if universal_module.incomplete_shutdown:
+                draw.text((64, self.WARNING_Y), "Incomplete shutdown", 
+                          font=version_font, fill=0, anchor="mm")
+        except (ImportError, AttributeError):
+            pass
+        
         # Draw dismiss instruction
-        draw.text((draw_x + 64, draw_y + self.INSTRUCTION_Y), "Press any button", 
+        draw.text((64, self.INSTRUCTION_Y), "Press any button", 
                   font=version_font, fill=0, anchor="mm")
     
     def dismiss(self) -> None:

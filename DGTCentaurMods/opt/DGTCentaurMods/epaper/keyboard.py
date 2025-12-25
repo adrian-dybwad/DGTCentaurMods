@@ -93,16 +93,17 @@ class KeyboardWidget(Widget):
         "        "  # Rank 1: spaces (reserved)
     )
     
-    def __init__(self, title: str = "Enter Text", max_length: int = 64,
+    def __init__(self, update_callback, title: str = "Enter Text", max_length: int = 64,
                  on_complete: Optional[Callable[[Optional[str]], None]] = None):
         """Initialize keyboard widget.
         
         Args:
+            update_callback: Callback to trigger display updates. Must not be None.
             title: Title/prompt to display
             max_length: Maximum input length
             on_complete: Callback when input is complete (receives text or None)
         """
-        super().__init__(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT)
+        super().__init__(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT, update_callback)
         
         self.title = title
         self.max_length = max_length
@@ -291,32 +292,32 @@ class KeyboardWidget(Widget):
         self._result = None
         self._input_complete.set()
     
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw the keyboard widget onto the target image."""
-        draw = ImageDraw.Draw(img)
+    def render(self, sprite: Image.Image) -> None:
+        """Render the keyboard widget onto the sprite."""
+        draw = ImageDraw.Draw(sprite)
         
         # Draw background
-        self.draw_background(img, draw_x, draw_y)
+        self.draw_background_on_sprite(sprite)
         
         # Title area (top)
-        draw.text((draw_x + 4, draw_y + 2), self.title[:16], font=self._font_small, fill=0)
+        draw.text((4, 2), self.title[:16], font=self._font_small, fill=0)
         
         # Text input area
-        input_y = draw_y + 18
-        draw.rectangle([draw_x + 2, input_y, draw_x + self.width - 3, input_y + 22], outline=0, width=1)
+        input_y = 18
+        draw.rectangle([2, input_y, self.width - 3, input_y + 22], outline=0, width=1)
         
         # Display text with cursor
         display_text = self.text
         if len(display_text) > 12:
             display_text = "..." + display_text[-9:]
         display_text += "_"
-        draw.text((draw_x + 6, input_y + 3), display_text, font=self._font, fill=0)
+        draw.text((6, input_y + 3), display_text, font=self._font, fill=0)
         
         # Page indicator
         page_y = input_y + 26
         page_text = f"Page {self.current_page}/{self.max_pages}"
-        draw.text((draw_x + 4, page_y), page_text, font=self._font_tiny, fill=0)
-        draw.text((draw_x + 70, page_y), "UP/DOWN", font=self._font_tiny, fill=0)
+        draw.text((4, page_y), page_text, font=self._font_tiny, fill=0)
+        draw.text((70, page_y), "UP/DOWN", font=self._font_tiny, fill=0)
         
         # Character grid (8x8)
         grid_y = page_y + 14
@@ -330,7 +331,7 @@ class KeyboardWidget(Widget):
                 char_idx = row * 8 + col
                 char = chars[char_idx] if char_idx < len(chars) else " "
                 
-                cx = draw_x + col * cell_w
+                cx = col * cell_w
                 cy = grid_y + row * cell_h
                 
                 # Draw cell border
@@ -352,6 +353,6 @@ class KeyboardWidget(Widget):
         
         # Instructions at bottom
         inst_y = grid_y + 8 * cell_h + 2
-        draw.text((draw_x + 2, inst_y), "Place piece: type", font=self._font_tiny, fill=0)
-        draw.text((draw_x + 2, inst_y + 11), "BACK:del TICK:ok", font=self._font_tiny, fill=0)
-        draw.text((draw_x + 2, inst_y + 22), "PLAY: cancel", font=self._font_tiny, fill=0)
+        draw.text((2, inst_y), "Place piece: type", font=self._font_tiny, fill=0)
+        draw.text((2, inst_y + 11), "BACK:del TICK:ok", font=self._font_tiny, fill=0)
+        draw.text((2, inst_y + 22), "PLAY: cancel", font=self._font_tiny, fill=0)

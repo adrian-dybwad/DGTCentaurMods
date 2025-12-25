@@ -2,6 +2,20 @@
 
 set -euo pipefail
 
+# Configure needrestart to automatic mode (suppress blue screen prompts)
+# This prevents interactive dialogs during package updates/kernel upgrades
+if [ -f /etc/needrestart/needrestart.conf ]; then
+    # Set restart mode to automatic (no prompts)
+    if grep -q '^\$nrconf{restart}' /etc/needrestart/needrestart.conf; then
+        sed -i "s/^\$nrconf{restart}.*$/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
+    elif grep -q "^#.*\$nrconf{restart}" /etc/needrestart/needrestart.conf; then
+        sed -i "s/^#.*\$nrconf{restart}.*$/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
+    else
+        echo "\$nrconf{restart} = 'a';" >> /etc/needrestart/needrestart.conf
+    fi
+    echo "::: Configured needrestart for automatic mode (no prompts)"
+fi
+
 DEFAULT_HOSTNAME="raspberrypi"
 ARCH=`uname -m`
 NEW_HOSTNAME="dgtcentaur"
@@ -28,9 +42,7 @@ BTMAIN="/etc/bluetooth/main.conf"
 DBUSSERVICE="/etc/systemd/system/dbus-org.bluez.service"
 CENTAUR="/home/pi/centaur/"
 CENTAUR_ENGINE="/home/pi/centaur/engines"
-STOCKFISH="stockfish_pi"
-RODENT_REPO="https://github.com/nescitus/rodent-iv.git"
-MAIA_REPO="https://github.com/CSSLab/maia-chess.git"
+STOCKFISH="stockfish"
 VENV_DIR="$DGTCM_PATH/.venv"
 REQ_VENV="$DGTCM_PATH/setup/requirements.txt"
 WHEELS_DIR="$DGTCM_PATH/wheels"   # ship this in the .deb (optional but recommended)
@@ -240,12 +252,34 @@ then
 fi
 }
 
-# Install Stockfish if in build (keep in package directory like other engines)
-if [[ -e "${DGTCM_PATH}/engines/${STOCKFISH}" ]]; then
-    echo -e "::: Installing Stockfish engine"
-    # Ensure engines directory exists and has correct permissions
-    chmod 755 "${DGTCM_PATH}/engines/${STOCKFISH}"
-    chown pi:pi "${DGTCM_PATH}/engines/${STOCKFISH}"
+# Install Stockfish from system package and create symlink
+# This ensures we get the correct architecture binary automatically
+echo -e "::: Setting up Stockfish engine"
+ENGINES_DIR="${DGTCM_PATH}/engines"
+
+# Remove old compiled binaries and symlinks
+rm -f "${ENGINES_DIR}/${STOCKFISH}"
+# Remove old _pi named binaries from previous versions
+rm -f "${ENGINES_DIR}/stockfish_pi"
+rm -f "${ENGINES_DIR}/stockfish_pi_arm64"
+rm -f "${ENGINES_DIR}/stockfish_pi_armhf"
+
+# Install stockfish from system package if not already installed
+if ! command -v stockfish &> /dev/null; then
+    echo -e "::: Installing Stockfish from system package"
+    apt-get update -qq
+    apt-get install -y stockfish
+fi
+
+# Create symlink to system stockfish
+if command -v stockfish &> /dev/null; then
+    STOCKFISH_PATH=$(command -v stockfish)
+    echo -e "::: Found system Stockfish at ${STOCKFISH_PATH}"
+    ln -sf "${STOCKFISH_PATH}" "${ENGINES_DIR}/${STOCKFISH}"
+    chown -h pi:pi "${ENGINES_DIR}/${STOCKFISH}"
+    echo -e "::: Created symlink ${ENGINES_DIR}/${STOCKFISH} -> ${STOCKFISH_PATH}"
+else
+    echo -e "::: WARNING: Could not install Stockfish from system package"
 fi
 
 #
@@ -276,55 +310,9 @@ if [ -f "$REQ_VENV" ]; then
   fi
 fi
 
-function insertMaia {
-    if [[ $ARCH == "armv6"* ]]; then
-        #Remove maia and don't get weights
-        echo -e "::: This system is not compatible with maia engine. Removing"
-        rm -rf ${DGTCM_PATH}/engines/maia* > /dev/null 2>&1
-        return
-    fi
-    if [ ! -d  ${DGTCM_PATH}/tmp ]
-    then
-        mkdir ${DGTCM_PATH}/tmp
-    fi
-    if [ ! -d ${DGTCM_PATH}/tmp/maia-chess ]
-    then
-        git clone --depth 1 $MAIA_REPO ${DGTCM_PATH}/tmp/maia-chess;
-        if (($? > 0))
-            then echo "git clone maia chess failed with $?"
-        fi
-    fi
-    cp -rn ${DGTCM_PATH}/tmp/maia-chess/maia_weights ${DGTCM_PATH}/engines/
-    cp -n ${DGTCM_PATH}/engines/maia_weights/maia-1900.pb.gz ${DGTCM_PATH}/engines/
-    chmod 755 ${DGTCM_PATH}/engines/maia
-}
-
-function insertRodentIV {
-    if [ ! -d  ${DGTCM_PATH}/tmp ]
-    then
-        mkdir ${DGTCM_PATH}/tmp
-    fi
-    if [ ! -d ${DGTCM_PATH}/tmp/rodent-iv ]
-    then
-        git clone --depth 1 $RODENT_REPO ${DGTCM_PATH}/tmp/rodent-iv;
-        if (($? > 0))
-            then echo "git clone rodentiv failed with $?"
-        fi
-    fi
-    cp -rn ${DGTCM_PATH}/tmp/rodent-iv/personalities ${DGTCM_PATH}/engines/
-    cp -rn ${DGTCM_PATH}/tmp/rodent-iv/books ${DGTCM_PATH}/engines/
-    chmod 744 ${DGTCM_PATH}/engines/rodentIV
-}
-
-function insertZahak {
-    chmod 755 ${DGTCM_PATH}/engines/zahak
-
-}
-
-
-insertMaia
-insertRodentIV
-insertZahak
+# Note: Additional engines (ct800, rodentIV, zahak, maia) can be installed
+# from the Engine Manager in Settings -> Engine Manager on the board.
+# They will be built from source for the correct architecture.
 
 # Setting final permissions
 function setPermissions {

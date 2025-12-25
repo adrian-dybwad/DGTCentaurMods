@@ -1,134 +1,65 @@
-# Managers Package
-#
-# This file is part of the DGTCentaurUniversal project
-# ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
-#
-# Centralizes all manager classes for the application.
-#
-# Licensed under the GNU General Public License v3.0 or later.
-# See LICENSE.md for details.
+"""Managers package.
 
-from typing import Protocol, Tuple, Optional
+This module intentionally uses lazy imports.
 
-import time as _t
-import logging as _logging
-_log = _logging.getLogger(__name__)
-_s = _t.time()
+Rationale:
+- Many managers transitively import hardware-specific modules (e-paper, GPIO, etc.).
+- Unit tests and non-hardware environments must be able to import subpackages like
+  `DGTCentaurMods.managers.game.move_state` without requiring Raspberry Pi-only deps.
+- Lazy imports preserve the public API (`from DGTCentaurMods.managers import GameManager`)
+  while avoiding side-effects at import time.
+"""
+
+from __future__ import annotations
+
+import importlib
+from typing import Any
+
+_LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    # menu
+    "MenuManager": ("DGTCentaurMods.managers.menu", "MenuManager"),
+    "MenuSelection": ("DGTCentaurMods.managers.menu", "MenuSelection"),
+    "MenuResult": ("DGTCentaurMods.managers.menu", "MenuResult"),
+    "is_break_result": ("DGTCentaurMods.managers.menu", "is_break_result"),
+    "find_entry_index": ("DGTCentaurMods.managers.menu", "find_entry_index"),
+    # protocol / connectivity
+    "ProtocolManager": ("DGTCentaurMods.managers.protocol", "ProtocolManager"),
+    "BleManager": ("DGTCentaurMods.managers.ble", "BleManager"),
+    "RelayManager": ("DGTCentaurMods.managers.relay", "RelayManager"),
+    "ConnectionManager": ("DGTCentaurMods.managers.connection", "ConnectionManager"),
+    "RfcommManager": ("DGTCentaurMods.managers.rfcomm", "RfcommManager"),
+    # display
+    "DisplayManager": ("DGTCentaurMods.managers.display", "DisplayManager"),
+    # game
+    "GameManager": ("DGTCentaurMods.managers.game", "GameManager"),
+    "EVENT_NEW_GAME": ("DGTCentaurMods.managers.game", "EVENT_NEW_GAME"),
+    "EVENT_WHITE_TURN": ("DGTCentaurMods.managers.game", "EVENT_WHITE_TURN"),
+    "EVENT_BLACK_TURN": ("DGTCentaurMods.managers.game", "EVENT_BLACK_TURN"),
+    "EVENT_LIFT_PIECE": ("DGTCentaurMods.managers.game", "EVENT_LIFT_PIECE"),
+    "EVENT_PLACE_PIECE": ("DGTCentaurMods.managers.game", "EVENT_PLACE_PIECE"),
+    # assistant
+    "AssistantManager": ("DGTCentaurMods.managers.assistant", "AssistantManager"),
+    "AssistantManagerConfig": ("DGTCentaurMods.managers.assistant", "AssistantManagerConfig"),
+    "AssistantType": ("DGTCentaurMods.managers.assistant", "AssistantType"),
+}
 
 
-class DisplayBridge(Protocol):
-    """Interface for display-related operations used by GameManager.
-    
-    This protocol defines the contract between GameManager and the display layer
-    (typically DisplayManager). It consolidates all display-related callbacks
-    into a single interface for cleaner dependency management.
-    
-    Implementations should handle None returns gracefully.
-    """
-    
-    def get_clock_times(self) -> Tuple[Optional[int], Optional[int]]:
-        """Get current clock times for both players.
-        
-        Returns:
-            Tuple of (white_seconds, black_seconds), or (None, None) if unavailable.
-        """
-        ...
-    
-    def set_clock_times(self, white_seconds: int, black_seconds: int) -> None:
-        """Set clock times (used by external sources like Lichess).
-        
-        Args:
-            white_seconds: White's remaining time in seconds
-            black_seconds: Black's remaining time in seconds
-        """
-        ...
-    
-    def get_eval_score(self) -> Optional[int]:
-        """Get current evaluation score in centipawns.
-        
-        Returns:
-            Evaluation in centipawns from white's perspective, or None if unavailable.
-        """
-        ...
-    
-    def update_position(self, fen: str) -> None:
-        """Update the display with a new position.
-        
-        Args:
-            fen: FEN string of the position to display
-        """
-        ...
-    
-    def show_check_alert(self, is_black_in_check: bool, attacker_square: int, king_square: int) -> None:
-        """Show a check alert on the display.
-        
-        Args:
-            is_black_in_check: True if black is in check, False if white
-            attacker_square: Square index of the attacking piece
-            king_square: Square index of the king in check
-        """
-        ...
-    
-    def show_queen_threat(self, is_black_queen_threatened: bool, attacker_square: int, queen_square: int) -> None:
-        """Show a queen threat alert on the display.
-        
-        Args:
-            is_black_queen_threatened: True if black's queen is threatened
-            attacker_square: Square index of the attacking piece
-            queen_square: Square index of the threatened queen
-        """
-        ...
-    
-    def clear_alerts(self) -> None:
-        """Clear any active alerts from the display."""
-        ...
-    
-    def analyze_position(self, board, is_first_move: bool = False, time_limit: float = 0.3) -> None:
-        """Request analysis of a position.
-        
-        Args:
-            board: chess.Board object to analyze
-            is_first_move: If True, skip adding to history (starting position)
-            time_limit: Analysis time limit in seconds
-        """
-        ...
+def __getattr__(name: str) -> Any:
+    """Lazily import manager symbols on first access."""
+    target = _LAZY_IMPORTS.get(name)
+    if target is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module_name, attr_name = target
+    module = importlib.import_module(module_name)
+    value = getattr(module, attr_name)
+    globals()[name] = value
+    return value
 
-from DGTCentaurMods.managers.menu import MenuManager, MenuSelection, MenuResult, is_break_result, find_entry_index
-_log.debug(f"[managers import] menu: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
 
-from DGTCentaurMods.managers.protocol import ProtocolManager
-_log.debug(f"[managers import] protocol: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
-
-from DGTCentaurMods.managers.ble import BleManager
-_log.debug(f"[managers import] ble: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
-
-from DGTCentaurMods.managers.relay import RelayManager
-_log.debug(f"[managers import] relay: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
-
-from DGTCentaurMods.managers.connection import ConnectionManager
-_log.debug(f"[managers import] connection: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
-
-from DGTCentaurMods.managers.display import DisplayManager
-_log.debug(f"[managers import] display: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
-
-from DGTCentaurMods.managers.rfcomm import RfcommManager
-_log.debug(f"[managers import] rfcomm: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
-
-from DGTCentaurMods.managers.game import (
-    GameManager,
-    EVENT_NEW_GAME,
-    EVENT_WHITE_TURN,
-    EVENT_BLACK_TURN,
-    EVENT_LIFT_PIECE,
-    EVENT_PLACE_PIECE,
-)
-_log.debug(f"[managers import] game: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
-
-from DGTCentaurMods.managers.assistant import AssistantManager, AssistantManagerConfig, AssistantType
-_log.debug(f"[managers import] assistant: {(_t.time() - _s)*1000:.0f}ms")
+def __dir__() -> list[str]:
+    return sorted(list(globals().keys()) + list(_LAZY_IMPORTS.keys()))
 
 __all__ = [
-    'DisplayBridge',
     'MenuManager',
     'MenuSelection', 
     'MenuResult',

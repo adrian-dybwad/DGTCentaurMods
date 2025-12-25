@@ -1,20 +1,17 @@
 """
 Chess clock widget displaying game time for both players.
 
-This widget is positioned directly below the board (y=200) and displays:
+Layout:
 - Timed mode: Remaining time for white and black players with turn indicator
 - Untimed mode (compact): Just "White Turn" or "Black Turn" text
 
-The widget height is 36 pixels, leaving room for the analysis widget below.
+Turn indicator comes from ChessGameState (single source of truth for whose turn).
+Time comes from ChessClockState (manages countdown).
 """
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 from .framework.widget import Widget
 from .text import TextWidget, Justify
-import os
-import sys
-import threading
-import time
 from typing import Optional
 
 try:
@@ -23,110 +20,89 @@ except ImportError:
     import logging
     log = logging.getLogger(__name__)
 
+from DGTCentaurMods.state import get_chess_clock as get_clock_state
+from DGTCentaurMods.state import get_chess_game as get_game_state
+from DGTCentaurMods.state.players import get_players_state
+
 
 class ChessClockWidget(Widget):
-    """
-    Widget displaying chess clock times or turn indicator.
+    """Widget displaying chess clock times or turn indicator.
     
-    Has two modes:
+    Has two display modes:
     - Timed mode: Shows remaining time for both players with turn indicator
     - Compact/untimed mode: Shows "White Turn" or "Black Turn" centered
-    
-    Uses TextWidget for all text rendering.
-    
-    Layout (72 pixels height, 128 pixels width):
-    Timed mode:
-    - Top section: [indicator] White  MM:SS
-    - Separator line
-    - Bottom section: [indicator] Black  MM:SS
-    
-    Compact mode:
-    - Large indicator circle
-    - Centered text: "White's Turn" or "Black's Turn"
     """
     
     # Position directly below the board (board is at y=16, height=128)
     DEFAULT_Y = 144
     DEFAULT_HEIGHT = 72
     
-    def __init__(self, x: int = 0, y: int = None, width: int = 128, height: int = None,
-                 timed_mode: bool = True, flip: bool = False,
-                 white_name: str = "", black_name: str = ""):
-        """
-        Initialize chess clock widget.
+    def __init__(self, x: int, y: int, width: int, height: int, update_callback,
+                 timed_mode: bool = True, flip: bool = False):
+        """Initialize chess clock widget.
         
         Args:
-            x: X position (default 0)
-            y: Y position (default 144, directly below board)
-            width: Widget width (default 128)
-            height: Widget height (default 72)
+            x: X position
+            y: Y position
+            width: Widget width
+            height: Widget height
+            update_callback: Callback to trigger display updates. Must not be None.
             timed_mode: Whether to show times (True) or just turn indicator (False)
             flip: If True, show Black on top (matching flipped board perspective)
-            white_name: Optional name for white player (displayed under "White")
-            black_name: Optional name for black player (displayed under "Black")
         """
-        if y is None:
-            y = self.DEFAULT_Y
-        if height is None:
-            height = self.DEFAULT_HEIGHT
-            
-        super().__init__(x, y, width, height)
-        
-        # Mode
+        super().__init__(x, y, width, height, update_callback)
         self._timed_mode = timed_mode
         self._flip = flip
         
-        # Player names (displayed under color labels)
-        self._white_name = white_name
-        self._black_name = black_name
+        # Clock state for time management
+        self._clock = get_clock_state()
+        self._clock.on_state_change(self._on_clock_state_change)
+        self._clock.on_tick(self._on_clock_tick)
         
-        # Time state (in seconds)
-        self._white_time = 0
-        self._black_time = 0
-        self._active_color: Optional[str] = None  # None, 'white', or 'black'
-        self._is_running = False
+        # Game state for turn indicator and game over detection
+        self._game = get_game_state()
+        self._game.on_position_change(self._on_game_state_change)
+        self._game.on_game_over(self._on_game_over)
         
-        # Update thread
-        self._update_thread: Optional[threading.Thread] = None
-        self._stop_event = threading.Event()
+        # Players state for names (observes player swaps)
+        self._players = get_players_state()
+        self._players.on_names_change(self._on_player_names_change)
         
-        # Callback for when time expires (flag)
-        # on_flag(color: str) where color is 'white' or 'black'
-        self.on_flag = None
+        self._on_flag_callback: Optional[callable] = None
         
-        # Create TextWidgets for timed mode
+        # Create TextWidgets for timed mode - use parent handler for child updates
         # White label (left aligned, after indicator)
-        self._white_label = TextWidget(x=20, y=0, width=40, height=16, 
+        self._white_label = TextWidget(20, 0, 40, 16, self._handle_child_update,
                                         text="White", font_size=10, 
                                         justify=Justify.LEFT, transparent=True)
         # White player name (smaller, under the label)
-        self._white_name_text = TextWidget(x=20, y=0, width=60, height=12,
+        self._white_name_text = TextWidget(20, 0, 60, 12, self._handle_child_update,
                                            text="", font_size=8,
                                            justify=Justify.LEFT, transparent=True)
         # White time (right aligned)
-        self._white_time_text = TextWidget(x=60, y=0, width=64, height=20,
+        self._white_time_text = TextWidget(60, 0, 64, 20, self._handle_child_update,
                                            text="00:00", font_size=16,
                                            justify=Justify.RIGHT, transparent=True)
         # Black label
-        self._black_label = TextWidget(x=20, y=0, width=40, height=16,
+        self._black_label = TextWidget(20, 0, 40, 16, self._handle_child_update,
                                        text="Black", font_size=10,
                                        justify=Justify.LEFT, transparent=True)
         # Black player name (smaller, under the label)
-        self._black_name_text = TextWidget(x=20, y=0, width=60, height=12,
+        self._black_name_text = TextWidget(20, 0, 60, 12, self._handle_child_update,
                                            text="", font_size=8,
                                            justify=Justify.LEFT, transparent=True)
         # Black time
-        self._black_time_text = TextWidget(x=60, y=0, width=64, height=20,
+        self._black_time_text = TextWidget(60, 0, 64, 20, self._handle_child_update,
                                            text="00:00", font_size=16,
                                            justify=Justify.RIGHT, transparent=True)
         
         # Create TextWidgets for compact mode
         # Turn indicator text (color)
-        self._turn_text = TextWidget(x=0, y=0, width=width, height=20,
+        self._turn_text = TextWidget(0, 0, width, 20, self._handle_child_update,
                                      text="White's Turn", font_size=16,
                                      justify=Justify.CENTER, transparent=True)
         # Player name text (below turn indicator)
-        self._turn_name_text = TextWidget(x=0, y=0, width=width, height=14,
+        self._turn_name_text = TextWidget(0, 0, width, 14, self._handle_child_update,
                                           text="", font_size=10,
                                           justify=Justify.CENTER, transparent=True)
         
@@ -135,6 +111,87 @@ class ChessClockWidget(Widget):
         self._last_black_time = None
         self._last_active = None
         self._last_timed_mode = None
+        
+        # Hand-brain hints: piece letter to display for each player
+        # When set, shows the letter to the left of the timer (replacing indicator)
+        self._white_brain_hint: str = ""
+        self._black_brain_hint: str = ""
+        
+        # TextWidgets for brain hints (large letter)
+        self._white_hint_text = TextWidget(0, 0, 20, 20, self._handle_child_update,
+                                           text="", font_size=16,
+                                           justify=Justify.CENTER, transparent=True)
+        self._black_hint_text = TextWidget(0, 0, 20, 20, self._handle_child_update,
+                                           text="", font_size=16,
+                                           justify=Justify.CENTER, transparent=True)
+    
+    def _handle_child_update(self, full: bool = False, immediate: bool = False):
+        """Handle update requests from child widgets by forwarding to parent callback."""
+        return self._update_callback(full, immediate)
+    
+    def _on_clock_state_change(self) -> None:
+        """Called when ChessClockState changes (times, running state)."""
+        self.invalidate_cache()
+        self.request_update(full=False)
+    
+    def _on_clock_tick(self) -> None:
+        """Called every second when clock is running."""
+        self.invalidate_cache()
+        self.request_update(full=False)
+    
+    def _on_game_state_change(self) -> None:
+        """Called when ChessGameState changes (turn changes after moves).
+        
+        Also handles showing clock when a new game starts after game over.
+        If game was over (widget hidden) and now is_game_over is False,
+        the widget shows itself for the new game.
+        """
+        # If game is no longer over and we're hidden, show ourselves
+        if not self._game.is_game_over and not self.visible:
+            log.debug("[ChessClockWidget] Game reset detected - showing clock")
+            self.show()
+        
+        self.invalidate_cache()
+        self.request_update(full=False)
+
+    def _on_game_over(self, result: str, termination: str) -> None:
+        """Called when game ends (checkmate, resignation, flag, etc.).
+        
+        Hides the clock widget so the game over display can be shown.
+        
+        Args:
+            result: Game result ('1-0', '0-1', '1/2-1/2').
+            termination: How game ended ('checkmate', 'resignation', etc.).
+        """
+        log.debug(f"[ChessClockWidget] Game over ({result}, {termination}) - hiding clock")
+        self.hide()
+
+    def _on_player_names_change(self, white_name: str, black_name: str) -> None:
+        """Called when PlayersState names change (player swap).
+        
+        Args:
+            white_name: New white player name.
+            black_name: New black player name.
+        """
+        self.invalidate_cache()
+        self.request_update(full=False)
+
+    def stop(self) -> None:
+        """Called when widget is removed from display.
+        
+        Unregisters callbacks from state objects. Does NOT stop the clock -
+        the service continues running independently.
+        """
+        self._clock.remove_observer(self._on_clock_state_change)
+        self._clock.remove_observer(self._on_clock_tick)
+        self._game.remove_observer(self._on_game_state_change)
+        self._game.remove_observer(self._on_game_over)
+        self._players.remove_observer(self._on_player_names_change)
+        log.debug("[ChessClockWidget] Unregistered from state observers")
+    
+    # -------------------------------------------------------------------------
+    # Properties (read from ChessClock)
+    # -------------------------------------------------------------------------
     
     @property
     def timed_mode(self) -> bool:
@@ -146,233 +203,85 @@ class ChessClockWidget(Widget):
         """Set timed mode."""
         if self._timed_mode != value:
             self._timed_mode = value
-            self._last_rendered = None
+            self.invalidate_cache()
             self.request_update(full=False)
     
     @property
     def white_time(self) -> int:
-        """White's remaining time in seconds."""
-        return self._white_time
+        """White's remaining time in seconds (from service)."""
+        return self._clock.white_time
     
     @property
     def black_time(self) -> int:
-        """Black's remaining time in seconds."""
-        return self._black_time
+        """Black's remaining time in seconds (from service)."""
+        return self._clock.black_time
     
     @property
     def active_color(self) -> Optional[str]:
-        """Which player's clock is active ('white', 'black', or None)."""
-        return self._active_color
+        """Which player's turn it is (from game state - single source of truth)."""
+        return self._game.turn_name
     
     @property
     def white_name(self) -> str:
-        """White player's name."""
-        return self._white_name
-    
-    @white_name.setter
-    def white_name(self, value: str) -> None:
-        """Set white player's name."""
-        if self._white_name != value:
-            self._white_name = value
-            self._last_rendered = None
-            self.request_update(full=False)
+        """White player's name (from PlayersState)."""
+        return self._players.white_name
     
     @property
     def black_name(self) -> str:
-        """Black player's name."""
-        return self._black_name
+        """Black player's name (from PlayersState)."""
+        return self._players.black_name
     
-    @black_name.setter
-    def black_name(self, value: str) -> None:
-        """Set black player's name."""
-        if self._black_name != value:
-            self._black_name = value
-            self._last_rendered = None
-            self.request_update(full=False)
+    @property
+    def on_flag(self) -> Optional[callable]:
+        """Callback for when time expires."""
+        return self._on_flag_callback
     
-    def set_player_names(self, white_name: str, black_name: str) -> None:
-        """Set both player names at once.
-        
+    @on_flag.setter
+    def on_flag(self, callback: Optional[callable]) -> None:
+        """Set flag callback. Registers with ChessClock."""
+        self._on_flag_callback = callback
+        if callback:
+            self._clock.on_flag(callback)
+    
+    # -------------------------------------------------------------------------
+    # Hand-Brain hints
+    # -------------------------------------------------------------------------
+    
+    def set_brain_hint(self, color: str, piece_letter: str) -> None:
+        """Set the brain hint piece letter for a player.
+
+        In hand-brain mode, shows the suggested piece type to the left of
+        that player's clock timer. The turn indicator circle remains visible.
+        The hint may overlap the player name label.
+
         Args:
-            white_name: White player's name
-            black_name: Black player's name
+            color: 'white' or 'black'
+            piece_letter: Single letter (K, Q, R, B, N, P) or empty to clear
         """
-        changed = False
-        if self._white_name != white_name:
-            self._white_name = white_name
-            changed = True
-        if self._black_name != black_name:
-            self._black_name = black_name
-            changed = True
-        if changed:
-            self._last_rendered = None
-            self.request_update(full=False)
-    
-    def set_times(self, white_seconds: int, black_seconds: int) -> None:
-        """
-        Set the clock times for both players.
+        hint = piece_letter.upper() if piece_letter else ""
         
-        Args:
-            white_seconds: White's remaining time in seconds
-            black_seconds: Black's remaining time in seconds
-        """
-        changed = False
-        
-        if self._white_time != white_seconds:
-            self._white_time = white_seconds
-            changed = True
-        
-        if self._black_time != black_seconds:
-            self._black_time = black_seconds
-            changed = True
-        
-        if changed:
-            self._last_rendered = None
-            self.request_update(full=False)
-    
-    def set_active(self, color: Optional[str]) -> None:
-        """
-        Set which player's clock is active (running).
-        
-        Args:
-            color: 'white', 'black', or None (both stopped)
-        """
-        if self._active_color != color:
-            self._active_color = color
-            self._last_rendered = None
-            self.request_update(full=False)
-    
-    def start(self, active_color: str = 'white') -> None:
-        """
-        Start the clock running.
-        
-        Args:
-            active_color: Which player's clock starts running ('white' or 'black')
-        """
-        if self._is_running:
-            return
-        
-        self._active_color = active_color
-        self._is_running = True
-        self._stop_event.clear()
-        
-        self._update_thread = threading.Thread(
-            target=self._clock_loop,
-            name="chess-clock-widget",
-            daemon=True
-        )
-        self._update_thread.start()
-        log.info(f"[ChessClockWidget] Started, active: {active_color}")
-    
-    def pause(self) -> None:
-        """Pause the clock (both players' time stops counting)."""
-        self._active_color = None
-        self._last_rendered = None
-        self.request_update(full=False)
-    
-    def resume(self, active_color: str) -> None:
-        """Resume the clock after a pause.
-        
-        Unlike start(), this doesn't create a new thread - just sets the active color
-        so the existing clock thread resumes counting down.
-        
-        Args:
-            active_color: Which player's clock should resume ('white' or 'black')
-        """
-        if not self._is_running:
-            # Clock was stopped, not just paused - need to start fresh
-            self.start(active_color)
-            return
-        
-        self._active_color = active_color
-        self._last_rendered = None
-        self.request_update(full=False)
-        log.info(f"[ChessClockWidget] Resumed, active: {active_color}")
-    
-    def switch_turn(self) -> None:
-        """Switch which player's clock is running.
-        
-        If active_color is None (clock not started), defaults to white.
-        """
-        if self._active_color == 'white':
-            self._active_color = 'black'
-        elif self._active_color == 'black':
-            self._active_color = 'white'
-        else:
-            # None or invalid - default to white
-            self._active_color = 'white'
-        
-        self._last_rendered = None
-        self.request_update(full=False)
-    
-    def stop(self) -> None:
-        """Stop the clock completely and cleanup."""
-        self._is_running = False
-        self._stop_event.set()
-        
-        if self._update_thread:
-            self._update_thread.join(timeout=1.0)
-            self._update_thread = None
-        
-        log.info("[ChessClockWidget] Stopped")
-    
-    def get_final_times(self) -> tuple[int, int]:
-        """
-        Get the final times for both players.
-        
-        Used when game ends to pass times to GameOverWidget.
-        
-        Returns:
-            Tuple of (white_seconds, black_seconds)
-        """
-        return (self._white_time, self._black_time)
-    
-    def _clock_loop(self) -> None:
-        """Background thread that decrements the active player's time."""
-        last_tick = time.monotonic()
-        
-        while self._is_running and not self._stop_event.is_set():
-            # Wait for 1 second (interruptible)
-            if self._stop_event.wait(timeout=1.0):
-                break
-            
-            # Only decrement in timed mode
-            if not self._timed_mode:
-                continue
-            
-            # Calculate elapsed time since last tick
-            now = time.monotonic()
-            elapsed = now - last_tick
-            last_tick = now
-            
-            # Decrement active player's time
-            if self._active_color == 'white' and self._white_time > 0:
-                self._white_time = max(0, self._white_time - int(elapsed))
-                self._last_rendered = None
+        if color == 'white':
+            if self._white_brain_hint != hint:
+                self._white_brain_hint = hint
+                self.invalidate_cache()
                 self.request_update(full=False)
-                
-                if self._white_time == 0:
-                    log.info("[ChessClockWidget] White's time expired (flag)")
-                    self._is_running = False  # Stop the clock
-                    if self.on_flag:
-                        try:
-                            self.on_flag('white')
-                        except Exception as e:
-                            log.error(f"[ChessClockWidget] Error in on_flag callback: {e}")
-                    
-            elif self._active_color == 'black' and self._black_time > 0:
-                self._black_time = max(0, self._black_time - int(elapsed))
-                self._last_rendered = None
+        elif color == 'black':
+            if self._black_brain_hint != hint:
+                self._black_brain_hint = hint
+                self.invalidate_cache()
                 self.request_update(full=False)
-                
-                if self._black_time == 0:
-                    log.info("[ChessClockWidget] Black's time expired (flag)")
-                    self._is_running = False  # Stop the clock
-                    if self.on_flag:
-                        try:
-                            self.on_flag('black')
-                        except Exception as e:
-                            log.error(f"[ChessClockWidget] Error in on_flag callback: {e}")
+    
+    def clear_brain_hint(self, color: str) -> None:
+        """Clear the brain hint for a player.
+        
+        Args:
+            color: 'white' or 'black'
+        """
+        self.set_brain_hint(color, "")
+    
+    # -------------------------------------------------------------------------
+    # Rendering
+    # -------------------------------------------------------------------------
     
     def _format_time(self, seconds: int) -> str:
         """
@@ -399,49 +308,41 @@ class ChessClockWidget(Widget):
         else:
             return f"{minutes:02d}:{secs:02d}"
     
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
+    def render(self, sprite: Image.Image) -> None:
         """
-        Draw the chess clock widget onto the target image.
+        Render the chess clock widget onto the sprite image.
         
-        Timed mode layout (side by side):
-        - Left: [indicator] White  MM:SS
-        - Right: [indicator] Black  MM:SS
-        
-        Compact mode layout (centered):
-        - [indicator] White Turn  or  [indicator] Black Turn
+        Reads state from ChessClock and renders it.
         """
-        draw = ImageDraw.Draw(img)
+        draw = ImageDraw.Draw(sprite)
         
         # Draw background
-        self.draw_background(img, draw_x, draw_y)
+        self.draw_background_on_sprite(sprite)
         
-        # DEBUG: Draw 1px border around widget extent
-        draw.rectangle([(draw_x, draw_y), (draw_x + self.width - 1, draw_y + self.height - 1)], fill=None, outline=0)
+        # Draw 1px border around widget extent
+        draw.rectangle([(0, 0), (self.width - 1, self.height - 1)], fill=None, outline=0)
         
         if self._timed_mode:
-            self._render_timed_mode(img, draw, draw_x, draw_y)
+            self._render_timed_mode(sprite, draw)
         else:
-            self._render_compact_mode(img, draw, draw_x, draw_y)
+            self._render_compact_mode(sprite, draw)
     
-    def _render_timed_mode(self, img: Image.Image, draw: ImageDraw.Draw, draw_x: int, draw_y: int) -> None:
+    def _render_timed_mode(self, sprite: Image.Image, draw: ImageDraw.Draw) -> None:
         """
         Render timed mode: stacked layout matching board orientation.
         
-        Uses TextWidget for labels and times.
-        When flip=False (default): White on top, Black on bottom
-        When flip=True: Black on top, White on bottom (matching flipped board)
-        
-        Layout (72 pixels height):
-        - Top section: [indicator] [TopColor]  MM:SS
-        - Separator line
-        - Bottom section: [indicator] [BottomColor]  MM:SS
+        Reads times and active color from ChessClock.
         """
         section_height = (self.height - 4) // 2  # -4 for top/middle separators
         
+        # Get times from clock state, turn from game state, names from players state
+        white_time = self._clock.white_time
+        black_time = self._clock.black_time
+        active_color = self._game.turn_name  # Single source of truth for turn
+        white_name = self._players.white_name
+        black_name = self._players.black_name
+        
         # Determine which color goes on top based on flip setting
-        # The top clock matches the top of the board, bottom clock matches bottom
-        # flip=False: Black on top (opponent), White on bottom (player)
-        # flip=True: White on top (opponent), Black on bottom (player)
         if self._flip:
             top_color = 'white'
             bottom_color = 'black'
@@ -449,12 +350,16 @@ class ChessClockWidget(Widget):
             bottom_label = self._black_label
             top_name_widget = self._white_name_text
             bottom_name_widget = self._black_name_text
-            top_name = self._white_name
-            bottom_name = self._black_name
+            top_name = white_name
+            bottom_name = black_name
             top_time_widget = self._white_time_text
             bottom_time_widget = self._black_time_text
-            top_time = self._white_time
-            bottom_time = self._black_time
+            top_time = white_time
+            bottom_time = black_time
+            top_brain_hint = self._white_brain_hint
+            bottom_brain_hint = self._black_brain_hint
+            top_hint_widget = self._white_hint_text
+            bottom_hint_widget = self._black_hint_text
         else:
             top_color = 'black'
             bottom_color = 'white'
@@ -462,96 +367,108 @@ class ChessClockWidget(Widget):
             bottom_label = self._white_label
             top_name_widget = self._black_name_text
             bottom_name_widget = self._white_name_text
-            top_name = self._black_name
-            bottom_name = self._white_name
+            top_name = black_name
+            bottom_name = white_name
             top_time_widget = self._black_time_text
             bottom_time_widget = self._white_time_text
-            top_time = self._black_time
-            bottom_time = self._white_time
+            top_time = black_time
+            bottom_time = white_time
+            top_brain_hint = self._black_brain_hint
+            bottom_brain_hint = self._white_brain_hint
+            top_hint_widget = self._black_hint_text
+            bottom_hint_widget = self._white_hint_text
         
         # === TOP SECTION ===
-        top_y = draw_y + 4
+        top_y = 4
         
-        # Indicator circle (larger for visibility)
+        # Turn indicator circle (always drawn)
         indicator_size = 12
         indicator_y = top_y + (section_height - indicator_size) // 2
-        if self._active_color == top_color:
-            draw.ellipse([(draw_x + 4, indicator_y), (draw_x + 4 + indicator_size, indicator_y + indicator_size)], 
+        if active_color == top_color:
+            draw.ellipse([(4, indicator_y), (4 + indicator_size, indicator_y + indicator_size)], 
                         fill=0, outline=0)
         else:
-            draw.ellipse([(draw_x + 4, indicator_y), (draw_x + 4 + indicator_size, indicator_y + indicator_size)], 
+            draw.ellipse([(4, indicator_y), (4 + indicator_size, indicator_y + indicator_size)], 
                         fill=255, outline=0)
         
-        # Top label using TextWidget - draw directly onto image
-        top_label.draw_on(img, draw_x + 20, top_y)
+        # Top label using TextWidget - draw directly onto sprite
+        top_label.draw_on(sprite, 20, top_y)
         
         # Top player name (if set) - drawn below the color label
         if top_name:
-            # Truncate long names
             display_name = top_name[:10] if len(top_name) > 10 else top_name
             top_name_widget.set_text(display_name)
-            top_name_widget.draw_on(img, draw_x + 20, top_y + 12)
+            top_name_widget.draw_on(sprite, 20, top_y + 12)
         
-        # Top time using TextWidget - draw directly onto image
+        # Brain hint letter (to the left of clock, may overlap player name)
+        if top_brain_hint:
+            top_hint_widget.set_text(top_brain_hint)
+            top_hint_widget.draw_on(sprite, self.width - 88, top_y + 4)
+        
+        # Top time using TextWidget - draw directly onto sprite
         top_time_widget.set_text(self._format_time(top_time))
-        top_time_widget.draw_on(img, draw_x + self.width - 68, top_y + 6)
+        top_time_widget.draw_on(sprite, self.width - 68, top_y + 6)
         
         # Horizontal separator
-        separator_y = draw_y + self.height // 2
-        draw.line([(draw_x, separator_y), (draw_x + self.width, separator_y)], fill=0, width=1)
+        separator_y = self.height // 2
+        draw.line([(0, separator_y), (self.width, separator_y)], fill=0, width=1)
         
         # === BOTTOM SECTION ===
         bottom_y = separator_y + 4
         
-        # Indicator circle
+        # Turn indicator circle (always drawn)
         indicator_y = bottom_y + (section_height - indicator_size) // 2
-        if self._active_color == bottom_color:
-            draw.ellipse([(draw_x + 4, indicator_y), (draw_x + 4 + indicator_size, indicator_y + indicator_size)], 
+        if active_color == bottom_color:
+            draw.ellipse([(4, indicator_y), (4 + indicator_size, indicator_y + indicator_size)], 
                         fill=0, outline=0)
         else:
-            draw.ellipse([(draw_x + 4, indicator_y), (draw_x + 4 + indicator_size, indicator_y + indicator_size)], 
+            draw.ellipse([(4, indicator_y), (4 + indicator_size, indicator_y + indicator_size)], 
                         fill=255, outline=0)
         
-        # Bottom label using TextWidget - draw directly onto image
-        bottom_label.draw_on(img, draw_x + 20, bottom_y)
+        # Bottom label using TextWidget - draw directly onto sprite
+        bottom_label.draw_on(sprite, 20, bottom_y)
         
         # Bottom player name (if set) - drawn below the color label
         if bottom_name:
-            # Truncate long names
             display_name = bottom_name[:10] if len(bottom_name) > 10 else bottom_name
             bottom_name_widget.set_text(display_name)
-            bottom_name_widget.draw_on(img, draw_x + 20, bottom_y + 12)
+            bottom_name_widget.draw_on(sprite, 20, bottom_y + 12)
         
-        # Bottom time using TextWidget - draw directly onto image
+        # Brain hint letter (to the left of clock, may overlap player name)
+        if bottom_brain_hint:
+            bottom_hint_widget.set_text(bottom_brain_hint)
+            bottom_hint_widget.draw_on(sprite, self.width - 88, bottom_y + 4)
+        
+        # Bottom time using TextWidget - draw directly onto sprite
         bottom_time_widget.set_text(self._format_time(bottom_time))
-        bottom_time_widget.draw_on(img, draw_x + self.width - 68, bottom_y + 6)
+        bottom_time_widget.draw_on(sprite, self.width - 68, bottom_y + 6)
     
-    def _render_compact_mode(self, img: Image.Image, draw: ImageDraw.Draw, draw_x: int, draw_y: int) -> None:
+    def _render_compact_mode(self, sprite: Image.Image, draw: ImageDraw.Draw) -> None:
         """
         Render compact mode: large centered turn indicator.
         
-        Uses TextWidget for turn text.
-        
-        Layout (72 pixels height):
-        - Large indicator circle (filled for black, empty for white)
-        - "White's Turn" or "Black's Turn" text below
-        - Player name below turn text (if set)
+        Reads active color from clock state.
         """
+        # Get turn from game state, names from players state
+        active_color = self._game.turn_name
+        white_name = self._players.white_name
+        black_name = self._players.black_name
+        
         # Determine text and player name
-        if self._active_color == 'black':
+        if active_color == 'black':
             turn_text = "Black's Turn"
-            player_name = self._black_name
+            player_name = black_name
         else:
             # Default to white if None or 'white'
             turn_text = "White's Turn"
-            player_name = self._white_name
+            player_name = white_name
         
         # Large indicator circle at top center
         indicator_size = 28
-        indicator_x = draw_x + (self.width - indicator_size) // 2
-        indicator_y = draw_y + 8
+        indicator_x = (self.width - indicator_size) // 2
+        indicator_y = 8
         
-        if self._active_color == 'black':
+        if active_color == 'black':
             # Filled circle for black
             draw.ellipse([(indicator_x, indicator_y), 
                          (indicator_x + indicator_size, indicator_y + indicator_size)], 
@@ -565,12 +482,11 @@ class ChessClockWidget(Widget):
         # Turn text below indicator using TextWidget (centered) - draw directly
         self._turn_text.set_text(turn_text)
         text_y = indicator_y + indicator_size + 4
-        self._turn_text.draw_on(img, draw_x, text_y)
+        self._turn_text.draw_on(sprite, 0, text_y)
         
         # Player name below turn text (if set)
         if player_name:
-            # Truncate long names
             display_name = player_name[:15] if len(player_name) > 15 else player_name
             self._turn_name_text.set_text(display_name)
             name_y = text_y + 18
-            self._turn_name_text.draw_on(img, draw_x, name_y)
+            self._turn_name_text.draw_on(sprite, 0, name_y)

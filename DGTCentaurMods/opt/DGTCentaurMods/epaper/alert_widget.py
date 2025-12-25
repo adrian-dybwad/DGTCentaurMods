@@ -1,7 +1,7 @@
 """
 Alert widget for displaying CHECK and QUEEN threat warnings.
 
-Displays a prominent alert with:
+Observes ChessGameState and displays alerts when:
 - CHECK: When a king is in check, with background color of the side in check
 - YOUR QUEEN: When a queen is under attack, with background color of the threatened queen
 
@@ -12,6 +12,10 @@ Uses TextWidget for all text rendering.
 from PIL import Image, ImageDraw
 from .framework.widget import Widget
 from .text import TextWidget, Justify
+from typing import Callable, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from DGTCentaurMods.state.chess_game import ChessGameState
 
 try:
     from DGTCentaurMods.board.logging import log
@@ -22,6 +26,8 @@ except ImportError:
 
 class AlertWidget(Widget):
     """Widget displaying CHECK or QUEEN threat alerts with LED flashing.
+    
+    Observes ChessGameState for check and queen threat events.
     
     Background color indicates which side is threatened:
     - Black background (white text) = Black piece is threatened
@@ -36,17 +42,24 @@ class AlertWidget(Widget):
     ALERT_QUEEN = "queen"
     ALERT_HINT = "hint"
     
-    def __init__(self, x: int = 0, y: int = 144, width: int = 128, height: int = 40):
+    def __init__(self, x: int, y: int, width: int, height: int, update_callback,
+                 game_state: 'ChessGameState' = None,
+                 led_from_to_hint_callback: Optional[Callable[[int, int, int], None]] = None):
         """
         Initialize alert widget.
         
         Args:
             x: X position
-            y: Y position (default 144 = below chess board at y=16+128)
+            y: Y position
             width: Widget width
             height: Widget height
+            update_callback: Callback to trigger display updates. Must not be None.
+            game_state: ChessGameState to observe. If None, uses singleton.
+            led_from_to_hint_callback: Callback for LED hint display (from_sq, to_sq, repeat).
+                                       Uses slow speed and dim intensity. If None, LED
+                                       flashing is skipped.
         """
-        super().__init__(x, y, width, height)
+        super().__init__(x, y, width, height, update_callback)
         self._alert_type = None  # "check", "queen", or "hint"
         self._is_black_threatened = False  # True if black piece is threatened
         self._attacker_square = None  # Square index (0-63) of attacking piece
@@ -54,20 +67,58 @@ class AlertWidget(Widget):
         self._hint_text_value = ""  # Hint move text (e.g., "e2e4")
         self.visible = False  # Hidden by default (uses base class attribute)
         
-        # Create TextWidgets for CHECK and YOUR QUEEN
+        # LED callback for hints (slow, dim)
+        self._led_from_to_hint = led_from_to_hint_callback
+        
+        # Get or use provided game state
+        if game_state is None:
+            from DGTCentaurMods.state import get_chess_game
+            self._game_state = get_chess_game()
+        else:
+            self._game_state = game_state
+        
+        # Subscribe to check/threat events
+        self._game_state.on_check(self._on_check)
+        self._game_state.on_queen_threat(self._on_queen_threat)
+        self._game_state.on_alert_clear(self._on_alert_clear)
+        
+        # Create TextWidgets - use parent handler for child updates
         # CHECK: single large centered text
-        self._check_text = TextWidget(x=0, y=0, width=width, height=height,
+        self._check_text = TextWidget(0, 0, width, height, self._handle_child_update,
                                        text="CHECK", font_size=32,
                                        justify=Justify.CENTER, transparent=True)
         # YOUR QUEEN: two lines centered - use wrap text
-        self._queen_text = TextWidget(x=0, y=0, width=width, height=height,
+        self._queen_text = TextWidget(0, 0, width, height, self._handle_child_update,
                                        text="YOUR\nQUEEN", font_size=18,
                                        justify=Justify.CENTER, wrapText=True,
                                        transparent=True)
         # HINT: shows the suggested move
-        self._hint_text = TextWidget(x=0, y=0, width=width, height=height,
+        self._hint_text = TextWidget(0, 0, width, height, self._handle_child_update,
                                       text="", font_size=28,
                                       justify=Justify.CENTER, transparent=True)
+    
+    def cleanup(self) -> None:
+        """Unsubscribe from game state when widget is destroyed."""
+        if self._game_state:
+            self._game_state.remove_observer(self._on_check)
+            self._game_state.remove_observer(self._on_queen_threat)
+            self._game_state.remove_observer(self._on_alert_clear)
+    
+    def _on_check(self, is_black_in_check: bool, attacker_square: int, king_square: int) -> None:
+        """Handle check event from game state."""
+        self.show_check(is_black_in_check, attacker_square, king_square)
+    
+    def _on_queen_threat(self, is_black_threatened: bool, attacker_square: int, queen_square: int) -> None:
+        """Handle queen threat event from game state."""
+        self.show_queen_threat(is_black_threatened, attacker_square, queen_square)
+    
+    def _on_alert_clear(self) -> None:
+        """Handle alert clear event from game state."""
+        self.hide()
+    
+    def _handle_child_update(self, full: bool = False, immediate: bool = False):
+        """Handle update requests from child widgets by forwarding to parent callback."""
+        return self._update_callback(full, immediate)
     
     def show_check(self, is_black_in_check: bool, attacker_square: int, king_square: int) -> None:
         """Show CHECK alert and flash LEDs.
@@ -84,8 +135,8 @@ class AlertWidget(Widget):
         
         log.info(f"[AlertWidget] Showing CHECK: {'black' if is_black_in_check else 'white'} king in check, attacker={attacker_square}, king={king_square}")
         
-        # Flash LEDs from attacker to king
-        self._flash_leds(intensity=1, speed=5, repeat=2)
+        # Flash LEDs from attacker to king (hint style: slow, dim)
+        self._flash_leds(repeat=2)
         
         # Use base class show() to handle visibility and update
         super().show()
@@ -105,8 +156,8 @@ class AlertWidget(Widget):
         
         log.info(f"[AlertWidget] Showing QUEEN threat: {'black' if is_black_queen_threatened else 'white'} queen threatened, attacker={attacker_square}, queen={queen_square}")
         
-        # Flash LEDs from attacker to queen
-        self._flash_leds(intensity=1, speed=5, repeat=1)
+        # Flash LEDs from attacker to queen (hint style: slow, dim)
+        self._flash_leds(repeat=1)
         
         # Use base class show() to handle visibility and update
         super().show()
@@ -127,8 +178,8 @@ class AlertWidget(Widget):
         
         log.info(f"[AlertWidget] Showing HINT: {move_text} ({from_square} -> {to_square})")
         
-        # Flash LEDs from source to target
-        self._flash_leds(intensity=5, speed=5, repeat=2)
+        # Flash LEDs from source to target (hint style: slow, dim)
+        self._flash_leds(repeat=2)
         
         # Use base class show() to handle visibility and update
         super().show()
@@ -143,31 +194,36 @@ class AlertWidget(Widget):
             # Use base class hide() to handle visibility and update
             super().hide()
     
-    def _flash_leds(self, intensity: int = 5, speed: int = 3, repeat: int = 0) -> None:
-        """Flash LEDs from attacker square to target square."""
+    def _flash_leds(self, repeat: int = 2) -> None:
+        """Flash LEDs from attacker square to target square using hint callback.
+        
+        Uses slow speed and dim intensity via the led_from_to_hint callback.
+        Does nothing if callback not set.
+        """
         if self._attacker_square is None or self._target_square is None:
             return
         
+        if self._led_from_to_hint is None:
+            log.warning("[AlertWidget] LED callback not set, skipping LED flash")
+            return
+        
         try:
-            # Import board module for LED control
-            from DGTCentaurMods.board import board
-            # Flash from attacker to target with repeat=0 (continuous until next LED command)
-            board.ledFromTo(self._attacker_square, self._target_square, intensity=intensity, speed=speed, repeat=repeat)
+            self._led_from_to_hint(self._attacker_square, self._target_square, repeat)
         except Exception as e:
             log.error(f"[AlertWidget] Error flashing LEDs: {e}")
     
     
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw alert widget using TextWidgets.
+    def render(self, sprite: Image.Image) -> None:
+        """Render alert widget using TextWidgets.
         
         Draws nothing if not visible. Otherwise draws CHECK or YOUR QUEEN with appropriate colors.
         """
         if not self.visible or self._alert_type is None:
             # Just draw white background
-            self.draw_background(img, draw_x, draw_y)
+            self.draw_background_on_sprite(sprite)
             return
         
-        draw = ImageDraw.Draw(img)
+        draw = ImageDraw.Draw(sprite)
         
         # Determine colors based on which side is threatened
         # Black threatened = black background (fill=0), white text (fill=255)
@@ -180,20 +236,20 @@ class AlertWidget(Widget):
             text_color = 0  # Black text
         
         # Draw background
-        draw.rectangle([(draw_x, draw_y), (draw_x + self.width - 1, draw_y + self.height - 1)], fill=bg_color, outline=0)
+        draw.rectangle([(0, 0), (self.width - 1, self.height - 1)], fill=bg_color, outline=0)
         
         if self._alert_type == self.ALERT_CHECK:
-            # Draw "CHECK" centered directly onto the background
+            # Draw "CHECK" centered directly onto the sprite
             y_offset = (self.height - self._check_text.height) // 2
-            self._check_text.draw_on(img, draw_x, draw_y + y_offset, text_color=text_color)
+            self._check_text.draw_on(sprite, 0, y_offset, text_color=text_color)
             
         elif self._alert_type == self.ALERT_QUEEN:
-            # Draw "YOUR\nQUEEN" centered directly onto the background
-            self._queen_text.draw_on(img, draw_x, draw_y, text_color=text_color)
+            # Draw "YOUR\nQUEEN" centered directly onto the sprite
+            self._queen_text.draw_on(sprite, 0, 0, text_color=text_color)
         
         elif self._alert_type == self.ALERT_HINT:
             # Draw hint move text centered - always white bg, black text
-            draw.rectangle([(draw_x, draw_y), (draw_x + self.width - 1, draw_y + self.height - 1)], fill=255, outline=0)
+            draw.rectangle([(0, 0), (self.width - 1, self.height - 1)], fill=255, outline=0)
             self._hint_text.set_text(self._hint_text_value)
             y_offset = (self.height - self._hint_text.height) // 2
-            self._hint_text.draw_on(img, draw_x, draw_y + y_offset, text_color=0)
+            self._hint_text.draw_on(sprite, 0, y_offset, text_color=0)

@@ -21,7 +21,6 @@
 # This and any other notices must remain intact and unaltered in any
 # distribution, modification, variant, or derivative of this software.
 
-#import serial
 from DGTCentaurMods.epaper import Manager, SplashScreen
 from DGTCentaurMods.board.async_centaur import AsyncCentaur, command, Key
 from DGTCentaurMods.board.sync_centaur import SyncCentaur, command, Key
@@ -59,10 +58,7 @@ def set_inactivity_timeout(seconds: int) -> None:
     """
     Settings.write('system', 'inactivity_timeout', str(seconds))
 
-# Battery/charger state - updated by BatteryWidget polling thread
-# chargerconnected is used by eventsThread to hold timeout when charging
-chargerconnected = 0
-batterylevel = -1
+from DGTCentaurMods.state import get_system as _get_system_state
 
 # Board meta properties (extracted from DGT_SEND_TRADEMARK response)
 board_meta_properties: Optional[dict] = None
@@ -99,7 +95,7 @@ def init_display(on_refresh=None) -> Future:
     return None
 
 
-# Re-export commonly used command names for backward-compatible usage in this module
+# Sound command constants
 SOUND_GENERAL = command.SOUND_GENERAL
 SOUND_FACTORY = command.SOUND_FACTORY
 SOUND_POWER_OFF = command.SOUND_POWER_OFF
@@ -263,7 +259,6 @@ def beep(beeptype, event_type: str = None):
     """Play a beep sound if sound settings allow it.
     
     Checks both the master sound enable and the specific event type setting.
-    If no event_type is provided, only the master enable is checked (backward compatible).
     
     Args:
         beeptype: Sound type constant (e.g., SOUND_GENERAL, SOUND_WRONG)
@@ -272,6 +267,7 @@ def beep(beeptype, event_type: str = None):
                    'error' - error/invalid move sounds
                    'game_event' - check, checkmate, game end sounds
                    'piece_event' - piece lift/place sounds
+                   If not provided, only the master enable is checked.
     """
     try:
         from DGTCentaurMods.epaper.sound_settings import should_beep_for, is_sound_enabled
@@ -284,7 +280,7 @@ def beep(beeptype, event_type: str = None):
                 return
             log.debug(f"Beep ALLOWED for event_type={event_type}")
         else:
-            # No event type specified - just check master enable (backward compatible)
+            # No event type specified - just check master enable
             master_on = is_sound_enabled()
             if not master_on:
                 log.info("Beep BLOCKED (master disabled, no event_type)")
@@ -382,7 +378,7 @@ def shutdown_countdown(countdown_seconds: int = 3) -> bool:
     try:
         if display_manager is not None:
             # U+25C0 is left-pointing triangle for BACK button
-            countdown_splash = SplashScreen(message=f"Shutdown in\n  {countdown_seconds}")
+            countdown_splash = SplashScreen(display_manager.update, message=f"Shutdown in\n  {countdown_seconds}")
             display_manager.add_widget(countdown_splash)
     except Exception as e:
         log.debug(f"Failed to show countdown splash: {e}")
@@ -651,24 +647,6 @@ def printChessState(state = None, loglevel = logging.INFO):
     line += "\r\n\n"
     log.log(loglevel, line)
 
-def getBatteryLevel():
-    """Get battery level and charger status from the board.
-    
-    Returns:
-        Tuple of (batterylevel, chargerconnected) where:
-        - batterylevel: 0-20 (20 is fully charged, board dies around 1)
-        - chargerconnected: 1 if charging, 0 otherwise
-    
-    Note: BatteryWidget now polls this automatically every 5 seconds.
-    This function is kept for backward compatibility with emulators.
-    """
-    global batterylevel, chargerconnected
-    resp = controller.request_response(command.DGT_SEND_BATTERY_INFO)
-    val = resp[0]
-    batterylevel = val & 0x1F
-    chargerconnected = 1 if ((val >> 5) & 0x07) in (1, 2) else 0    
-    return batterylevel, chargerconnected
-
 #
 # Helper functions - used by other functions or useful in manipulating board data
 #
@@ -731,7 +709,9 @@ def eventsThread(keycallback, fieldcallback, tout):
     - Short presses: Key-up events passed to callback.
     """
     global eventsrunning
-    global chargerconnected
+    
+    # Get system state for charger status
+    system_state = _get_system_state()
     
     hold_timeout = False
     events_paused = False
@@ -763,7 +743,7 @@ def eventsThread(keycallback, fieldcallback, tout):
         loopstart = time.monotonic()
         if eventsrunning == 1:
             # Hold and restart timeout on charger attached
-            if chargerconnected == 1:
+            if system_state.charger_connected:
                 to = time.monotonic() + 100000
                 hold_timeout = True
                 # Cancel inactivity countdown if shown (charger connected)
@@ -778,7 +758,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                     inactivity_countdown_shown = False
                     inactivity_countdown_splash = None
                     inactivity_last_displayed_seconds = None
-            if chargerconnected == 0 and hold_timeout:
+            if not system_state.charger_connected and hold_timeout:
                 # Re-read timeout from settings in case it changed
                 tout, timeout_disabled = get_current_timeout()
                 to = time.monotonic() + tout
@@ -927,14 +907,20 @@ def eventsThread(keycallback, fieldcallback, tout):
             
             # Check if we should show/update inactivity countdown (skip if timeout disabled)
             time_remaining = to - time.monotonic()
-            if not timeout_disabled and time_remaining <= INACTIVITY_WARNING_SECONDS and time_remaining > 0:
+            if not timeout_disabled and time_remaining <= INACTIVITY_WARNING_SECONDS:
+                if time_remaining <= 0:
+                    # Countdown complete - trigger shutdown
+                    log.info(f'[board.events] Inactivity timeout reached ({tout}s with no activity)')
+                    keycallback(Key.LONG_PLAY)
+                    return
+                
                 remaining_int = int(time_remaining)
                 if not inactivity_countdown_shown:
                     # Start showing the countdown
                     log.info(f'[board.events] Showing inactivity countdown ({remaining_int}s remaining)')
                     try:
                         inactivity_countdown_splash = SplashScreen(
-                            message=f"Inactivity\nShutdown in {remaining_int} seconds..."
+                            display_manager.update, message=f"Inactivity\nShutdown in\n{remaining_int} seconds..."
                         )
                         display_manager.add_widget(inactivity_countdown_splash)
                         inactivity_countdown_shown = True
@@ -946,7 +932,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                     try:
                         if inactivity_countdown_splash is not None:
                             inactivity_countdown_splash.set_message(
-                                f"Inactivity\nShutdown in {remaining_int} seconds..."
+                                f"Inactivity\nShutdown in\n{remaining_int} seconds..."
                             )
                             inactivity_last_displayed_seconds = remaining_int
                     except Exception:
@@ -990,8 +976,7 @@ def unPauseEvents():
     eventsrunning = 1
     
 def unsubscribeEvents(keycallback=None, fieldcallback=None):
-    # Minimal compatibility wrapper for callers expecting an unsubscribe API
-    # Current implementation pauses events; resume via unPauseEvents()
+    """Stop receiving events. Resume via unPauseEvents()."""
     log.info(f"[board.unsubscribeEvents] Unsubscribing from events")
     pauseEvents()
 

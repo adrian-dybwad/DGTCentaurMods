@@ -1,8 +1,9 @@
 """
 Chromecast streaming service.
 
-Manages the Chromecast connection and streaming lifecycle independently of UI.
-Widgets observe this service's state to display status indicators.
+Manages the Chromecast connection and streaming lifecycle.
+The state is held in state/chromecast.py - this service owns
+the threading and connection logic.
 
 Also provides the e-paper JPEG export function used for web/Chromecast streaming.
 """
@@ -10,7 +11,7 @@ Also provides the e-paper JPEG export function used for web/Chromecast streaming
 import os
 import threading
 import time
-from typing import Optional, Callable, List
+from typing import Optional
 
 try:
     from DGTCentaurMods.board.logging import log
@@ -20,6 +21,7 @@ except ImportError:
 
 # Path for e-paper static JPEG (used by web and Chromecast streaming)
 from DGTCentaurMods.paths import EPAPER_STATIC_JPG
+from DGTCentaurMods.state import get_chromecast as get_chromecast_state
 
 
 def write_epaper_jpg(image) -> str:
@@ -63,28 +65,19 @@ def write_epaper_jpg(image) -> str:
 
 
 class ChromecastService:
-    """Singleton service managing Chromecast streaming.
+    """Service managing Chromecast streaming.
     
-    The service handles:
-    - Device discovery
-    - Connection management
-    - Stream monitoring and auto-reconnect
-    - State notifications to observers
+    The service:
+    - Owns the streaming thread
+    - Manages device discovery and connection
+    - Updates the state object which notifies observers
     
-    Observers are notified when state changes so widgets can update their display.
+    Widgets should import from state/, not this service.
     """
     
-    # Streaming states
-    STATE_IDLE = 0
-    STATE_CONNECTING = 1
-    STATE_STREAMING = 2
-    STATE_RECONNECTING = 3
-    STATE_ERROR = 4
-    
     def __init__(self):
-        self._state = self.STATE_IDLE
-        self._device_name: Optional[str] = None
-        self._error_message: Optional[str] = None
+        """Initialize the Chromecast service."""
+        self._state = get_chromecast_state()
         
         # Thread management
         self._thread: Optional[threading.Thread] = None
@@ -94,66 +87,50 @@ class ChromecastService:
         # pychromecast objects (lazy loaded)
         self._chromecast = None
         self._browser = None
-        
-        # Observers to notify on state change
-        self._observers: List[Callable[[], None]] = []
         self._lock = threading.Lock()
+    
+    # -------------------------------------------------------------------------
+    # Properties (delegate to state for reads)
+    # -------------------------------------------------------------------------
     
     @property
     def state(self) -> int:
         """Current streaming state."""
-        return self._state
+        return self._state.state
     
     @property
     def device_name(self) -> Optional[str]:
         """Name of the connected Chromecast device."""
-        return self._device_name
+        return self._state.device_name
     
     @property
     def error_message(self) -> Optional[str]:
         """Error message if in error state."""
-        return self._error_message
+        return self._state.error_message
     
     @property
     def is_active(self) -> bool:
         """True if streaming or attempting to stream."""
-        return self._state in (self.STATE_CONNECTING, self.STATE_STREAMING, self.STATE_RECONNECTING)
+        return self._state.is_active
     
-    def add_observer(self, callback: Callable[[], None]) -> None:
-        """Add an observer to be notified on state changes.
-        
-        Args:
-            callback: Function to call when state changes (no arguments).
-        """
-        with self._lock:
-            if callback not in self._observers:
-                self._observers.append(callback)
+    # -------------------------------------------------------------------------
+    # Observer management (delegate to state)
+    # -------------------------------------------------------------------------
     
-    def remove_observer(self, callback: Callable[[], None]) -> None:
-        """Remove an observer.
-        
-        Args:
-            callback: Previously registered callback to remove.
-        """
-        with self._lock:
-            if callback in self._observers:
-                self._observers.remove(callback)
+    def add_observer(self, callback) -> None:
+        """Add an observer to be notified on state changes."""
+        self._state.add_observer(callback)
     
-    def _notify_observers(self) -> None:
-        """Notify all observers of a state change."""
-        with self._lock:
-            observers = list(self._observers)
-        
-        for callback in observers:
-            try:
-                callback()
-            except Exception as e:
-                log.debug(f"[ChromecastService] Observer callback error: {e}")
+    def remove_observer(self, callback) -> None:
+        """Remove an observer."""
+        self._state.remove_observer(callback)
+    
+    # -------------------------------------------------------------------------
+    # Streaming control
+    # -------------------------------------------------------------------------
     
     def start_streaming(self, device_name: str) -> bool:
         """Start streaming to the specified Chromecast device.
-        
-        If already streaming, stops the current stream first.
         
         Args:
             device_name: Friendly name of the Chromecast device
@@ -165,9 +142,7 @@ class ChromecastService:
         if self._running:
             self.stop_streaming()
         
-        self._device_name = device_name
-        self._state = self.STATE_CONNECTING
-        self._error_message = None
+        self._state.set_connecting(device_name)
         self._stop_event.clear()
         self._running = True
         
@@ -179,7 +154,6 @@ class ChromecastService:
         self._thread.start()
         
         log.info(f"[ChromecastService] Starting stream to: {device_name}")
-        self._notify_observers()
         return True
     
     def stop_streaming(self) -> None:
@@ -209,9 +183,7 @@ class ChromecastService:
         # Cleanup pychromecast objects
         self._cleanup_chromecast()
         
-        self._state = self.STATE_IDLE
-        self._device_name = None
-        self._notify_observers()
+        self._state.set_idle()
     
     def _cleanup_chromecast(self) -> None:
         """Clean up pychromecast browser and device connections."""
@@ -230,20 +202,16 @@ class ChromecastService:
             self._chromecast = None
     
     def _streaming_loop(self) -> None:
-        """Background thread that manages the Chromecast connection.
-        
-        Connects to the device, starts streaming, and reconnects if the
-        connection is lost.
-        """
+        """Background thread that manages the Chromecast connection."""
         try:
             import pychromecast
             from DGTCentaurMods.board import network
         except ImportError as e:
             log.error(f"[ChromecastService] Missing dependency: {e}")
-            self._state = self.STATE_ERROR
-            self._error_message = "Missing pychromecast"
-            self._notify_observers()
+            self._state.set_error("Missing pychromecast")
             return
+        
+        device_name = self._state.device_name
         
         while self._running and not self._stop_event.is_set():
             try:
@@ -257,26 +225,23 @@ class ChromecastService:
                 # Find the target device
                 target_cc = None
                 for cc in chromecasts:
-                    if cc.device.friendly_name == self._device_name:
+                    if cc.device.friendly_name == device_name:
                         target_cc = cc
                         break
                 
                 if target_cc is None:
-                    log.warning(f"[ChromecastService] Device '{self._device_name}' not found")
-                    self._state = self.STATE_ERROR
-                    self._error_message = "Device not found"
-                    self._notify_observers()
+                    log.warning(f"[ChromecastService] Device '{device_name}' not found")
+                    self._state.set_error("Device not found")
                     # Wait before retrying
                     if self._stop_event.wait(timeout=10.0):
                         break
-                    self._state = self.STATE_RECONNECTING
-                    self._notify_observers()
+                    self._state.set_reconnecting()
                     continue
                 
                 self._chromecast = target_cc
                 
                 # Wait for connection
-                log.info(f"[ChromecastService] Connecting to {self._device_name}...")
+                log.info(f"[ChromecastService] Connecting to {device_name}...")
                 self._chromecast.wait()
                 
                 if self._stop_event.is_set():
@@ -286,9 +251,7 @@ class ChromecastService:
                 ip = network.check_network()
                 if not ip:
                     log.error("[ChromecastService] No network connection")
-                    self._state = self.STATE_ERROR
-                    self._error_message = "No network"
-                    self._notify_observers()
+                    self._state.set_error("No network")
                     if self._stop_event.wait(timeout=10.0):
                         break
                     continue
@@ -302,18 +265,16 @@ class ChromecastService:
                 mc.block_until_active()
                 mc.play()
                 
-                self._state = self.STATE_STREAMING
-                self._notify_observers()
-                log.info(f"[ChromecastService] Streaming to {self._device_name}")
+                self._state.set_streaming(device_name)
+                log.info(f"[ChromecastService] Streaming to {device_name}")
                 
                 # Monitor the connection
                 while self._running and not self._stop_event.is_set():
-                    # Check if still playing (Default Media Receiver is the cast app)
+                    # Check if still playing
                     if self._chromecast.status.display_name != 'Default Media Receiver':
                         log.info("[ChromecastService] Playback stopped externally")
                         break
                     
-                    # Small sleep to avoid busy loop
                     if self._stop_event.wait(timeout=1.0):
                         break
                 
@@ -322,8 +283,7 @@ class ChromecastService:
                 
                 # Playback stopped, prepare to reconnect
                 log.info("[ChromecastService] Connection lost, will reconnect...")
-                self._state = self.STATE_RECONNECTING
-                self._notify_observers()
+                self._state.set_reconnecting()
                 
                 # Cleanup before retry
                 if self._browser:
@@ -335,9 +295,7 @@ class ChromecastService:
                 
             except Exception as e:
                 log.error(f"[ChromecastService] Error in streaming loop: {e}")
-                self._state = self.STATE_ERROR
-                self._error_message = str(e)[:20]
-                self._notify_observers()
+                self._state.set_error(str(e)[:20])
                 
                 # Cleanup before retry
                 self._cleanup_chromecast()
@@ -346,30 +304,30 @@ class ChromecastService:
                 if self._stop_event.wait(timeout=10.0):
                     break
                 
-                self._state = self.STATE_RECONNECTING
-                self._notify_observers()
+                self._state.set_reconnecting()
         
         # Final cleanup
         self._cleanup_chromecast()
         log.info("[ChromecastService] Streaming loop ended")
 
 
+# -----------------------------------------------------------------------------
 # Singleton instance
-_chromecast_service: Optional[ChromecastService] = None
-_service_lock = threading.Lock()
+# -----------------------------------------------------------------------------
+
+_instance: Optional[ChromecastService] = None
+_lock = threading.Lock()
 
 
 def get_chromecast_service() -> ChromecastService:
     """Get the global Chromecast service instance.
     
-    Creates the service on first call (lazy initialization).
-    
     Returns:
         The global ChromecastService singleton.
     """
-    global _chromecast_service
+    global _instance
     
-    with _service_lock:
-        if _chromecast_service is None:
-            _chromecast_service = ChromecastService()
-        return _chromecast_service
+    with _lock:
+        if _instance is None:
+            _instance = ChromecastService()
+        return _instance

@@ -53,7 +53,7 @@ class AssistantManagerConfig:
     assistant_type: AssistantType = AssistantType.NONE
     
     # Engine configuration for assistants that use an engine
-    engine_name: str = "stockfish_pi"
+    engine_name: str = "stockfish"
     elo_section: str = "Default"
     time_limit: float = 2.0
 
@@ -72,7 +72,7 @@ class AssistantManager:
         # In universal.py
         config = AssistantManagerConfig(
             assistant_type=AssistantType.HAND_BRAIN,
-            engine_name="stockfish_pi"
+            engine_name="stockfish"
         )
         assistant_mgr = AssistantManager(
             config,

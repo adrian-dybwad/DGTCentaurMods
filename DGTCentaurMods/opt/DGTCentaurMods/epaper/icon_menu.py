@@ -50,6 +50,9 @@ class IconMenuEntry:
         font_size: Font size in pixels (default 16)
         bold: Whether to render text in bold (default False)
         border_width: Width of button border in pixels (default 2)
+        description: Optional long description text rendered below the icon+label area.
+                    Displayed as smaller, word-wrapped text spanning the full button width.
+        description_font_size: Font size for description text (default 11)
     """
     key: str
     label: str
@@ -63,6 +66,8 @@ class IconMenuEntry:
     font_size: int = 16
     bold: bool = False
     border_width: int = 2
+    description: str = None
+    description_font_size: int = 11
 
 
 class IconMenuWidget(Widget):
@@ -85,7 +90,7 @@ class IconMenuWidget(Widget):
         scroll_offset: Index of first visible entry (for scrolling)
     """
     
-    def __init__(self, x: int, y: int, width: int, height: int,
+    def __init__(self, x: int, y: int, width: int, height: int, update_callback,
                  entries: List[IconMenuEntry],
                  selected_index: int = 0,
                  on_select: Optional[Callable[[str], None]] = None,
@@ -101,6 +106,7 @@ class IconMenuWidget(Widget):
             y: Y position of widget
             width: Widget width
             height: Widget height
+            update_callback: Callback to trigger display updates. Must not be None.
             entries: List of menu entry configurations
             selected_index: Initial selected entry index
             on_select: Optional callback(key) when entry is selected with TICK
@@ -110,19 +116,24 @@ class IconMenuWidget(Widget):
             background_shade: Dithered background shade 0-16 (default 2 = ~12.5% grey)
             min_button_height: Minimum button height before scrolling (default 45)
         """
-        super().__init__(x, y, width, height, background_shade=background_shade)
+        super().__init__(x, y, width, height, update_callback, background_shade=background_shade)
         
         # Filter disabled entries (disabled entries are not shown at all)
         self.entries = [e for e in entries if e.enabled]
         
+        log.info(f"[DEBUG IconMenuWidget] __init__ received selected_index={selected_index}, len(entries)={len(self.entries)}")
+        
         # Clamp selected_index to valid range
         self.selected_index = min(selected_index, max(0, len(self.entries) - 1))
+        
+        log.info(f"[DEBUG IconMenuWidget] After clamp: self.selected_index={self.selected_index}")
         
         # If initial selection is non-selectable, find first selectable entry
         if self.entries and not self.entries[self.selected_index].selectable:
             for i, entry in enumerate(self.entries):
                 if entry.selectable:
                     self.selected_index = i
+                    log.info(f"[DEBUG IconMenuWidget] Non-selectable adjusted to: {i}")
                     break
         
         # Callbacks for external use
@@ -156,6 +167,10 @@ class IconMenuWidget(Widget):
         
         log.info(f"IconMenuWidget: Created with {len(self.entries)} entries, "
                  f"{self._visible_count} visible at a time")
+    
+    def _handle_child_update(self, full: bool = False, immediate: bool = False):
+        """Handle update requests from child widgets by forwarding to parent callback."""
+        return self._update_callback(full, immediate)
     
     def _calculate_visible_count(self) -> None:
         """Calculate how many entries can fit on screen.
@@ -232,21 +247,26 @@ class IconMenuWidget(Widget):
                 # Default icon size scales with button height
                 icon_size = min(36, max(20, button_height - 24))
             
+            is_selected = (actual_idx == self.selected_index)
+            log.info(f"[DEBUG _create_buttons] Button {entry.key}: actual_idx={actual_idx}, self.selected_index={self.selected_index}, selected={is_selected}")
             button = IconButtonWidget(
-                x=0,
-                y=current_y,
-                width=self.width,
-                height=button_height,
+                0,
+                current_y,
+                self.width,
+                button_height,
+                self._handle_child_update,
                 key=entry.key,
                 label=entry.label,
                 icon_name=entry.icon_name,
-                selected=(actual_idx == self.selected_index),
+                selected=is_selected,
                 margin=self.button_margin,
                 icon_size=icon_size,
                 layout=entry.layout,
                 font_size=entry.font_size,
                 bold=entry.bold,
-                border_width=entry.border_width
+                border_width=entry.border_width,
+                description=entry.description,
+                description_font_size=entry.description_font_size
             )
             self._buttons.append(button)
             current_y += button_height
@@ -352,8 +372,8 @@ class IconMenuWidget(Widget):
                 actual_idx = visible_start + vis_idx
                 button.set_selected(actual_idx == self.selected_index)
         
-        self._last_rendered = None
-        self.request_update(full=False)
+        self.invalidate_cache()
+        self.request_update(full=False, immediate=True)
     
     def get_selected_key(self) -> Optional[str]:
         """Get the key of the currently selected entry.
@@ -365,14 +385,14 @@ class IconMenuWidget(Widget):
             return self.entries[self.selected_index].key
         return None
     
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw the menu with all buttons onto the target image."""
+    def render(self, sprite: Image.Image) -> None:
+        """Render the menu with all buttons onto the sprite."""
         # Draw background
-        self.draw_background(img, draw_x, draw_y)
+        self.draw_background_on_sprite(sprite)
         
-        # Draw each button
+        # Draw each button onto sprite
         for button in self._buttons:
-            button.draw_on(img, draw_x + button.x, draw_y + button.y)
+            button.draw_on(sprite, button.x, button.y)
     
     def handle_key(self, key_id) -> bool:
         """Handle key press events.
@@ -489,7 +509,7 @@ class IconMenuWidget(Widget):
         # is not in the visible scroll region
         if self._ensure_selection_visible():
             self._create_buttons()
-            self._last_rendered = None
+            self.invalidate_cache()
             self.request_update(full=False)
         
         # Activate key handling
@@ -531,7 +551,8 @@ def create_icon_menu_entries(entries_config: List[dict]) -> List[IconMenuEntry]:
     Args:
         entries_config: List of dicts with 'key', 'label', 'icon_name',
                        and optional 'enabled', 'height_ratio', 'max_height',
-                       'icon_size', 'layout', 'font_size', 'bold'
+                       'icon_size', 'layout', 'font_size', 'bold',
+                       'description', 'description_font_size'
         
     Returns:
         List of IconMenuEntry objects
@@ -547,7 +568,9 @@ def create_icon_menu_entries(entries_config: List[dict]) -> List[IconMenuEntry]:
             icon_size=e.get('icon_size', None),
             layout=e.get('layout', 'horizontal'),
             font_size=e.get('font_size', 16),
-            bold=e.get('bold', False)
+            bold=e.get('bold', False),
+            description=e.get('description', None),
+            description_font_size=e.get('description_font_size', 11)
         )
         for e in entries_config
     ]

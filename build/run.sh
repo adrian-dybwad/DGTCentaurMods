@@ -82,7 +82,12 @@
 # Always run from the project root
 cd "$(dirname "$0")" || exit 1
 
-cd ~/DGTCentaurMods/DGTCentaurMods/opt
+# Support both project names
+if [ -d ~/DGTCentaurUniversal ]; then
+  cd ~/DGTCentaurUniversal/DGTCentaurMods/opt
+else
+  cd ~/DGTCentaurMods/DGTCentaurMods/opt
+fi
 
 git pull
 

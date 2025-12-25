@@ -59,12 +59,13 @@ class SplashScreen(Widget):
     TEXT_Y = 170  # Y position for message text (below logo)
     TEXT_HEIGHT = 88  # Height for 4 lines of text at font size 18
     
-    def __init__(self, message: str = "Press [OK]", background_shade: int = 4,
+    def __init__(self, update_callback, message: str = "Press [OK]", background_shade: int = 4,
                  leave_room_for_status_bar: bool = True,
                  logo: Image.Image = None, logo_mask: Image.Image = None):
         """Initialize splash screen widget.
         
         Args:
+            update_callback: Callback to trigger display updates. Must not be None.
             message: Initial message to display
             background_shade: Dithered background shade 0-16 (default 4 = ~25% grey)
             leave_room_for_status_bar: If True, start below status bar; if False, use full screen
@@ -77,7 +78,7 @@ class SplashScreen(Widget):
         else:
             y_pos = 0
             height = 296
-        super().__init__(0, y_pos, 128, height, background_shade=background_shade)
+        super().__init__(0, y_pos, 128, height, update_callback, background_shade=background_shade)
         self.message = message
         
         # Use provided logo or module-level logo
@@ -94,17 +95,22 @@ class SplashScreen(Widget):
         # Calculate text widget dimensions with margins for centering
         text_width = self.width - (self.TEXT_MARGIN * 2)
         
-        # Create a TextWidget for "UNIVERSAL" title with centered justification
+        # Create child TextWidgets - they use parent's handler so parent controls updates
         self._universal_text = TextWidget(
             x=0, y=0, width=self.width, height=28,
+            update_callback=self._handle_child_update,
             text="UNIVERSAL", font_size=24, justify=Justify.CENTER, transparent=True
         )
         
-        # Create a TextWidget for the message with centered justification and wrapping
         self._text_widget = TextWidget(
             x=0, y=0, width=text_width, height=self.TEXT_HEIGHT,
+            update_callback=self._handle_child_update,
             text=message, font_size=18, justify=Justify.CENTER, wrapText=True
         )
+    
+    def _handle_child_update(self, full: bool = False, immediate: bool = False):
+        """Handle update requests from child widgets by forwarding to parent callback."""
+        return self._update_callback(full, immediate)
     
     def set_message(self, message: str):
         """Update the splash screen message and trigger a re-render.
@@ -118,32 +124,36 @@ class SplashScreen(Widget):
         if message == self.message:
             return
         self.message = message
-        self._text_widget.set_text(message)
+        # Update text widget without triggering its own update (we'll do one update)
+        self._text_widget.text = message
+        self._text_widget._invalidate_caches()
         
         # Log prominently so startup messages are visible in logs
         log.info("=" * 60)
         log.info(f"[Startup] {message}")
         log.info("=" * 60)
         
+        # Invalidate our sprite cache and request update
+        self.invalidate_cache()
         self.request_update(full=False)
     
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw the splash screen with knight logo, UNIVERSAL text, and message.
+    def render(self, sprite: Image.Image) -> None:
+        """Render the splash screen with knight logo, UNIVERSAL text, and message.
         
         Uses TextWidget for all text rendering.
         """
         # Draw dithered background
-        self.draw_background(img, draw_x, draw_y)
+        self.draw_background_on_sprite(sprite)
         
         # Draw knight logo centered horizontally with transparency
-        logo_x = draw_x + (self.width - self.LOGO_SIZE) // 2
+        logo_x = (self.width - self.LOGO_SIZE) // 2
         if self._logo_mask:
-            img.paste(self._logo, (logo_x, draw_y + self.LOGO_Y), self._logo_mask)
+            sprite.paste(self._logo, (logo_x, self.LOGO_Y), self._logo_mask)
         else:
-            img.paste(self._logo, (logo_x, draw_y + self.LOGO_Y))
+            sprite.paste(self._logo, (logo_x, self.LOGO_Y))
         
-        # Draw "UNIVERSAL" text directly onto the background
-        self._universal_text.draw_on(img, draw_x, draw_y + self.UNIVERSAL_Y)
+        # Draw "UNIVERSAL" text directly onto the sprite
+        self._universal_text.draw_on(sprite, 0, self.UNIVERSAL_Y)
         
-        # Draw message text directly onto the background
-        self._text_widget.draw_on(img, draw_x + self.TEXT_MARGIN, draw_y + self.TEXT_Y)
+        # Draw message text directly onto the sprite
+        self._text_widget.draw_on(sprite, self.TEXT_MARGIN, self.TEXT_Y)

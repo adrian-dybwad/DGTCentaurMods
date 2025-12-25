@@ -23,6 +23,9 @@ import chess.engine
 
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
+from DGTCentaurMods.services import get_chess_clock_service
+from DGTCentaurMods.state import get_chess_clock as get_clock_state
+from DGTCentaurMods.state import get_chess_game
 
 # Lazy imports for widgets to avoid loading all epaper modules at startup
 _widgets_loaded = False
@@ -32,35 +35,36 @@ _ChessClockWidget = None
 _IconMenuWidget = None
 _IconMenuEntry = None
 _SplashScreen = None
-_BrainHintWidget = None
 _GameOverWidget = None
 _AlertWidget = None
+_PauseWidget = None
 
 
 def _load_widgets():
     """Lazily load widget classes."""
     global _widgets_loaded, _ChessBoardWidget, _GameAnalysisWidget, _ChessClockWidget
-    global _IconMenuWidget, _IconMenuEntry, _SplashScreen, _BrainHintWidget
-    global _GameOverWidget, _AlertWidget
+    global _IconMenuWidget, _IconMenuEntry, _SplashScreen
+    global _GameOverWidget, _AlertWidget, _PauseWidget
     
     if _widgets_loaded:
         return
     
     from DGTCentaurMods.epaper import (
         ChessBoardWidget, GameAnalysisWidget, ChessClockWidget,
-        IconMenuWidget, IconMenuEntry, SplashScreen, BrainHintWidget,
+        IconMenuWidget, IconMenuEntry, SplashScreen,
         AlertWidget
     )
     from DGTCentaurMods.epaper.game_over import GameOverWidget
+    from DGTCentaurMods.epaper.pause import PauseWidget
     _ChessBoardWidget = ChessBoardWidget
     _GameAnalysisWidget = GameAnalysisWidget
     _ChessClockWidget = ChessClockWidget
     _IconMenuWidget = IconMenuWidget
     _IconMenuEntry = IconMenuEntry
     _SplashScreen = SplashScreen
-    _BrainHintWidget = BrainHintWidget
     _GameOverWidget = GameOverWidget
     _AlertWidget = AlertWidget
+    _PauseWidget = PauseWidget
     _widgets_loaded = True
 
 
@@ -92,11 +96,12 @@ class DisplayManager:
     
     def __init__(self, flip_board: bool = False, show_analysis: bool = True,
                  analysis_engine_path: str = None, on_exit: callable = None,
-                 hand_brain_mode: bool = False, initial_fen: str = None,
+                 initial_fen: str = None,
                  time_control: int = 0, show_board: bool = True,
                  show_clock: bool = True,
                  show_graph: bool = True, analysis_mode: bool = True,
-                 white_name: str = "", black_name: str = ""):
+                 led_from_to_hint_callback: callable = None,
+                 led_off_callback: callable = None):
         """Initialize the display controller.
         
         Args:
@@ -104,43 +109,51 @@ class DisplayManager:
             show_analysis: If True, show analysis widget (default visible)
             analysis_engine_path: Path to UCI engine for analysis (e.g., ct800)
             on_exit: Callback function() when user requests exit via back menu
-            hand_brain_mode: If True, show brain hint widget for Hand+Brain variant
             initial_fen: FEN string for initial position. If None, uses starting position.
             time_control: Time per player in minutes (0 = disabled/untimed, shows turn only)
             show_board: If True, show the chess board widget
             show_clock: If True, show the clock/turn indicator widget
             show_graph: If True, show the history graph in analysis widget
             analysis_mode: If True, create analysis engine/widget (may be hidden by show_analysis)
-            white_name: Name for white player (displayed in clock widget)
-            black_name: Name for black player (displayed in clock widget)
+            led_from_to_hint_callback: LED callback (from_sq, to_sq, repeat) for hint-style
+                                       LEDs (slow speed, dim intensity). Used for check/queen alerts.
+            led_off_callback: LED callback () to turn off all LEDs. Used for pause.
+        
+        Note: Player names are read from PlayersState by the clock widget.
+              Hand-brain hints are set per-player via set_brain_hint().
         """
         _load_widgets()
+        
+        self._led_from_to_hint = led_from_to_hint_callback
+        self._led_off = led_off_callback
         
         self._flip_board = flip_board
         self._show_analysis = show_analysis
         self._analysis_mode = analysis_mode  # Whether to create analysis engine/widget at all
         self._on_exit = on_exit
-        self._hand_brain_mode = hand_brain_mode
-        self._initial_fen = initial_fen or STARTING_FEN
         self._time_control = time_control  # Minutes per player (0 = disabled)
+        
+        # Game state - authoritative source for position
+        # Set initial position if provided, otherwise use game state's current position
+        self._game_state = get_chess_game()
+        if initial_fen and initial_fen != STARTING_FEN:
+            self._game_state.set_position(initial_fen)
         self._show_board = show_board
         self._show_clock = show_clock
         self._show_graph = show_graph
-        self._white_name = white_name
-        self._black_name = black_name
         
         # Widgets
         self.chess_board_widget = None
         self.clock_widget = None
         self.analysis_widget = None
         self.analysis_engine = None
-        self.brain_hint_widget = None
         self.alert_widget = None
         self.pause_widget = None
+        self.game_over_widget = None
         
         # Pause state
         self._is_paused = False
-        self._paused_active_color = None  # Which clock was running before pause
+        self._on_resume_callback = None  # Called when game resumes to restore LEDs
         
         # Menu state
         self._menu_active = False
@@ -155,6 +168,11 @@ class DisplayManager:
         self._analysis_engine_path = analysis_engine_path
         self._engine_init_thread = None
         
+        # Get ChessClock singleton for this game
+        # The clock persists across widget creation/destruction
+        self._clock = get_chess_clock_service()
+        self._clock.configure(time_control_minutes=time_control)
+        
         # Initialize widgets first (fast, non-blocking)
         self._init_widgets()
         
@@ -166,8 +184,8 @@ class DisplayManager:
         """Initialize the UCI analysis engine asynchronously.
         
         Starts engine initialization in a background thread to avoid blocking
-        game startup. The analysis widget will work without an engine until
-        initialization completes.
+        game startup. The AnalysisService will process positions once the
+        engine is available.
         
         Args:
             engine_path: Path to the UCI engine executable
@@ -178,12 +196,14 @@ class DisplayManager:
                 log.info(f"[DisplayManager] Starting analysis engine initialization: {resolved_path}")
                 engine = chess.engine.SimpleEngine.popen_uci(resolved_path, timeout=None)
                 
-                # Set the engine on both DisplayManager and the analysis widget
-                # The worker thread is already running and will start processing
-                # queued positions once the engine is set
+                # Set the engine on DisplayManager (for hints) and AnalysisService
                 self.analysis_engine = engine
-                if self.analysis_widget:
-                    self.analysis_widget.set_analysis_engine(engine)
+                
+                # Set engine on AnalysisService
+                from DGTCentaurMods.services.analysis import get_analysis_service
+                analysis_service = get_analysis_service()
+                analysis_service.set_engine(engine)
+                analysis_service.start()
                 
                 log.info(f"[DisplayManager] Analysis engine ready: {resolved_path}")
             except Exception as e:
@@ -234,20 +254,26 @@ class DisplayManager:
         # Reload settings from config in case they changed (e.g., via display menu)
         self._reload_display_settings()
         
-
-        
         if not board.display_manager:
             log.error("[DisplayManager] No epaper manager available")
             return
         
-        # Clear any existing widgets
+        # Clear any existing widgets (performs full refresh to clear e-paper ghosting)
         board.display_manager.clear_widgets()
 
         # Create chess board widget at y=16 (below status bar)
-        # Uses cached sprites from preload_sprites() if available
-        self.chess_board_widget = _ChessBoardWidget(0, 16, self._initial_fen)
-        if self._flip_board:
-            self.chess_board_widget.set_flip(True)
+        # Widget subscribes to game_state and updates automatically
+        self.chess_board_widget = _ChessBoardWidget(
+            0, 16, board.display_manager.update,
+            game_state=self._game_state,
+            flip=self._flip_board
+        )
+        
+        # Note: Widgets subscribe to state directly for updates:
+        # - ChessBoardWidget observes ChessGameState for position
+        # - ChessClockWidget observes ChessGameState for turn indicator
+        # - ChessClockWidget observes ChessClockState for times
+        # - GameAnalysisWidget observes AnalysisState
         
         # Always add board widget, but hide if show_board=False
         board.display_manager.add_widget(self.chess_board_widget)
@@ -287,17 +313,19 @@ class DisplayManager:
         # Create clock widget directly below board
         # Shows times if time_control > 0, otherwise shows turn indicator only
         # flip matches board orientation so clock top matches board top
+        # Hand-brain hints are shown in the clock widget via set_brain_hint()
         timed_mode = self._time_control > 0
-        self.clock_widget = _ChessClockWidget(
-            x=0, y=clock_y, width=128, height=clock_height,
-            timed_mode=timed_mode, flip=self._flip_board,
-            white_name=self._white_name, black_name=self._black_name
-        )
-        # Set initial times if timed mode is enabled
-        if self._time_control > 0:
-            initial_seconds = self._time_control * 60
-            self.clock_widget.set_times(initial_seconds, initial_seconds)
         
+        # Set initial times only if clock hasn't been started yet
+        # This preserves times when recreating widgets (e.g., after menu exit)
+        if self._time_control > 0 and not self._clock.is_running:
+            initial_seconds = self._time_control * 60
+            self._clock.set_times(initial_seconds, initial_seconds)
+        
+        self.clock_widget = _ChessClockWidget(
+            0, clock_y, 128, clock_height, board.display_manager.update,
+            timed_mode=timed_mode, flip=self._flip_board
+        )
         # Always add clock widget if timed mode, hidden if show_clock=False
         # For untimed mode, only add if show_clock=True
         if timed_mode:
@@ -314,13 +342,13 @@ class DisplayManager:
             log.info("[DisplayManager] Clock widget disabled (untimed mode)")
         
         # Create analysis widget below clock - only if analysis_mode is enabled
-        # The widget is created but may be hidden based on show_analysis setting
+        # Widget observes AnalysisState for display updates
+        # AnalysisService handles running analysis and updating AnalysisState
         if self._analysis_mode:
             bottom_color = "black" if self.chess_board_widget.flip else "white"
             self.analysis_widget = _GameAnalysisWidget(
-                x=0, y=analysis_y, width=128, height=analysis_height if analysis_height > 0 else 80,
+                0, analysis_y, 128, analysis_height if analysis_height > 0 else 80, board.display_manager.update,
                 bottom_color=bottom_color,
-                analysis_engine=self.analysis_engine,
                 show_graph=self._show_graph
             )
             
@@ -335,18 +363,24 @@ class DisplayManager:
         
         # Create alert widget for CHECK/QUEEN warnings (y=144, overlays clock widget)
         # Alert widget is hidden by default and shown when check or queen threat occurs
-        self.alert_widget = _AlertWidget(0, 144, 128, 40)
+        self.alert_widget = _AlertWidget(
+            0, 144, 128, 40, board.display_manager.update,
+            led_from_to_hint_callback=self._led_from_to_hint
+        )
         board.display_manager.add_widget(self.alert_widget)
         log.info("[DisplayManager] Alert widget initialized (hidden)")
         
-        # Create brain hint widget for Hand+Brain mode (y=144, replaces clock)
-        if self._hand_brain_mode:
-            self.brain_hint_widget = _BrainHintWidget(0, 144, 128, 72)
-            # Hide clock widget in hand+brain mode, brain hint takes its place
-            if self.clock_widget:
-                self.clock_widget.hide()
-            board.display_manager.add_widget(self.brain_hint_widget)
-            log.info("[DisplayManager] Brain hint widget initialized")
+        # Create game over widget (y=144, same position as clock)
+        # Widget observes ChessGameState and shows/hides itself automatically:
+        # - Shows on game_over event (checkmate, stalemate, resignation, etc.)
+        # - Hides on position_change when game is no longer over (new game started)
+        # ChessClockWidget also observes game_over and manages its own visibility.
+        self.game_over_widget = _GameOverWidget(
+            0, 144, 128, 72, board.display_manager.update,
+            led_off_callback=self._led_off
+        )
+        board.display_manager.add_widget(self.game_over_widget)
+        log.info("[DisplayManager] Game over widget initialized (hidden, observes game state)")
     
     def set_key_callback(self, callback: callable):
         """Set the key callback for routing keys during normal play.
@@ -355,52 +389,6 @@ class DisplayManager:
             callback: Function(key) to call for key events
         """
         self._key_callback = callback
-    
-    def update_position(self, fen: str):
-        """Update the chess board display with a new position.
-        
-        Args:
-            fen: FEN string of the new position
-        """
-        if self.chess_board_widget:
-            try:
-                self.chess_board_widget.set_fen(fen)
-            except Exception as e:
-                log.error(f"[DisplayManager] Error updating position: {e}")
-    
-    def analyze_position(self, board_obj: chess.Board,
-                        is_first_move: bool = False, time_limit: float = 0.3):
-        """Trigger position analysis.
-        
-        Analysis runs even when widget is hidden to collect history.
-        
-        Args:
-            board_obj: chess.Board object to analyze
-            is_first_move: If True, don't add to history
-            time_limit: Analysis time limit in seconds
-        """
-        if self.analysis_widget:
-            try:
-                self.analysis_widget.analyze_position(
-                    board_obj, is_first_move, time_limit
-                )
-            except Exception as e:
-                log.debug(f"[DisplayManager] Error analyzing position: {e}")
-    
-    def set_player_names(self, white_name: str, black_name: str) -> None:
-        """Set the player names displayed in the clock widget.
-        
-        Can be called after initialization when player names become available
-        (e.g., after Lichess game info is received).
-        
-        Args:
-            white_name: Name for white player
-            black_name: Name for black player
-        """
-        self._white_name = white_name
-        self._black_name = black_name
-        if self.clock_widget:
-            self.clock_widget.set_player_names(white_name, black_name)
     
     def get_hint_move(self, board_obj, time_limit: float = 1.0):
         """Get a hint move for the current position.
@@ -447,40 +435,6 @@ class DisplayManager:
             self.alert_widget.show_hint(move_text, from_sq, to_sq)
             log.info(f"[DisplayManager] Showing hint: {move_text}")
     
-    def toggle_analysis(self):
-        """Toggle analysis widget visibility."""
-        if self.analysis_widget:
-            if self.analysis_widget.visible:
-                log.info("[DisplayManager] Hiding analysis widget")
-                self.analysis_widget.hide()
-            else:
-                log.info("[DisplayManager] Showing analysis widget")
-                self.analysis_widget.show()
-    
-    def reset_analysis(self):
-        """Reset analysis widget (clear history, reset score)."""
-        if self.analysis_widget:
-            try:
-                log.info("[DisplayManager] Resetting analysis widget")
-                self.analysis_widget.reset()
-            except Exception as e:
-                log.warning(f"[DisplayManager] Error resetting analysis: {e}")
-        # Also clear brain hint on reset
-        if self.brain_hint_widget:
-            self.brain_hint_widget.clear()
-    
-    def remove_last_analysis_score(self):
-        """Remove the last score from analysis history.
-        
-        Called on takeback to keep analysis history in sync with game state.
-        """
-        if self.analysis_widget:
-            try:
-                self.analysis_widget.remove_last_score()
-                log.debug("[DisplayManager] Removed last analysis score (takeback)")
-            except Exception as e:
-                log.warning(f"[DisplayManager] Error removing last analysis score: {e}")
-    
     def set_clock_times(self, white_seconds: int, black_seconds: int) -> None:
         """Set the chess clock times for both players.
         
@@ -488,49 +442,30 @@ class DisplayManager:
             white_seconds: White's time in seconds
             black_seconds: Black's time in seconds
         """
-        if self.clock_widget:
-            self.clock_widget.set_times(white_seconds, black_seconds)
+        self._clock.set_times(white_seconds, black_seconds)
     
-    def set_clock_active(self, color: str) -> None:
-        """Set which player's clock is active (whose turn it is).
-        
-        Args:
-            color: 'white', 'black', or None (paused)
-        """
-        if self.clock_widget:
-            self.clock_widget.set_active(color)
-    
-    def start_clock(self, active_color: str = 'white') -> None:
-        """Start the chess clock.
+    def start_clock(self) -> None:
+        """Start the chess clock countdown.
         
         For timed games (time_control > 0), starts the countdown.
-        For untimed games (turn indicator mode), sets the active player.
+        For untimed games, this is a no-op since the turn indicator comes from
+        ChessGameState which the clock widget observes directly.
         
-        Args:
-            active_color: Which player's clock starts running / is active
+        Note: Turn indicator (whose turn it is) comes from ChessGameState, not
+        from manual clock switching. The ChessClockWidget observes game state
+        directly for turn changes.
         """
-        if self.clock_widget:
-            if self._time_control > 0:
-                # Timed mode: start the countdown
-                self.clock_widget.start(active_color)
-            else:
-                # Untimed mode: just set the active color for turn indicator
-                self.clock_widget.set_active(active_color)
-    
-    def switch_clock_turn(self) -> None:
-        """Switch which player's clock is running."""
-        if self.clock_widget:
-            self.clock_widget.switch_turn()
+        if self._time_control > 0:
+            # Timed mode: start the countdown
+            self._clock.start()
     
     def pause_clock(self) -> None:
         """Pause the chess clock."""
-        if self.clock_widget:
-            self.clock_widget.pause()
+        self._clock.pause()
     
     def stop_clock(self) -> None:
         """Stop the chess clock completely."""
-        if self.clock_widget:
-            self.clock_widget.stop()
+        self._clock.stop()
     
     def reset_clock(self) -> None:
         """Reset the chess clock to initial time and stop it.
@@ -538,13 +473,8 @@ class DisplayManager:
         Called when a new game starts to reset clock state.
         The clock will not start until the first move is made.
         """
-        if self.clock_widget and self._time_control > 0:
-            # Stop the clock first
-            self.clock_widget.stop()
-            # Reset to initial time
-            initial_seconds = self._time_control * 60
-            self.clock_widget.set_times(initial_seconds, initial_seconds)
-            log.info(f"[DisplayManager] Clock reset to {self._time_control} min per player")
+        self._clock.reset()
+        log.info(f"[DisplayManager] Clock reset to {self._time_control} min per player")
     
     def toggle_pause(self) -> bool:
         """Toggle pause state for the game.
@@ -574,82 +504,44 @@ class DisplayManager:
             return
         
         self._is_paused = True
-
+        self._clock.pause()
         
-        # Remember which clock was active so we can resume it
-        if self.clock_widget:
-            self._paused_active_color = self.clock_widget._active_color
-            self.clock_widget.pause()
-        
-        # Turn off LEDs
-        board.ledsOff()
+        # Turn off LEDs via callback
+        if self._led_off:
+            self._led_off()
+        else:
+            log.warning("[DisplayManager] LED off callback not set, skipping LED off")
         
         # Show pause widget (centered on screen)
         # Import here to avoid circular imports
-        from DGTCentaurMods.epaper.text import TextWidget, Justify
-        from DGTCentaurMods.epaper.framework.widget import Widget
-        from PIL import Image, ImageDraw
-        
-        # Create a custom pause widget with icon and text
-        class PauseWidget(Widget):
-            """Widget showing pause icon and PAUSED text."""
-            def __init__(self):
-                # Centered on 128x296 display
-                super().__init__(x=0, y=98, width=128, height=100)
-                self._text_widget = TextWidget(
-                    x=0, y=60, width=128, height=30,
-                    text="PAUSED", font_size=24,
-                    justify=Justify.CENTER, transparent=True
-                )
-            
-            def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-                """Draw the pause widget onto the target image."""
-                # Draw background first
-                self.draw_background(img, draw_x, draw_y)
-                
-                draw = ImageDraw.Draw(img)
-                
-                # Draw pause icon (two vertical bars) centered at top
-                bar_width = 12
-                bar_height = 50
-                gap = 16
-                total_width = bar_width * 2 + gap
-                start_x = draw_x + (self.width - total_width) // 2
-                start_y = draw_y + 5
-                
-                # Left bar
-                draw.rectangle([start_x, start_y, start_x + bar_width, start_y + bar_height], fill=0)
-                # Right bar
-                draw.rectangle([start_x + bar_width + gap, start_y, 
-                               start_x + bar_width * 2 + gap, start_y + bar_height], fill=0)
-                
-                # Draw "PAUSED" text below
-                self._text_widget.draw_on(img, draw_x, draw_y + 60)
-        
-        self.pause_widget = PauseWidget()
+        self.pause_widget = _PauseWidget(update_callback=board.display_manager.update)
         board.display_manager.add_widget(self.pause_widget)
         
         log.info("[DisplayManager] Game paused")
     
     def _resume_game(self) -> None:
-        """Resume the game - restart clock, remove pause widget."""
+        """Resume the game - restart clock, remove pause widget, restore LEDs."""
         if not self._is_paused:
             return
         
         self._is_paused = False
-
         
         # Remove pause widget
         if self.pause_widget:
             board.display_manager.remove_widget(self.pause_widget)
             self.pause_widget = None
         
-        # Resume clock with previously active color
-        if self.clock_widget and self._paused_active_color:
-            self.clock_widget.resume(self._paused_active_color)
-            log.info(f"[DisplayManager] Clock resumed for {self._paused_active_color}")
+        # Resume clock (turn indicator comes from ChessGameState, not clock service)
+        self._clock.resume()
+        log.info("[DisplayManager] Clock resumed")
         
-        self._paused_active_color = None
+        # Notify resume callback to restore LEDs if needed
+        if self._on_resume_callback:
+            try:
+                self._on_resume_callback()
+            except Exception as e:
+                log.warning(f"[DisplayManager] Error in resume callback: {e}")
+        
         log.info("[DisplayManager] Game resumed")
     
     def is_paused(self) -> bool:
@@ -672,110 +564,57 @@ class DisplayManager:
                 board.display_manager.remove_widget(self.pause_widget)
                 self.pause_widget = None
             self._is_paused = False
-            self._paused_active_color = None
             log.info("[DisplayManager] Pause state cleared")
     
     def get_clock_times(self) -> tuple:
         """Get the current clock times for both players.
 
         Returns:
-            Tuple of (white_seconds, black_seconds), or (None, None) if no clock
+            Tuple of (white_seconds, black_seconds)
         """
-        if self.clock_widget:
-            return self.clock_widget.get_final_times()
-        return (None, None)
-
-    def get_eval_score(self) -> int:
-        """Get the current evaluation score in centipawns.
-
-        Returns:
-            Evaluation score in centipawns (from white's perspective), or None if unavailable.
-            Score is multiplied by 100 to convert from pawns to centipawns.
-        """
-        if self.analysis_widget:
-            # score_value is in pawns (-12 to +12), convert to centipawns
-            return int(self.analysis_widget.score_value * 100)
-        return None
-
-    def set_score_history(self, centipawn_scores: list) -> None:
-        """Set the score history from database values (for restoring on resume).
-
-        Args:
-            centipawn_scores: List of scores in centipawns (integers).
-                             Will be converted to pawns for the widget.
-        """
-        if self.analysis_widget and centipawn_scores:
-            # Convert centipawns to pawns (-12 to +12 clamped)
-            pawn_scores = []
-            for cp in centipawn_scores:
-                if cp is not None:
-                    pawn_score = cp / 100.0
-                    # Clamp to display range
-                    pawn_score = max(-12, min(12, pawn_score))
-                    pawn_scores.append(pawn_score)
-            if pawn_scores:
-                self.analysis_widget.set_score_history(pawn_scores)
-                log.info(f"[DisplayManager] Restored {len(pawn_scores)} scores to analysis widget")
+        return self._clock.get_times()
 
     def set_on_flag(self, callback) -> None:
         """Set callback for when a player's time expires (flag).
-        
+
         Args:
             callback: Function(color: str) where color is 'white' or 'black'
         """
-        if self.clock_widget:
-            self.clock_widget.on_flag = callback
+        # Observers register on state, control goes through service
+        get_clock_state().on_flag(callback)
     
-    def set_brain_hint(self, piece_symbol: str) -> None:
-        """Set the brain hint piece type for Hand+Brain mode.
+    def set_on_resume(self, callback) -> None:
+        """Set callback for when game is resumed from pause.
+        
+        Called after clock resumes to allow restoration of LEDs for pending moves.
         
         Args:
+            callback: Function() called when game resumes
+        """
+        self._on_resume_callback = callback
+    
+    def set_brain_hint(self, color: str, piece_symbol: str) -> None:
+        """Set the brain hint piece type for a player in Hand+Brain mode.
+        
+        Shows the piece letter in the clock widget next to the player's timer,
+        replacing the turn indicator circle.
+        
+        Args:
+            color: 'white' or 'black'
             piece_symbol: Piece symbol (K, Q, R, B, N, P) or empty to clear
         """
-        if self.brain_hint_widget:
-            self.brain_hint_widget.set_piece(piece_symbol)
+        if self.clock_widget:
+            self.clock_widget.set_brain_hint(color, piece_symbol)
     
-    def clear_brain_hint(self) -> None:
-        """Clear the brain hint display."""
-        if self.brain_hint_widget:
-            self.brain_hint_widget.clear()
-    
-    def show_check_alert(self, is_black_in_check: bool, attacker_square: int, king_square: int) -> None:
-        """Show CHECK alert and flash LEDs from attacker to king.
+    def clear_brain_hint(self, color: str) -> None:
+        """Clear the brain hint for a player.
         
         Args:
-            is_black_in_check: True if black king is in check, False if white
-            attacker_square: Square index (0-63) of the piece giving check
-            king_square: Square index (0-63) of the king in check
+            color: 'white' or 'black'
         """
-        if self.alert_widget:
-            self.alert_widget.show_check(is_black_in_check, attacker_square, king_square)
+        if self.clock_widget:
+            self.clock_widget.clear_brain_hint(color)
     
-    def show_queen_threat(self, is_black_queen_threatened: bool, 
-                          attacker_square: int, queen_square: int) -> None:
-        """Show YOUR QUEEN alert and flash LEDs from attacker to queen.
-        
-        Part of DisplayBridge interface.
-        
-        Args:
-            is_black_queen_threatened: True if black queen is threatened, False if white
-            attacker_square: Square index (0-63) of the attacking piece
-            queen_square: Square index (0-63) of the threatened queen
-        """
-        if self.alert_widget:
-            self.alert_widget.show_queen_threat(is_black_queen_threatened, attacker_square, queen_square)
-    
-    def clear_alerts(self) -> None:
-        """Clear any active alerts from the display.
-        
-        Part of DisplayBridge interface.
-        """
-        if self.alert_widget:
-            self.alert_widget.hide()
-    
-    def hide_alert(self) -> None:
-        """Hide the alert widget. Alias for clear_alerts."""
-        self.clear_alerts()
     
     def show_promotion_menu(self, is_white: bool) -> str:
         """Show promotion piece selection menu.
@@ -810,7 +649,7 @@ class DisplayManager:
         
         # Create and display menu
         promotion_menu = _IconMenuWidget(
-            x=0, y=0, width=128, height=296,
+            0, 0, 128, 296, board.display_manager.update,
             entries=entries,
             on_select=on_select
         )
@@ -844,7 +683,7 @@ class DisplayManager:
         self._current_menu = None
         
         # Restore game display
-        self._restore_game_display()
+        self._init_widgets()
         
         log.info(f"[DisplayManager] Promotion selected: {selected_piece[0]}")
         return selected_piece[0]
@@ -882,7 +721,7 @@ class DisplayManager:
         
         # Create menu - default to Cancel (last item)
         back_menu = _IconMenuWidget(
-            x=0, y=0, width=128, height=296,
+            0, 0, 128, 296, board.display_manager.update,
             entries=entries,
             selected_index=len(entries) - 1  # Default to Cancel (last item)
         )
@@ -925,7 +764,7 @@ class DisplayManager:
                 
                 # Restore display for cancel, or let caller handle for resign/draw
                 if result == "cancel":
-                    self._restore_game_display()
+                    self._init_widgets()
                 
                 # Call result callback
                 if self._menu_result_callback:
@@ -979,7 +818,7 @@ class DisplayManager:
         
         # Create menu - default to No (cancel)
         resign_menu = _IconMenuWidget(
-            x=0, y=0, width=128, height=296,
+            0, 0, 128, 296, board.display_manager.update,
             entries=entries,
             selected_index=1  # Default to No (cancel)
         )
@@ -1025,7 +864,7 @@ class DisplayManager:
                 
                 # Restore display for cancel, or let caller handle for resign
                 if result == "cancel":
-                    self._restore_game_display()
+                    self._init_widgets()
                 
                 # Call result callback
                 if self._menu_result_callback:
@@ -1062,52 +901,6 @@ class DisplayManager:
         """
         return self._menu_active
     
-    def _restore_game_display(self):
-        """Restore the normal game display widgets after menu."""
-
-        
-        try:
-            if board.display_manager:
-                board.display_manager.clear_widgets(addStatusBar=True)
-                
-                # Re-add chess board widget
-                if self.chess_board_widget:
-                    future = board.display_manager.add_widget(self.chess_board_widget)
-                    if future:
-                        try:
-                            future.result(timeout=2.0)
-                        except Exception:
-                            pass
-                
-                # Re-add clock widget (or brain hint if in Hand+Brain mode)
-                if self._hand_brain_mode and self.brain_hint_widget:
-                    future = board.display_manager.add_widget(self.brain_hint_widget)
-                    if future:
-                        try:
-                            future.result(timeout=2.0)
-                        except Exception:
-                            pass
-                elif self.clock_widget:
-                    future = board.display_manager.add_widget(self.clock_widget)
-                    if future:
-                        try:
-                            future.result(timeout=2.0)
-                        except Exception:
-                            pass
-                
-                # Re-add analysis widget
-                if self.analysis_widget:
-                    future = board.display_manager.add_widget(self.analysis_widget)
-                    if future:
-                        try:
-                            future.result(timeout=2.0)
-                        except Exception:
-                            pass
-                            
-                log.debug("[DisplayManager] Game display restored")
-        except Exception as e:
-            log.error(f"[DisplayManager] Error restoring display: {e}")
-    
     def show_splash(self, message: str):
         """Show a splash screen with a message.
         
@@ -1119,7 +912,7 @@ class DisplayManager:
         try:
             if board.display_manager:
                 board.display_manager.clear_widgets(addStatusBar=False)
-                splash = _SplashScreen(message=message)
+                splash = _SplashScreen(board.display_manager.update, message=message)
                 future = board.display_manager.add_widget(splash)
                 if future:
                     try:
@@ -1129,56 +922,6 @@ class DisplayManager:
         except Exception as e:
             log.debug(f"[DisplayManager] Error showing splash: {e}")
     
-    def show_game_over(self, result: str, termination_type: str = None, move_count: int = 0):
-        """
-        Show the game over widget, replacing the clock widget.
-        
-        The board remains visible. The game over widget occupies y=144, height=72
-        (same as clock) to display the winner, termination reason, and times.
-        The analysis widget stays in place (y=216, height=80) showing eval history.
-        
-        Args:
-            result: Game result string (e.g., "1-0", "0-1", "1/2-1/2")
-            termination_type: Type of termination (e.g., "CHECKMATE", "STALEMATE", "RESIGN")
-            move_count: Number of moves played in the game
-        """
-        _load_widgets()
-
-        
-        try:
-            log.info(f"[DisplayManager] Showing game over: result={result}, termination={termination_type}")
-            
-            # Get final times from clock widget before hiding it
-            final_times = None
-            if self.clock_widget and self._time_control > 0:
-                final_times = self.clock_widget.get_final_times()
-                self.clock_widget.stop()
-                self.clock_widget.hide()
-            elif self.clock_widget:
-                # Even in untimed mode, hide the clock (turn indicator)
-                self.clock_widget.hide()
-            
-            # Analysis widget stays in place - game over widget is same size as clock
-            
-            # Hide brain hint widget if present
-            if self.brain_hint_widget:
-                self.brain_hint_widget.hide()
-            
-            if board.display_manager:
-                # Create game over widget (y=144, height=72 - same as clock)
-                game_over_widget = _GameOverWidget()
-                game_over_widget.set_result(result, termination_type, move_count, final_times)
-                
-                future = board.display_manager.add_widget(game_over_widget)
-                if future:
-                    try:
-                        future.result(timeout=2.0)
-                    except Exception:
-                        pass
-                        
-                log.info("[DisplayManager] Game over widget displayed")
-        except Exception as e:
-            log.error(f"[DisplayManager] Error showing game over: {e}")
     
     def cleanup(self, for_shutdown: bool = False):
         """Clean up resources (analysis engine, widgets) and clear display.
@@ -1203,27 +946,48 @@ class DisplayManager:
         else:
             log.info("[DisplayManager] Engine init thread not running")
         
-        # Stop clock widget
-        log.info("[DisplayManager] Stopping clock widget...")
-        if self.clock_widget:
+        # Cleanup chess board widget (unsubscribes from game state)
+        log.info("[DisplayManager] Cleaning up chess board widget...")
+        if self.chess_board_widget:
             try:
-                self.clock_widget.stop()
-                log.info("[DisplayManager] Clock widget stopped")
+                self.chess_board_widget.cleanup()
+                log.info("[DisplayManager] Chess board widget cleaned up")
             except Exception as e:
-                log.error(f"[DisplayManager] Error stopping clock widget: {e}", exc_info=True)
-        else:
-            log.info("[DisplayManager] No clock widget to stop")
+                log.debug(f"[DisplayManager] Error cleaning up chess board widget: {e}")
         
-        # Stop analysis widget worker
-        log.info("[DisplayManager] Stopping analysis widget worker...")
+        # Stop clock service
+        log.info("[DisplayManager] Stopping clock service...")
+        try:
+            self._clock.stop()
+            log.info("[DisplayManager] Clock service stopped")
+        except Exception as e:
+            log.error(f"[DisplayManager] Error stopping clock service: {e}", exc_info=True)
+        
+        # Stop analysis service
+        log.info("[DisplayManager] Stopping analysis service...")
+        try:
+            from DGTCentaurMods.services.analysis import get_analysis_service
+            analysis_service = get_analysis_service()
+            analysis_service.stop()
+            log.info("[DisplayManager] Analysis service stopped")
+        except Exception as e:
+            log.error(f"[DisplayManager] Error stopping analysis service: {e}", exc_info=True)
+        
+        # Cleanup analysis widget (unsubscribe from state)
         if self.analysis_widget:
             try:
-                self.analysis_widget._stop_analysis_worker()
-                log.info("[DisplayManager] Analysis widget worker stopped")
+                self.analysis_widget.cleanup()
+                log.info("[DisplayManager] Analysis widget cleaned up")
             except Exception as e:
-                log.error(f"[DisplayManager] Error stopping analysis worker: {e}", exc_info=True)
-        else:
-            log.info("[DisplayManager] No analysis widget to stop")
+                log.debug(f"[DisplayManager] Error cleaning up analysis widget: {e}")
+        
+        # Cleanup game over widget (unsubscribe from game state)
+        if self.game_over_widget:
+            try:
+                self.game_over_widget.cleanup()
+                log.info("[DisplayManager] Game over widget cleaned up")
+            except Exception as e:
+                log.debug(f"[DisplayManager] Error cleaning up game over widget: {e}")
         
         # Quit analysis engine
         log.info("[DisplayManager] Quitting analysis engine...")
@@ -1232,7 +996,8 @@ class DisplayManager:
                 self.analysis_engine.quit()
                 log.info("[DisplayManager] Analysis engine quit")
             except Exception as e:
-                log.error(f"[DisplayManager] Error quitting analysis engine: {e}", exc_info=True)
+                # Engine may already be terminated during shutdown - this is expected
+                log.debug(f"[DisplayManager] Analysis engine already terminated: {e}")
             self.analysis_engine = None
         else:
             log.info("[DisplayManager] No analysis engine to quit")

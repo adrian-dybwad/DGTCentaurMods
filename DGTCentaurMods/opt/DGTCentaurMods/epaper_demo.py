@@ -103,6 +103,7 @@ class EPaperDemo:
             text_widget = TextWidget(
                 0, text_y + (bg_level * text_height), 
                 128, text_height,
+                self.display.update,
                 text=f"Background {bg_level}",
                 background=bg_level,
                 font_size=12
@@ -113,13 +114,13 @@ class EPaperDemo:
             text_widget.request_update(full=False)
         
         # Chess board widget (128x128) starting at y=116
-        self.chess_board = ChessBoardWidget(0, 116, self.fen_positions[0])
+        self.chess_board = ChessBoardWidget(0, 116, self.display.update, fen=self.fen_positions[0], flip=False)
         self.display.add_widget(self.chess_board)
         # Widget triggers its own update when ready
         self.chess_board.request_update(full=False)
         
         # Game analysis widget below chess board (128x80) at y=244
-        self.game_analysis = GameAnalysisWidget(0, 244, 128, 80)
+        self.game_analysis = GameAnalysisWidget(0, 244, 128, 80, self.display.update)
         self.game_analysis.set_score(0.5, "0.5")
         self.game_analysis.set_turn("white")
         self.display.add_widget(self.game_analysis)
@@ -127,13 +128,13 @@ class EPaperDemo:
         self.game_analysis.request_update(full=False)
         
         # Checkerboard widget at bottom (128x32) at y=264
-        self.checkerboard = CheckerboardWidget(0, 264, 128, 32, square_size=4)
+        self.checkerboard = CheckerboardWidget(0, 264, 128, 32, self.display.update, square_size=4)
         self.display.add_widget(self.checkerboard)
         # Widget triggers its own update when ready
         self.checkerboard.request_update(full=False)
         
         # Ball widget (16x16) - will be positioned dynamically
-        self.ball = BallWidget(self.ball_x, self.ball_y, radius=8)
+        self.ball = BallWidget(self.ball_x, self.ball_y, self.display.update, radius=8)
         self.display.add_widget(self.ball)
         # Widget triggers its own update when ready
         self.ball.request_update(full=False)
@@ -168,6 +169,7 @@ class EPaperDemo:
             text_widget = TextWidget(
                 0, y_start + (idx * widget_height),
                 128, widget_height,
+                self.display.update,
                 text=text,
                 background=bg_level,
                 font_size=18
@@ -186,7 +188,7 @@ class EPaperDemo:
         self.display._widgets.clear()
         
         # Splash screen widget fills entire screen
-        self.splash_screen = SplashScreen(message="DEMO")
+        self.splash_screen = SplashScreen(self.display.update, message="DEMO")
         self.display.add_widget(self.splash_screen)
         self.splash_screen.request_update(full=True)
         
@@ -206,7 +208,7 @@ class EPaperDemo:
             self.status_bar.request_update(full=False)
         
         # Game over widget
-        self.game_over = GameOverWidget(0, 16, 128, 280)
+        self.game_over = GameOverWidget(0, 16, 128, 280, self.display.update)
         self.game_over.set_result("1-0")
         # Create sample score history
         score_history = [0.0, 0.5, 1.0, 0.5, -0.5, -1.0, -0.5, 0.0, 0.5, 1.5, 2.0, 1.5, 1.0, 0.5, 0.0]
@@ -295,6 +297,7 @@ class EPaperDemo:
         wrapped_widget = TextWidget(
             5, 20,  # Position with small margin
             118, 260,  # Width and height to fill most of screen below status bar
+            self.display.update,
             text=long_text,
             background=2,  # Light dither background
             font_size=14,

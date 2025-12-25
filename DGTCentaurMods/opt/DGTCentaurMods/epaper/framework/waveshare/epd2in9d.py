@@ -39,6 +39,10 @@ import RPi.GPIO as GPIO
 EPD_WIDTH       = 128
 EPD_HEIGHT      = 296
 
+# Debug flag for buffer diagnostics in DisplayPartial
+# Set to True to print buffer statistics on each partial refresh
+DEBUG_DISPLAY_PARTIAL = False
+
 class EPD:
     def __init__(self):
         self.reset_pin = epdconfig.RST_PIN
@@ -103,6 +107,7 @@ class EPD:
         
     # Hardware reset
     def reset(self):
+        print("Resetting display")
         epdconfig.digital_write(self.reset_pin, 1)
         epdconfig.delay_ms(20) 
         epdconfig.digital_write(self.reset_pin, 0)
@@ -242,6 +247,20 @@ class EPD:
         self.buffer = [0xFF] * int(self.width * self.height / 8)    
         self.TurnOnDisplay()
         
+    def _dump_buffer(self, label, buf):
+        """Debug helper: print buffer statistics.
+        
+        Prints byte counts for black (0x00), white (0xFF), and other (gray) values,
+        plus first 16 bytes as hex. Useful for diagnosing partial refresh issues.
+        """
+        buf_bytes = bytes(buf) if not isinstance(buf, bytes) else buf
+        black = sum(1 for b in buf_bytes if b == 0x00)
+        white = sum(1 for b in buf_bytes if b == 0xFF)
+        other = len(buf_bytes) - black - white
+        sample = ' '.join(f'{b:02x}' for b in buf_bytes[:16])
+        print(f"EPD [{label}] len={len(buf_bytes)} black_bytes={black} white_bytes={white} other={other}")
+        print(f"EPD [{label}] first 16: {sample}")
+    
     def DisplayPartial(self, image):
         """
         Display partial refresh following Waveshare pattern.
@@ -249,6 +268,10 @@ class EPD:
         Args:
             image: Buffer containing the new/current content (sent to 0x13)
         """
+        if DEBUG_DISPLAY_PARTIAL:
+            self._dump_buffer("OLD_BUFFER_0x10", self.buffer)
+            self._dump_buffer("NEW_IMAGE_0x13", image)
+        
         self.SetPartReg()
         self.send_command(0x91)
         self.send_command(0x90)
@@ -277,6 +300,7 @@ class EPD:
         self.TurnOnDisplay()
 
     def Clear(self):
+        print("Clearing display")
         self.send_command(0x10)
         self.send_data2([0x00] * int(self.width * self.height / 8))
         epdconfig.delay_ms(10)
@@ -284,6 +308,11 @@ class EPD:
         self.send_data2([0xFF] * int(self.width * self.height / 8))
         epdconfig.delay_ms(10)
         self.TurnOnDisplay()
+        
+        # Update internal buffer to match cleared display state (all white).
+        # Without this, the next DisplayPartial() would use stale buffer content
+        # as the "old" image, causing ghosting artifacts.
+        self.buffer = [0xFF] * int(self.width * self.height / 8)
 
     def sleep(self):
         self.send_command(0X50)

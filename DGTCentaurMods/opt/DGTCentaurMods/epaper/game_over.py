@@ -1,9 +1,16 @@
 """
 Game over widget displaying winner, termination reason, and final times.
 
-This widget replaces the clock widget at game end (y=144, height=72).
+This widget occupies the same screen area as the clock widget (y=144, height=72).
+Both widgets observe ChessGameState and manage their own visibility:
+- GameOverWidget shows on game_over, hides on new game
+- ChessClockWidget hides on game_over, shows on new game
+
 The analysis widget stays in place (y=216, h=80) to show the
 evaluation history graph.
+
+This is the observer pattern - each widget manages its own visibility based on
+game state, rather than being externally managed by other widgets.
 """
 
 from PIL import Image, ImageDraw, ImageFont
@@ -21,8 +28,13 @@ class GameOverWidget(Widget):
     """
     Widget displaying game over information.
     
-    Replaces the clock widget at game end (y=144, h=72). Shows winner,
+    Observes ChessGameState and shows/hides itself based on game state:
+    - Shows on game_over event with result and termination
+    - Hides on position_change when is_game_over becomes False (new game)
+    
+    Occupies same screen area as clock widget (y=144, h=72). Shows winner,
     termination reason, move count, and final times using TextWidget.
+    The clock widget manages its own visibility via game_over observer.
     The analysis widget stays in place (y=216, h=80) to show the
     evaluation history graph.
     """
@@ -31,22 +43,26 @@ class GameOverWidget(Widget):
     DEFAULT_Y = 144
     DEFAULT_HEIGHT = 72
     
-    def __init__(self, x: int = 0, y: int = None, width: int = 128, height: int = None):
+    def __init__(self, x: int, y: int, width: int, height: int, update_callback,
+                 game_state=None,
+                 led_off_callback: callable = None):
         """
         Initialize game over widget.
         
+        The widget starts hidden and shows itself when it receives a game_over
+        event from ChessGameState. It hides itself when a new game starts.
+        
         Args:
-            x: X position (default 0)
-            y: Y position (default 144, below board, replacing clock)
-            width: Widget width (default 128)
-            height: Widget height (default 72)
+            x: X position
+            y: Y position
+            width: Widget width
+            height: Widget height
+            update_callback: Callback to trigger display updates. Must not be None.
+            game_state: Optional ChessGameState to observe. If None, uses singleton.
+            led_off_callback: LED callback () to turn off all LEDs. Used on game over.
         """
-        if y is None:
-            y = self.DEFAULT_Y
-        if height is None:
-            height = self.DEFAULT_HEIGHT
-            
-        super().__init__(x, y, width, height)
+        super().__init__(x, y, width, height, update_callback)
+        self._led_off = led_off_callback
         
         self.result = ""           # "1-0", "0-1", "1/2-1/2"
         self.winner = ""           # "White wins", "Black wins", "Draw"
@@ -55,19 +71,88 @@ class GameOverWidget(Widget):
         self.white_time: Optional[int] = None  # Final white time in seconds
         self.black_time: Optional[int] = None  # Final black time in seconds
         
-        # Create TextWidgets for each line (all center-justified)
-        self._winner_text = TextWidget(x=0, y=4, width=width, height=18,
+        # Start hidden - will show on game_over event
+        self.visible = False
+        
+        # Create TextWidgets for each line - use parent handler for child updates
+        self._winner_text = TextWidget(0, 4, width, 18, self._handle_child_update,
                                         text="", font_size=16,
                                         justify=Justify.CENTER, transparent=True)
-        self._termination_text = TextWidget(x=0, y=24, width=width, height=16,
+        self._termination_text = TextWidget(0, 24, width, 16, self._handle_child_update,
                                             text="", font_size=12,
                                             justify=Justify.CENTER, transparent=True)
-        self._moves_text = TextWidget(x=0, y=44, width=width, height=14,
+        self._moves_text = TextWidget(0, 44, width, 14, self._handle_child_update,
                                       text="", font_size=10,
                                       justify=Justify.CENTER, transparent=True)
-        self._times_text = TextWidget(x=0, y=58, width=width, height=14,
+        self._times_text = TextWidget(0, 58, width, 14, self._handle_child_update,
                                       text="", font_size=10,
                                       justify=Justify.CENTER, transparent=True)
+        
+        # Subscribe to game state events
+        if game_state is None:
+            from DGTCentaurMods.state.chess_game import get_chess_game
+            self._game_state = get_chess_game()
+        else:
+            self._game_state = game_state
+        
+        self._game_state.on_game_over(self._on_game_over)
+        self._game_state.on_position_change(self._on_position_change)
+        
+        log.debug("[GameOverWidget] Initialized and subscribed to game state")
+    
+    def cleanup(self) -> None:
+        """Unsubscribe from game state when widget is destroyed."""
+        if self._game_state:
+            self._game_state.remove_observer(self._on_game_over)
+            self._game_state.remove_observer(self._on_position_change)
+            log.debug("[GameOverWidget] Unsubscribed from game state")
+    
+    def stop(self) -> None:
+        """Stop the widget and clean up subscriptions."""
+        self.cleanup()
+        super().stop()
+    
+    def _on_game_over(self, result: str, termination: str) -> None:
+        """Handle game_over event from ChessGameState.
+        
+        Shows the widget with the game result and termination type.
+        
+        Args:
+            result: Game result ('1-0', '0-1', '1/2-1/2')
+            termination: How game ended ('checkmate', 'stalemate', etc.)
+        """
+        log.info(f"[GameOverWidget] Game over: {result} by {termination}")
+        
+        # Get move count from game state
+        move_count = len(self._game_state.move_stack)
+        
+        # Set result (this also triggers display update)
+        self.set_result(result, termination, move_count)
+        
+        # Show ourselves
+        self.show()
+    
+    def _on_position_change(self) -> None:
+        """Handle position_change event from ChessGameState.
+        
+        If the game is no longer over (new game started), hide ourselves.
+        """
+        # Only act if we're currently visible and game is no longer over
+        if self.visible and not self._game_state.is_game_over:
+            log.info("[GameOverWidget] Game reset detected - hiding")
+            self.hide()
+            
+            # Clear our state for the next game
+            self.result = ""
+            self.winner = ""
+            self.termination = ""
+            self.move_count = 0
+            self.white_time = None
+            self.black_time = None
+    
+    def _handle_child_update(self, full: bool = False, immediate: bool = False):
+        """Handle update requests from child widgets by forwarding to parent callback."""
+        return self._update_callback(full, immediate)
     
     def set_result(self, result: str, termination: str = None, move_count: int = 0,
                    final_times: Optional[Tuple[int, int]] = None) -> None:
@@ -113,8 +198,26 @@ class GameOverWidget(Widget):
                 changed = True
         
         if changed:
-            self._last_rendered = None
-            self.request_update(full=False)
+            self.invalidate_cache()
+            # Only request update if we're visible
+            if self.visible:
+                self.request_update(full=False)
+    
+    def set_final_times(self, white_seconds: int, black_seconds: int) -> None:
+        """Set the final times for display.
+        
+        Called externally when clock times need to be captured at game end.
+        
+        Args:
+            white_seconds: White's remaining time in seconds.
+            black_seconds: Black's remaining time in seconds.
+        """
+        if self.white_time != white_seconds or self.black_time != black_seconds:
+            self.white_time = white_seconds
+            self.black_time = black_seconds
+            self.invalidate_cache()
+            if self.visible:
+                self.request_update(full=False)
     
     def show(self) -> None:
         """Show game over widget and turn off LEDs.
@@ -122,12 +225,11 @@ class GameOverWidget(Widget):
         When the game ends, any pending move or check/threat LEDs
         should be turned off to indicate the game is finished.
         """
-        try:
-            from DGTCentaurMods.board import board
-            board.ledsOff()
+        if self._led_off:
+            self._led_off()
             log.debug("[GameOverWidget] LEDs turned off on game over")
-        except Exception as e:
-            log.error(f"[GameOverWidget] Error turning off LEDs: {e}")
+        else:
+            log.warning("[GameOverWidget] LED off callback not set, skipping LED off")
         
         super().show()
     
@@ -158,6 +260,7 @@ class GameOverWidget(Widget):
             "THREEFOLD_REPETITION": "3x repetition",
             "RESIGN": "Resignation",
             "TIMEOUT": "Time forfeit",
+            "TIME_FORFEIT": "Time forfeit",
             "ABANDONED": "Abandoned",
         }
         
@@ -181,9 +284,9 @@ class GameOverWidget(Widget):
         
         return f"{minutes}:{secs:02d}"
     
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
+    def render(self, sprite: Image.Image) -> None:
         """
-        Draw game over widget using TextWidgets.
+        Render game over widget using TextWidgets.
         
         Layout (72 pixels height):
         - Line 1 (y=4): Winner (e.g., "White wins", "Black wins", "Draw")
@@ -191,32 +294,32 @@ class GameOverWidget(Widget):
         - Line 3 (y=44): Move count (e.g., "42 moves")
         - Line 4 (y=58): Final times if available (e.g., "W:5:23 B:3:17")
         """
-        draw = ImageDraw.Draw(img)
+        draw = ImageDraw.Draw(sprite)
         
         # Draw background
-        self.draw_background(img, draw_x, draw_y)
+        self.draw_background_on_sprite(sprite)
         
         # Draw separator line at top
-        draw.line([(draw_x, draw_y), (draw_x + self.width, draw_y)], fill=0, width=1)
+        draw.line([(0, 0), (self.width, 0)], fill=0, width=1)
         
         # Line 1: Winner (centered, large font)
         if self.winner:
             self._winner_text.set_text(self.winner)
-            self._winner_text.draw_on(img, draw_x, draw_y + 4)
+            self._winner_text.draw_on(sprite, 0, 4)
         
         # Line 2: Termination reason (centered, medium font)
         if self.termination:
             self._termination_text.set_text(self.termination)
-            self._termination_text.draw_on(img, draw_x, draw_y + 24)
+            self._termination_text.draw_on(sprite, 0, 24)
         
         # Line 3: Move count (centered, small font)
         if self.move_count > 0:
             self._moves_text.set_text(f"{self.move_count} moves")
-            self._moves_text.draw_on(img, draw_x, draw_y + 44)
+            self._moves_text.draw_on(sprite, 0, 44)
         
         # Line 4: Final times if available (centered, small font)
         if self.white_time is not None and self.black_time is not None:
             white_str = self._format_time(self.white_time)
             black_str = self._format_time(self.black_time)
             self._times_text.set_text(f"W:{white_str}  B:{black_str}")
-            self._times_text.draw_on(img, draw_x, draw_y + 58)
+            self._times_text.draw_on(sprite, 0, 58)

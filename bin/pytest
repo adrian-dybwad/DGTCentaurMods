@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="/Users/adriandybwad/Documents/GitHub/DGTCentaurMods"
+export PYTHONPATH="${REPO_ROOT}/DGTCentaurMods/opt${PYTHONPATH:+:${PYTHONPATH}}"
+
+exec "${REPO_ROOT}/.venv/bin/python" -m pytest "$@"
+

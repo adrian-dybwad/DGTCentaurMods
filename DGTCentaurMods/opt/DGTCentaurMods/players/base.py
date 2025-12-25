@@ -451,8 +451,12 @@ class Player(ABC):
         
         elif event_type == "place":
             if not self._lifted_squares:
-                # Place without any lifts - extra piece on board
-                self._report_error("place_without_lift")
+                # Place without any lifts - likely the lift event was missed.
+                # Submit a destination-only move (from_square == to_square signals this).
+                # GameManager will find the source by comparing board state to game state.
+                from DGTCentaurMods.board.logging import log
+                log.warning(f"[Player.on_piece_event] Place without lift on {chess.square_name(square)} - submitting destination-only move")
+                self._on_move_formed(chess.Move(square, square))
                 return
             
             if len(self._lifted_squares) == 1:
@@ -541,6 +545,19 @@ class Player(ABC):
         
         For online players, this sends the draw offer. Default
         implementation does nothing.
+        """
+        pass
+    
+    def on_correction_mode_exit(self) -> None:
+        """Notification that correction mode has exited.
+        
+        Called when the physical board has been corrected to match the
+        logical board state. Players can use this to restore UI state
+        (status messages, LED hints, etc.) that was interrupted by
+        correction mode.
+        
+        Default implementation does nothing. Override in subclasses
+        that need to restore state after correction.
         """
         pass
     

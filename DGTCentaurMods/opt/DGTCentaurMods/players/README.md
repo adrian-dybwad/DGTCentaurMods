@@ -87,7 +87,7 @@ white = HumanPlayer()
 config = EnginePlayerConfig(
     name="Stockfish",
     color=chess.BLACK,
-    engine_name="stockfish_pi",
+    engine_name="stockfish",
     elo_section="1500",
     time_limit_seconds=5.0
 )
@@ -108,7 +108,8 @@ manager.start()
 ### Lichess Online Game
 
 ```python
-from DGTCentaurMods.players import HumanPlayer, LichessPlayer, LichessPlayerConfig, LichessGameMode
+from DGTCentaurMods.players import HumanPlayer
+from DGTCentaurMods.players.lichess import LichessPlayer, LichessPlayerConfig, LichessGameMode
 
 # Create Lichess player for the remote opponent
 lichess_config = LichessPlayerConfig(

@@ -14,6 +14,7 @@ from typing import Optional, Callable
 import chess
 
 from DGTCentaurMods.board.logging import log
+from DGTCentaurMods.state.players import get_players_state
 from .base import Player, PlayerType
 
 
@@ -35,7 +36,7 @@ class PlayerManager:
     Example:
         # Setup
         white_player = HumanPlayer()
-        black_player = create_engine_player(chess.BLACK, "stockfish_pi")
+        black_player = create_engine_player(chess.BLACK, "stockfish")
         
         manager = PlayerManager(white_player, black_player)
         manager.set_move_callback(on_move)
@@ -90,6 +91,9 @@ class PlayerManager:
         # Wire callbacks
         self._wire_callbacks()
         
+        # Update observable PlayersState
+        self._update_players_state()
+        
         log.info(f"[PlayerManager] Created with White={white_player.name} ({white_player.player_type.name}), "
                  f"Black={black_player.name} ({black_player.player_type.name})")
     
@@ -134,6 +138,23 @@ class PlayerManager:
             if self._ready_callback:
                 self._ready_callback()
     
+    def _update_players_state(self) -> None:
+        """Update the observable PlayersState with current player info.
+        
+        Called when players are initialized or swapped.
+        Sets player names and hand-brain mode for each player.
+        """
+        players_state = get_players_state()
+        players_state.set_player_names(
+            white_name=self._white_player.name,
+            black_name=self._black_player.name
+        )
+        
+        # Set hand-brain mode from player configs (only HumanPlayerConfig has this)
+        white_hand_brain = getattr(self._white_player._config, 'hand_brain', False)
+        black_hand_brain = getattr(self._black_player._config, 'hand_brain', False)
+        players_state.set_hand_brain(white_hand_brain, black_hand_brain)
+    
     # =========================================================================
     # Callback Setters
     # =========================================================================
@@ -161,6 +182,14 @@ class PlayerManager:
         self._pending_move_callback = callback
         self._white_player.set_pending_move_callback(callback)
         self._black_player.set_pending_move_callback(callback)
+    
+    def set_ready_callback(self, callback: Callable[[], None]) -> None:
+        """Set callback for when all players are ready.
+        
+        Args:
+            callback: Function() called when both players are ready.
+        """
+        self._ready_callback = callback
     
     def set_status_callback(self, callback: Callable[[str], None]) -> None:
         """Set callback for player status messages.
@@ -213,6 +242,15 @@ class PlayerManager:
         self._white_player.stop()
         self._black_player.stop()
     
+    def clear_pending_moves(self) -> None:
+        """Clear any pending moves from both players.
+        
+        Called when an external app connects and takes over game control.
+        """
+        for player in [self._white_player, self._black_player]:
+            if hasattr(player, 'clear_pending_move'):
+                player.clear_pending_move()
+    
     def on_new_game(self) -> None:
         """Notify both players of new game."""
         self._white_player.on_new_game()
@@ -241,6 +279,54 @@ class PlayerManager:
             The player for that color.
         """
         return self._white_player if color == chess.WHITE else self._black_player
+    
+    def set_player(self, color: chess.Color, player: Player) -> Player:
+        """Replace a player for a specific color.
+        
+        Used when a remote client connects and takes over from a local player
+        (e.g., Millennium app replacing the local engine). The new player is
+        wired with the same callbacks and started.
+        
+        Args:
+            color: chess.WHITE or chess.BLACK
+            player: The new player to use for this color.
+            
+        Returns:
+            The previous player that was replaced.
+        """
+        # Get and stop the current player
+        old_player = self.get_player(color)
+        old_player.stop()
+        
+        # Set color on new player
+        player.color = color
+        
+        # Wire callbacks to new player
+        if self._move_callback:
+            player.set_move_callback(self._move_callback)
+        if self._pending_move_callback:
+            player.set_pending_move_callback(self._pending_move_callback)
+        if self._status_callback:
+            player.set_status_callback(self._status_callback)
+        if self._error_callback:
+            player.set_error_callback(self._error_callback)
+        player.set_ready_callback(self._on_player_ready)
+        
+        # Store new player
+        if color == chess.WHITE:
+            self._white_player = player
+        else:
+            self._black_player = player
+        
+        # Start the new player
+        player.start()
+        
+        # Update observable PlayersState
+        self._update_players_state()
+        
+        log.info(f"[PlayerManager] Replaced {old_player.name} with {player.name} for {'White' if color == chess.WHITE else 'Black'}")
+        
+        return old_player
     
     def get_current_player(self, board: chess.Board) -> Player:
         """Get the player whose turn it is.

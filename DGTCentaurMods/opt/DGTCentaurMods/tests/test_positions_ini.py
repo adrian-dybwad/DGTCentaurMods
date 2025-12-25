@@ -14,7 +14,7 @@ import chess
 
 
 class TestParsePositionEntry(unittest.TestCase):
-    """Test the _parse_position_entry function.
+    """Test the parse_position_entry function.
     
     Expected failure before fix: AttributeError (function doesn't exist)
     Expected pass after fix: All assertions pass
@@ -23,8 +23,8 @@ class TestParsePositionEntry(unittest.TestCase):
     def setUp(self):
         """Import the function under test."""
         # Import here to get the latest version
-        from DGTCentaurMods.universal import _parse_position_entry
-        self.parse = _parse_position_entry
+        from DGTCentaurMods.utils.positions import parse_position_entry
+        self.parse = parse_position_entry
     
     def test_fen_only(self):
         """Test parsing FEN without hint move.
@@ -281,7 +281,7 @@ class TestStalemateIn1Positions(unittest.TestCase):
 
 
 class TestLoadPositionsConfig(unittest.TestCase):
-    """Test _load_positions_config returns correct structure.
+    """Test load_positions_config returns correct structure.
     
     Expected failure before fix: Returns dict of strings instead of tuples
     Expected pass after fix: Returns dict of (fen, hint) tuples
@@ -293,9 +293,9 @@ class TestLoadPositionsConfig(unittest.TestCase):
         Expected: Each position value is a tuple of (str, str|None)
         Failure reason: Function still returns plain strings
         """
-        from DGTCentaurMods.universal import _load_positions_config
+        from DGTCentaurMods.utils.positions import load_positions_config
         
-        positions = _load_positions_config()
+        positions = load_positions_config()
         
         # Should have at least the test category
         self.assertIn('test', positions,
@@ -321,9 +321,9 @@ class TestLoadPositionsConfig(unittest.TestCase):
         Expected: positions has 'game_over' key with endgame positions
         Failure reason: Category not added to positions.ini
         """
-        from DGTCentaurMods.universal import _load_positions_config
+        from DGTCentaurMods.utils.positions import load_positions_config
         
-        positions = _load_positions_config()
+        positions = load_positions_config()
         
         self.assertIn('game_over', positions,
             "positions.ini should have [game_over] section")

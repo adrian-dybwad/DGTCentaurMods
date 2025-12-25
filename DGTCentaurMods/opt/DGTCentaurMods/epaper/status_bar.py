@@ -49,24 +49,33 @@ class StatusBarWidget(Widget):
     WIFI_X = 80         # 16px wide
     CHROMECAST_X = 64   # 16px wide (only when streaming)
     
-    def __init__(self, x: int = 0, y: int = 0):
-        super().__init__(x, y, 128, STATUS_BAR_HEIGHT)
+    def __init__(self, x: int, y: int, update_callback):
+        """Initialize status bar widget.
         
-        # Create clock widget: 2.5x wider than tall = 40x16, starts at x=0
+        Args:
+            x: X position on display
+            y: Y position on display
+            update_callback: Callback to trigger display updates. Must not be None.
+        """
+        super().__init__(x, y, 128, STATUS_BAR_HEIGHT, update_callback)
+        
+        # Child widgets - created with shared update_callback
         font_path = '/opt/DGTCentaurMods/resources/Font.ttc'
         if not os.path.exists(font_path):
             font_path = 'resources/Font.ttc'
-        self._clock_widget = ClockWidget(0, 0, width=40, height=16, 
+        
+        # Clock widget: 2.5x wider than tall = 40x16, starts at x=0
+        self._clock_widget = ClockWidget(0, 0, 40, 16, update_callback,
                                          font_size=14, font_path=font_path,
                                          show_seconds=False)
         
         # Chromecast status widget (observes the ChromecastService singleton)
-        self._chromecast_widget = ChromecastStatusWidget(self.CHROMECAST_X, 0, size=16)
+        self._chromecast_widget = ChromecastStatusWidget(self.CHROMECAST_X, 0, 16, update_callback)
         
         # Other status widgets - all 16px tall to fill status bar
-        self._wifi_widget = WiFiStatusWidget(self.WIFI_X, 0, size=16)
-        self._bluetooth_widget = BluetoothStatusWidget(self.BLUETOOTH_X, 0, width=12, height=16)
-        self._battery_widget = BatteryWidget(self.BATTERY_X, 0, width=20, height=16)
+        self._wifi_widget = WiFiStatusWidget(self.WIFI_X, 0, 16, update_callback)
+        self._bluetooth_widget = BluetoothStatusWidget(self.BLUETOOTH_X, 0, 12, 16, update_callback)
+        self._battery_widget = BatteryWidget(self.BATTERY_X, 0, 20, 16, update_callback)
         
         # Collect child widgets for unified lifecycle management
         self._child_widgets: List[Widget] = [
@@ -92,10 +101,6 @@ class StatusBarWidget(Widget):
         for widget in self._child_widgets:
             widget.set_update_callback(callback)
     
-    def invalidate(self) -> None:
-        """Invalidate the widget cache to force re-render on next update."""
-        self._last_rendered = None
-    
     def update(self, full: bool = False):
         """Invalidate cache and request display update.
         
@@ -105,7 +110,7 @@ class StatusBarWidget(Widget):
         Returns:
             Future that completes when the display refresh finishes.
         """
-        self.invalidate()
+        self.invalidate_cache()
         return self.request_update(full=full)
     
     def stop(self) -> None:
@@ -116,16 +121,16 @@ class StatusBarWidget(Widget):
             except Exception as e:
                 log.debug(f"Error stopping {widget.__class__.__name__}: {e}")
     
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw status bar with all visible child widgets.
+    def render(self, sprite: Image.Image) -> None:
+        """Render status bar with all visible child widgets.
         
         Order from left to right: Clock, [Chromecast], WiFi, Bluetooth, Battery
         Each widget controls its own visibility.
         """
         # Draw background (white)
-        self.draw_background(img, draw_x, draw_y)
+        self.draw_background_on_sprite(sprite)
         
-        # Draw all visible child widgets
+        # Draw all visible child widgets onto sprite
         for widget in self._child_widgets:
             if widget.visible:
-                widget.draw_on(img, draw_x + widget.x, draw_y + widget.y)
+                widget.draw_on(sprite, widget.x, widget.y)

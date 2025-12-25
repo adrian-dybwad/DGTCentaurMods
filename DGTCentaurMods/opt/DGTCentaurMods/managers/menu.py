@@ -212,6 +212,7 @@ class MenuManager:
         """Display a menu and wait for selection.
         
         This is the primary method for showing menus. It handles:
+        - Clearing existing widgets and adding status bar
         - Creating and displaying the menu widget
         - Managing the active widget state
         - Converting the result to a MenuSelection object
@@ -235,15 +236,22 @@ class MenuManager:
         self._key_queue.clear()
         self._menu_loading = True
         
+        # Clear existing widgets and add status bar before showing menu
+        # This ensures a clean slate after splash screens or other temporary displays
+        self._board.display_manager.clear_widgets()
+        
         # Create menu widget
+        log.info(f"[DEBUG MenuManager] Creating IconMenuWidget with selected_index={initial_index}")
         menu_widget = IconMenuWidget(
-            x=0,
-            y=self._status_bar_height,
-            width=self._display_width,
-            height=self._display_height - self._status_bar_height,
+            0,
+            self._status_bar_height,
+            self._display_width,
+            self._display_height - self._status_bar_height,
+            self._board.display_manager.update,
             entries=entries,
             selected_index=initial_index
         )
+        log.info(f"[DEBUG MenuManager] IconMenuWidget created, menu_widget.selected_index={menu_widget.selected_index}")
         
         # Register as active menu (keys will be queued until loading completes)
         self._active_widget = menu_widget

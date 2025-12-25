@@ -33,8 +33,8 @@ get the repo on the pi:
 
 ```
 cd ~
-git clone https://github.com/adrian-dybwad/DGTCentaurMods.git
-cd DGTCentaurMods/DGTCentaurModes/opt
+git clone https://github.com/adrian-dybwad/DGTCentaurUniversal.git
+cd DGTCentaurUniversal/DGTCentaurMods/opt
 python3 -m venv --system-site-packages DGTCentaurMods/.venv && source DGTCentaurMods/.venv/bin/activate && pip install -r DGTCentaurMods/setup/requirements.txt
 ```
 
@@ -42,7 +42,6 @@ Run it
 
 ```
 cd ~/DGTCentaurMods/build
-sudo chmod +x run.sh
 ./run.sh
 ```
 
@@ -66,15 +65,19 @@ sudo apt purge --auto-remove dgtcentaurmods
 
 sudo systemctl disable DGTCentaurModsWeb.service
 sudo systemctl disable DGTCentaurMods.service
+sudo systemctl disable DGTStopController.service
 
 sudo systemctl stop DGTCentaurModsWeb.service
 sudo systemctl stop DGTCentaurMods.service
+sudo systemctl stop DGTStopController.service
 
 sudo systemctl enable DGTCentaurModsWeb.service
 sudo systemctl enable DGTCentaurMods.service
+sudo systemctl enable DGTStopController.service
 
 sudo systemctl start DGTCentaurModsWeb.service
 sudo systemctl start DGTCentaurMods.service
+sudo systemctl start DGTStopController.service
 
 sudo apt -y purge dgtcentaurmods
 cd ~

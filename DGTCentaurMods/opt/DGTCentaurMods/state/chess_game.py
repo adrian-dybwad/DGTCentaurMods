@@ -1,0 +1,523 @@
+"""
+Chess game state.
+
+Holds the authoritative game state: board position, result, and termination.
+Widgets observe this state to display the current position and game status.
+
+The chess.Board is owned here - GameManager and other components mutate it
+through this state object's methods, which trigger observer notifications.
+
+This module has minimal dependencies (just python-chess and typing) to keep
+imports fast for widgets.
+"""
+
+import chess
+from typing import Optional, Callable, List
+
+
+class ChessGameState:
+    """Observable chess game state.
+    
+    Holds:
+    - The chess.Board (position, legal moves, turn)
+    - Game result and termination reason
+    
+    Observers are notified on:
+    - Position changes (moves, takeback, new position)
+    - Game over (checkmate, stalemate, resignation, flag, draw)
+    - Check (when a king is in check after a move)
+    - Queen threat (when a queen is under attack after a move)
+    - Alert clear (when no check or threat exists)
+    
+    Thread safety: This class is NOT thread-safe. Callers must ensure
+    mutations happen from a single thread or use external synchronization.
+    """
+    
+    def __init__(self):
+        """Initialize game state with starting position."""
+        self._board = chess.Board()
+        self._result: Optional[str] = None  # '1-0', '0-1', '1/2-1/2'
+        self._termination: Optional[str] = None  # 'checkmate', 'stalemate', 'resignation', etc.
+        
+        # Observer callbacks
+        self._on_position_change: List[Callable[[], None]] = []
+        self._on_game_over: List[Callable[[str, str], None]] = []  # (result, termination)
+        self._on_check: List[Callable[[bool, int, int], None]] = []  # (is_black_in_check, attacker_sq, king_sq)
+        self._on_queen_threat: List[Callable[[bool, int, int], None]] = []  # (is_black_threatened, attacker_sq, queen_sq)
+        self._on_alert_clear: List[Callable[[], None]] = []
+    
+    # -------------------------------------------------------------------------
+    # Properties (read-only access to state)
+    # -------------------------------------------------------------------------
+    
+    @property
+    def board(self) -> chess.Board:
+        """The chess.Board instance. Use for read-only queries.
+        
+        For mutations, use the state methods (push_move, set_position, etc.)
+        to ensure observers are notified.
+        """
+        return self._board
+    
+    @property
+    def fen(self) -> str:
+        """Current position in FEN notation."""
+        return self._board.fen()
+    
+    @property
+    def turn(self) -> chess.Color:
+        """Which player's turn (chess.WHITE or chess.BLACK)."""
+        return self._board.turn
+    
+    @property
+    def turn_name(self) -> str:
+        """Turn as string ('white' or 'black')."""
+        return 'white' if self._board.turn == chess.WHITE else 'black'
+    
+    @property
+    def legal_moves(self):
+        """Generator of legal moves at current position."""
+        return self._board.legal_moves
+    
+    @property
+    def move_stack(self) -> List[chess.Move]:
+        """List of moves made in this game."""
+        return list(self._board.move_stack)
+    
+    @property
+    def is_game_in_progress(self) -> bool:
+        """Whether a game is in progress (at least one move has been made)."""
+        return len(self._board.move_stack) > 0
+    
+    @property
+    def is_check(self) -> bool:
+        """Whether the current player is in check."""
+        return self._board.is_check()
+    
+    @property
+    def is_game_over(self) -> bool:
+        """Whether the game has ended (by board state or external result)."""
+        return self._board.is_game_over() or self._result is not None
+    
+    @property
+    def result(self) -> Optional[str]:
+        """Game result ('1-0', '0-1', '1/2-1/2') or None if ongoing."""
+        if self._result is not None:
+            return self._result
+        outcome = self._board.outcome()
+        if outcome is not None:
+            return outcome.result()
+        return None
+    
+    @property
+    def termination(self) -> Optional[str]:
+        """How the game ended ('checkmate', 'stalemate', 'resignation', etc.)."""
+        if self._termination is not None:
+            return self._termination
+        outcome = self._board.outcome()
+        if outcome is not None:
+            return str(outcome.termination.name).lower()
+        return None
+    
+    # -------------------------------------------------------------------------
+    # Board queries (pure computations on current state)
+    # -------------------------------------------------------------------------
+    
+    def get_legal_destinations(self, source_square: int) -> List[int]:
+        """Get legal destination squares for a piece at the given square.
+        
+        Returns all squares where the piece can legally move, including
+        the source square itself (allowing piece to be placed back).
+        
+        Args:
+            source_square: The square index (0-63) of the piece.
+            
+        Returns:
+            List of square indices including source and all legal destinations.
+        """
+        destinations = [source_square]  # Include source (put piece back)
+        for move in self._board.legal_moves:
+            if move.from_square == source_square:
+                destinations.append(move.to_square)
+        return destinations
+    
+    def to_piece_presence_state(self) -> bytearray:
+        """Convert current position to piece presence state.
+        
+        Returns a 64-byte array where each byte is 1 if a piece is present
+        on that square, 0 otherwise. Used for comparing against physical board.
+        
+        Returns:
+            bytearray: 64 bytes representing piece presence (1) or absence (0).
+        """
+        state = bytearray(64)
+        for square in range(64):
+            piece = self._board.piece_at(square)
+            state[square] = 1 if piece is not None else 0
+        return state
+    
+    def get_check_info(self) -> Optional[tuple]:
+        """Get information about check state.
+        
+        Returns:
+            Tuple of (is_black_in_check, attacker_square, king_square) if in check,
+            None if not in check.
+        """
+        if not self._board.is_check():
+            return None
+        
+        side_in_check = self._board.turn
+        king_square = self._board.king(side_in_check)
+        checkers = self._board.checkers()
+        
+        if checkers and king_square is not None:
+            attacker_square = list(checkers)[0]
+            is_black_in_check = (side_in_check == chess.BLACK)
+            return (is_black_in_check, attacker_square, king_square)
+        return None
+    
+    def get_queen_threat_info(self) -> Optional[tuple]:
+        """Get information about queen threat state.
+        
+        Checks if the opponent's queen is under attack by the side to move.
+        
+        Returns:
+            Tuple of (is_black_queen_threatened, attacker_square, queen_square) 
+            if queen is threatened, None otherwise.
+        """
+        side_to_move = self._board.turn
+        opponent_color = not side_to_move
+        
+        queens = self._board.pieces(chess.QUEEN, opponent_color)
+        if not queens:
+            return None
+        
+        queen_square = list(queens)[0]
+        attackers = self._board.attackers(side_to_move, queen_square)
+        
+        if attackers:
+            attacker_square = list(attackers)[0]
+            is_black_queen_threatened = (opponent_color == chess.BLACK)
+            return (is_black_queen_threatened, attacker_square, queen_square)
+        return None
+    
+    # -------------------------------------------------------------------------
+    # Board state comparison utilities
+    # -------------------------------------------------------------------------
+    
+    # Starting position as piece presence state (1 = piece, 0 = empty)
+    # Ranks 1-2 and 7-8 have pieces, ranks 3-6 are empty
+    STARTING_POSITION_STATE = bytearray([
+        1, 1, 1, 1, 1, 1, 1, 1,  # Rank 1 (white pieces)
+        1, 1, 1, 1, 1, 1, 1, 1,  # Rank 2 (white pawns)
+        0, 0, 0, 0, 0, 0, 0, 0,  # Rank 3
+        0, 0, 0, 0, 0, 0, 0, 0,  # Rank 4
+        0, 0, 0, 0, 0, 0, 0, 0,  # Rank 5
+        0, 0, 0, 0, 0, 0, 0, 0,  # Rank 6
+        1, 1, 1, 1, 1, 1, 1, 1,  # Rank 7 (black pawns)
+        1, 1, 1, 1, 1, 1, 1, 1,  # Rank 8 (black pieces)
+    ])
+    
+    @staticmethod
+    def is_starting_position(board_state) -> bool:
+        """Check if a board state represents the starting position.
+        
+        Args:
+            board_state: 64-byte piece presence array.
+            
+        Returns:
+            True if the board is in starting position.
+        """
+        if board_state is None or len(board_state) != 64:
+            return False
+        return bytearray(board_state) == ChessGameState.STARTING_POSITION_STATE
+    
+    @staticmethod
+    def states_match(current_state, expected_state) -> bool:
+        """Compare two board states for equality.
+        
+        Args:
+            current_state: First 64-byte piece presence array.
+            expected_state: Second 64-byte piece presence array.
+            
+        Returns:
+            True if both states represent the same piece positions.
+        """
+        if current_state is None or expected_state is None:
+            return False
+        if len(current_state) != 64 or len(expected_state) != 64:
+            return False
+        return bytearray(current_state) == bytearray(expected_state)
+    
+    # -------------------------------------------------------------------------
+    # Observer management
+    # -------------------------------------------------------------------------
+    
+    def on_position_change(self, callback: Callable[[], None]) -> None:
+        """Register callback for position changes.
+        
+        Called after any move, takeback, or position reset.
+        
+        Args:
+            callback: Function with no arguments, called on position change.
+        """
+        if callback not in self._on_position_change:
+            self._on_position_change.append(callback)
+    
+    def on_game_over(self, callback: Callable[[str, str], None]) -> None:
+        """Register callback for game over events.
+        
+        Args:
+            callback: Function(result, termination) called when game ends.
+        """
+        if callback not in self._on_game_over:
+            self._on_game_over.append(callback)
+    
+    def on_check(self, callback: Callable[[bool, int, int], None]) -> None:
+        """Register callback for check events.
+        
+        Called when a king is in check after a move.
+        
+        Args:
+            callback: Function(is_black_in_check, attacker_square, king_square)
+        """
+        if callback not in self._on_check:
+            self._on_check.append(callback)
+    
+    def on_queen_threat(self, callback: Callable[[bool, int, int], None]) -> None:
+        """Register callback for queen threat events.
+        
+        Called when a queen is under attack after a move (and no check).
+        
+        Args:
+            callback: Function(is_black_queen_threatened, attacker_square, queen_square)
+        """
+        if callback not in self._on_queen_threat:
+            self._on_queen_threat.append(callback)
+    
+    def on_alert_clear(self, callback: Callable[[], None]) -> None:
+        """Register callback for alert clear events.
+        
+        Called when there is no check or queen threat after a move.
+        
+        Args:
+            callback: Function with no arguments.
+        """
+        if callback not in self._on_alert_clear:
+            self._on_alert_clear.append(callback)
+    
+    def remove_observer(self, callback: Callable) -> None:
+        """Remove a previously registered callback.
+        
+        Args:
+            callback: The callback to remove (from any observer list).
+        """
+        if callback in self._on_position_change:
+            self._on_position_change.remove(callback)
+        if callback in self._on_game_over:
+            self._on_game_over.remove(callback)
+        if callback in self._on_check:
+            self._on_check.remove(callback)
+        if callback in self._on_queen_threat:
+            self._on_queen_threat.remove(callback)
+        if callback in self._on_alert_clear:
+            self._on_alert_clear.remove(callback)
+    
+    def notify_position_change(self) -> None:
+        """Notify all position change observers.
+        
+        Called automatically by mutation methods (push_move, pop_move, etc.).
+        Can also be called manually after direct board modifications.
+        """
+        for callback in self._on_position_change:
+            try:
+                callback()
+            except Exception:
+                pass  # Don't let observer errors break the state
+    
+    def notify_game_over(self, result: str, termination: str) -> None:
+        """Notify all game over observers.
+        
+        Args:
+            result: Game result ('1-0', '0-1', '1/2-1/2')
+            termination: How game ended
+        """
+        for callback in self._on_game_over:
+            try:
+                callback(result, termination)
+            except Exception:
+                pass
+    
+    def _notify_check_and_threats(self) -> None:
+        """Detect and notify check/queen threat after a move.
+        
+        Priority: Check > Queen threat (only one alert at a time).
+        If neither, notifies alert clear.
+        """
+        # Check for check first (higher priority)
+        check_info = self.get_check_info()
+        if check_info:
+            is_black_in_check, attacker_square, king_square = check_info
+            for callback in self._on_check:
+                try:
+                    callback(is_black_in_check, attacker_square, king_square)
+                except Exception:
+                    pass
+            return
+        
+        # Check for queen threat
+        queen_info = self.get_queen_threat_info()
+        if queen_info:
+            is_black_threatened, attacker_square, queen_square = queen_info
+            for callback in self._on_queen_threat:
+                try:
+                    callback(is_black_threatened, attacker_square, queen_square)
+                except Exception:
+                    pass
+            return
+        
+        # No check or threat - clear alerts
+        for callback in self._on_alert_clear:
+            try:
+                callback()
+            except Exception:
+                pass
+    
+    # -------------------------------------------------------------------------
+    # State mutations (trigger observer notifications)
+    # -------------------------------------------------------------------------
+    
+    def push_move(self, move: chess.Move) -> None:
+        """Push a move onto the board.
+        
+        After the move, checks for and notifies:
+        - Position change (always)
+        - Check or queen threat (if applicable)
+        - Game over (if applicable)
+        
+        Args:
+            move: The chess.Move to execute.
+            
+        Raises:
+            ValueError: If move is illegal.
+        """
+        if move not in self._board.legal_moves:
+            raise ValueError(f"Illegal move: {move.uci()}")
+        
+        self._board.push(move)
+        self.notify_position_change()
+        
+        # Detect and notify check/threats
+        self._notify_check_and_threats()
+        
+        # Check for game end by board state
+        outcome = self._board.outcome()
+        if outcome is not None:
+            self._result = outcome.result()
+            self._termination = str(outcome.termination.name).lower()
+            self.notify_game_over(self._result, self._termination)
+    
+    def push_uci(self, uci: str) -> chess.Move:
+        """Push a move by UCI string.
+        
+        Args:
+            uci: Move in UCI format (e.g., 'e2e4', 'e7e8q').
+            
+        Returns:
+            The parsed chess.Move.
+            
+        Raises:
+            ValueError: If UCI is invalid or move is illegal.
+        """
+        move = chess.Move.from_uci(uci)
+        self.push_move(move)
+        return move
+    
+    def pop_move(self) -> Optional[chess.Move]:
+        """Pop the last move (takeback).
+        
+        Returns:
+            The popped move, or None if no moves to pop.
+        """
+        if not self._board.move_stack:
+            return None
+        
+        # Clear any external result on takeback
+        self._result = None
+        self._termination = None
+        
+        move = self._board.pop()
+        self.notify_position_change()
+        return move
+    
+    def set_position(self, fen: str) -> None:
+        """Set the board to a specific position.
+        
+        Args:
+            fen: FEN string of the position.
+            
+        Raises:
+            ValueError: If FEN is invalid.
+        """
+        self._board.set_fen(fen)
+        self._result = None
+        self._termination = None
+        self.notify_position_change()
+    
+    def reset(self) -> None:
+        """Reset to starting position.
+        
+        Clears any check/threat alerts since starting position has no threats.
+        """
+        self._board.reset()
+        self._result = None
+        self._termination = None
+        self.notify_position_change()
+        # Clear alerts - starting position has no check or threats
+        self._notify_check_and_threats()
+    
+    def set_result(self, result: str, termination: str) -> None:
+        """Set game result from external event (resignation, flag, draw agreement).
+        
+        Use this for game endings that aren't determined by board state
+        (e.g., resignation, time forfeit, draw by agreement).
+        
+        Args:
+            result: Game result ('1-0', '0-1', '1/2-1/2')
+            termination: How game ended ('resignation', 'time_forfeit', 'draw_agreement')
+        """
+        self._result = result
+        self._termination = termination
+        self.notify_game_over(result, termination)
+
+
+# -----------------------------------------------------------------------------
+# Singleton instance
+# -----------------------------------------------------------------------------
+
+_instance: Optional[ChessGameState] = None
+
+
+def get_chess_game() -> ChessGameState:
+    """Get the singleton ChessGameState instance.
+    
+    Returns:
+        The global ChessGameState instance.
+    """
+    global _instance
+    if _instance is None:
+        _instance = ChessGameState()
+    return _instance
+
+
+def reset_chess_game() -> ChessGameState:
+    """Reset the singleton to a fresh instance.
+    
+    Primarily for testing. Creates a new instance and returns it.
+    
+    Returns:
+        The new ChessGameState instance.
+    """
+    global _instance
+    _instance = ChessGameState()
+    return _instance

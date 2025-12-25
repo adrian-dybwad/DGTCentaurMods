@@ -22,10 +22,17 @@ from .base import Player, PlayerConfig, PlayerState, PlayerType
 class HumanPlayerConfig(PlayerConfig):
     """Configuration for human player.
     
-    Human players don't need much configuration - their moves
-    come from the physical board.
+    Human players' moves come from the physical board.
+    The engine settings are used for the hint assistant (? button).
+    
+    Attributes:
+        name: Display name for the player.
+        engine: Engine name for hint suggestions.
+        elo: ELO section for the hint engine.
     """
     name: str = "Human"
+    engine: str = "stockfish"
+    elo: str = "Default"
 
 
 class HumanPlayer(Player):
@@ -91,19 +98,6 @@ class HumanPlayer(Player):
         """
         self._lifted_squares = []
         log.debug("[HumanPlayer] Turn started, waiting for piece events")
-    
-    def on_piece_event(self, event_type: str, square: int, board: chess.Board) -> None:
-        """Handle a piece event from the physical board.
-        
-        Base class handles all logic - just add debug logging here.
-        
-        Args:
-            event_type: "lift" or "place"
-            square: The square index (0-63)
-            board: Current chess position
-        """
-        log.debug(f"[HumanPlayer] {event_type} on {chess.square_name(square)}")
-        super().on_piece_event(event_type, square, board)
     
     def on_move_made(self, move: chess.Move, board: chess.Board) -> None:
         """Notification that a move was made.

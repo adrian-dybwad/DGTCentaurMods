@@ -78,6 +78,20 @@ class Scheduler:
                     break
         log.debug("Scheduler.clear_pending(): Cleared pending refresh requests")
     
+    def submit_deferred(self, callback) -> None:
+        """Schedule a callback to run on the scheduler thread.
+        
+        Used to defer operations that would cause recursion if executed immediately.
+        The callback will run on the next scheduler iteration.
+        
+        Args:
+            callback: A callable to execute on the scheduler thread.
+        """
+        # Use a simple threading.Timer with 0 delay to defer to next event loop tick
+        timer = threading.Timer(0.001, callback)
+        timer.daemon = True
+        timer.start()
+    
     def submit(self, full: bool = False, immediate: bool = False, image: Optional[Image.Image] = None) -> Future:
         """Submit a refresh request.
         
@@ -205,6 +219,7 @@ class Scheduler:
                 full_image = self._framebuffer.snapshot(rotation=epdconfig.ROTATION)
             
             buf = self._epd.getbuffer(full_image)
+            log.debug(f"Scheduler: Sending FULL refresh to display")
             self._epd.display(buf)
             self._partial_refresh_count = 0
             
@@ -216,7 +231,10 @@ class Scheduler:
                     log.debug(f"on_display_updated callback failed: {cb_e}")
         except Exception as e:
             # Don't log errors during shutdown (SPI may be closed)
-            if not self._stop_event.is_set():
+            # Also suppress GPIO-related errors that occur during shutdown race conditions
+            error_msg = str(e).lower()
+            is_shutdown_error = 'closed' in error_msg or 'uninitialized' in error_msg or 'gpio' in error_msg
+            if not self._stop_event.is_set() and not is_shutdown_error:
                 log.error(f"ERROR in full refresh: {e}")
                 import traceback
                 traceback.print_exc()
@@ -264,6 +282,7 @@ class Scheduler:
             
             # Get buffer from image and display
             buf = self._epd.getbuffer(display_image)
+            log.debug(f"Scheduler: Sending PARTIAL refresh to display (count={self._partial_refresh_count + 1})")
             self._epd.DisplayPartial(buf)
             
             self._partial_refresh_count += 1
@@ -276,7 +295,10 @@ class Scheduler:
                     log.debug(f"on_display_updated callback failed: {cb_e}")
         except Exception as e:
             # Don't log errors during shutdown (SPI may be closed)
-            if not self._stop_event.is_set():
+            # Also suppress GPIO-related errors that occur during shutdown race conditions
+            error_msg = str(e).lower()
+            is_shutdown_error = 'closed' in error_msg or 'uninitialized' in error_msg
+            if not self._stop_event.is_set() and not is_shutdown_error:
                 log.error(f"ERROR in partial refresh: {e}")
                 import traceback
                 traceback.print_exc()

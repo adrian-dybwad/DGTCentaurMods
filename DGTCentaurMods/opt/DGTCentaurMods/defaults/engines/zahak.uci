@@ -1,34 +1,34 @@
 [DEFAULT]
-Description = Fast tactical engine with adjustable levels
+Description = Go-based engine with adjustable skill levels
 
-#option name Ponder type check default false
-#option name Hash type spin default 128 min 1 max 120000
-#option name OwnBook type check default false
-#option name Threads type spin default 1 min 1 max 4
-#option name EvalFile type string default <empty>
-#option name BookFile type string default <empty>
-#option name SyzygyPath type string default <empty>
-#option name SyzygyProbeDepth type spin default 0 min 0 max 128
-#option name MultiPV type spin default 1 min 1 max 120
-#option name Skill Level type spin default 7 min 1 max 7
+[Default]
+Description = Maximum strength (Level 7, ~2700 ELO)
+Skill Level = 7
 
-[Level 1: 1270]
+[Level 1]
+Description = ~1270 ELO
 Skill Level = 1
 
-[Level 2: 1440]
+[Level 2]
+Description = ~1440 ELO
 Skill Level = 2
 
-[Level 3: 1630]
+[Level 3]
+Description = ~1630 ELO
 Skill Level = 3
 
-[Level 4: 1856]
+[Level 4]
+Description = ~1856 ELO
 Skill Level = 4
 
-[Level 5: 2004]
+[Level 5]
+Description = ~2004 ELO
 Skill Level = 5
 
-[Level 6: 2074]
+[Level 6]
+Description = ~2074 ELO
 Skill Level = 6
 
-[Level 7: open]
+[Level 7]
+Description = Maximum (~2700 ELO)
 Skill Level = 7

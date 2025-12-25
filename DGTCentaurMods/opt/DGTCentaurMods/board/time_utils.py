@@ -114,8 +114,3 @@ def format_time_display(time_in_seconds: float) -> str:
         minutes = int(remaining // 60)
         seconds = remaining % 60
         return f"{hours}:{minutes:02d}:{seconds:05.2f}"
-
-
-# For backward compatibility, provide private versions that point to public ones
-_decode_time = decode_time
-_format_time_display = format_time_display

@@ -20,8 +20,12 @@
 from .base import Player, PlayerConfig, PlayerState, PlayerType
 from .human import HumanPlayer, HumanPlayerConfig
 from .engine import EnginePlayer, EnginePlayerConfig, create_engine_player
-from .lichess import LichessPlayer, LichessPlayerConfig, LichessGameMode, create_lichess_player
+from .hand_brain import (
+    HandBrainPlayer, HandBrainConfig, HandBrainMode, HandBrainPhase,
+    create_hand_brain_player
+)
 from .manager import PlayerManager
+from .settings import PlayerSettings, GameSettings, AllSettings
 
 __all__ = [
     # Base classes
@@ -36,11 +40,16 @@ __all__ = [
     'EnginePlayer',
     'EnginePlayerConfig',
     'create_engine_player',
-    # Lichess player
-    'LichessPlayer',
-    'LichessPlayerConfig',
-    'LichessGameMode',
-    'create_lichess_player',
+    # Hand+Brain player
+    'HandBrainPlayer',
+    'HandBrainConfig',
+    'HandBrainMode',
+    'HandBrainPhase',
+    'create_hand_brain_player',
     # Manager
     'PlayerManager',
+    # Settings
+    'PlayerSettings',
+    'GameSettings',
+    'AllSettings',
 ]
