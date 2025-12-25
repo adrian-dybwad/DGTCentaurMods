@@ -5,9 +5,24 @@ set -euo pipefail
 #
 # This script is intentionally repo-relative and does not assume a particular
 # checkout folder name.
+#
+# Usage:
+#   ./build.sh              - Build package (standard)
+#   ./build.sh --with-lc0   - Build package with lc0/Maia engine (takes ~30 min on Pi)
+#   ./build.sh clean        - Clean build artifacts
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# Parse arguments
+BUILD_LC0=false
+for arg in "$@"; do
+    case "$arg" in
+        --with-lc0)
+            BUILD_LC0=true
+            ;;
+    esac
+done
 
 # Use /var/tmp for large build artifacts (disk-backed, not tiny RAM /tmp)
 BUILD_TMP="/var/tmp"
@@ -127,6 +142,36 @@ function prepareEngines {
     echo "::: Stockfish will be installed from system package during installation"
 }
 
+function buildLc0 {
+    if [[ "$BUILD_LC0" != "true" ]]; then
+        echo "::: Skipping lc0 build (use --with-lc0 to include)"
+        return 0
+    fi
+    
+    echo "::: Building lc0/Maia engine (this may take 20-30 minutes on Raspberry Pi)..."
+    
+    local lc0_build_script="${SCRIPT_DIR}/engines/build-lc0.sh"
+    local lc0_output_dir="${STAGE_DIR}${INSTALLDIR}/engines"
+    
+    if [[ ! -x "$lc0_build_script" ]]; then
+        echo "ERROR: lc0 build script not found: $lc0_build_script" >&2
+        exit 1
+    fi
+    
+    # Create engines directory if it doesn't exist
+    mkdir -p "$lc0_output_dir"
+    
+    # Run the lc0 build script
+    if ! "$lc0_build_script" "$lc0_output_dir"; then
+        echo "ERROR: lc0 build failed" >&2
+        exit 1
+    fi
+    
+    echo "::: lc0/Maia engine built successfully"
+    ls -la "${lc0_output_dir}/lc0" 2>/dev/null || true
+    ls -la "${lc0_output_dir}/maia_weights/" 2>/dev/null || true
+}
+
 function removeDev {
     # Best-effort removal of runtime/dev artifacts that should not ship in a .deb.
     rm -f "${STAGE_DIR}${INSTALLDIR}/config/centaur.ini" || true
@@ -157,6 +202,7 @@ function main {
     removeDev
     setPermissions
     prepareEngines
+    buildLc0
     build
 }
 

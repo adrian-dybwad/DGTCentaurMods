@@ -66,7 +66,7 @@ Raspberry Pi                    Mac VM (Bullseye)
 
 #### On Raspberry Pi (Server):
 ```bash
-cd ~/DGTCentaurMods/build/vm-setup
+cd ~/Universal-Chess/scripts/vm-setup
 # Start both servers at once:
 ./start_pi_servers.sh
 
@@ -77,7 +77,7 @@ python3 epaper_proxy_server.py &
 
 #### On Mac VM (Client):
 ```bash
-cd ~/DGTCentaurMods/build/vm-setup
+cd ~/Universal-Chess/scripts/vm-setup
 # Start both clients at once:
 ./start_vm_relays.sh <PI_IP_ADDRESS>
 
@@ -90,7 +90,7 @@ python3 epaper_proxy_client.py --server-ip <PI_IP_ADDRESS> &
 
 **Option 1: Using the wrapper (recommended, no code modification):**
 ```bash
-cd ~/DGTCentaurMods/build/vm-setup
+cd ~/Universal-Chess/scripts/vm-setup
 # Ensure serial relay client is running first
 python3 serial_relay_client.py --server-ip <PI_IP> &
 

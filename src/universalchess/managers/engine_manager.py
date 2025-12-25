@@ -237,47 +237,33 @@ ENGINES = {
     ),
     
     # === NEURAL NETWORK - HUMAN-LIKE ===
+    # Maia uses a custom build script because:
+    # 1. lc0 compilation is very memory-intensive (needs swap on Pi)
+    # 2. Requires -j1 to avoid OOM kills during abseil compilation
+    # 3. Complex meson options needed for ARM with BLAS-only backend
+    # The build script handles all of this automatically.
     "maia": EngineDefinition(
         name="maia",
         display_name="Maia",
         summary="Human-like play",
-        description="Neural network trained on human games to play like humans at various ELO levels (1100-1900). Uses lc0 backend with Maia weights. Makes realistic human moves and mistakes. Build takes ~30-45 minutes on Pi.",
-        repo_url="https://github.com/LeelaChessZero/lc0.git",
+        description="Neural network trained on human games to play like humans at various ELO levels (1100-1900). Uses lc0 backend with Maia weights. Makes realistic human moves and mistakes. Build takes 45-60 minutes on Pi (memory-intensive).",
+        repo_url=None,  # Using custom build script instead of git clone
         build_commands=[
-            # Wipe any existing build to ensure clean configuration
-            "rm -rf build/release",
-            # Configure meson build for ARM with BLAS-only backend (CPU)
-            # Disable all GPU backends (plain_cuda, cudnn, opencl, dx, metal)
-            # Disable x86-specific features (ispc, popcnt, f16c, pext)
-            # Disable optional features (gtest, onnx, nvcc, python_bindings)
-            "meson setup build/release --buildtype=release "
-            "-Ddefault_library=static "
-            "-Dblas=true -Dopenblas=true "
-            "-Dplain_cuda=false -Dcudnn=false -Dopencl=false -Ddx=false -Donednn=false -Dmetal=disabled "
-            "-Dispc=false -Dpopcnt=false -Df16c=false -Dpext=false "
-            "-Dgtest=false -Donnx=false -Dnvcc=false -Dpython_bindings=false",
-            # Build with limited parallelism (-j2) to avoid OOM on Pi
-            "ninja -C build/release -j2",
-            # Download Maia weights
-            "mkdir -p maia_weights",
-            "wget -q -O maia_weights/maia-1100.pb.gz https://github.com/CSSLab/maia-chess/raw/main/maia_weights/maia-1100.pb.gz || true",
-            "wget -q -O maia_weights/maia-1200.pb.gz https://github.com/CSSLab/maia-chess/raw/main/maia_weights/maia-1200.pb.gz || true",
-            "wget -q -O maia_weights/maia-1300.pb.gz https://github.com/CSSLab/maia-chess/raw/main/maia_weights/maia-1300.pb.gz || true",
-            "wget -q -O maia_weights/maia-1400.pb.gz https://github.com/CSSLab/maia-chess/raw/main/maia_weights/maia-1400.pb.gz || true",
-            "wget -q -O maia_weights/maia-1500.pb.gz https://github.com/CSSLab/maia-chess/raw/main/maia_weights/maia-1500.pb.gz || true",
-            "wget -q -O maia_weights/maia-1600.pb.gz https://github.com/CSSLab/maia-chess/raw/main/maia_weights/maia-1600.pb.gz || true",
-            "wget -q -O maia_weights/maia-1700.pb.gz https://github.com/CSSLab/maia-chess/raw/main/maia_weights/maia-1700.pb.gz || true",
-            "wget -q -O maia_weights/maia-1800.pb.gz https://github.com/CSSLab/maia-chess/raw/main/maia_weights/maia-1800.pb.gz || true",
-            "wget -q -O maia_weights/maia-1900.pb.gz https://github.com/CSSLab/maia-chess/raw/main/maia_weights/maia-1900.pb.gz || true",
+            # Use the standalone build script that handles:
+            # - Swap file creation if memory is low
+            # - Single-threaded build to avoid OOM
+            # - Correct meson options for ARM
+            # - Weight downloads
+            f"sudo {REPO_ROOT}/scripts/engines/build-maia.sh {ENGINES_DIR}/maia",
         ],
-        binary_path="build/release/lc0",
+        binary_path="lc0",  # Script installs to ENGINES_DIR/maia/lc0
         is_system_package=False,
         package_name=None,
         extra_files=["maia_weights"],
-        dependencies=["build-essential", "git", "clang", "meson", "ninja-build", "libopenblas-dev", "zlib1g-dev", "wget", "pkg-config"],
-        clone_with_submodules=True,
-        build_timeout=3600,  # 60 minutes - lc0 with -j2 takes longer but avoids OOM
-        estimated_install_minutes=45,
+        dependencies=[],  # Build script handles dependencies
+        clone_with_submodules=False,  # Build script handles cloning
+        build_timeout=7200,  # 2 hours - may need swap which is slow
+        estimated_install_minutes=60,
     ),
     
     # === LIGHTWEIGHT/FAST COMPILE ===
@@ -362,7 +348,13 @@ class EngineManager:
             return is_installed
         else:
             # Check if binary exists in engines directory
-            engine_path = self.engines_dir / engine_name
+            # Most engines: engines_dir/engine_name
+            # Engines with custom scripts (repo_url=None): engines_dir/engine_name/binary_path
+            if engine.repo_url is None and engine.binary_path:
+                # Custom script installs to subdirectory
+                engine_path = self.engines_dir / engine_name / engine.binary_path
+            else:
+                engine_path = self.engines_dir / engine_name
             exists = engine_path.exists()
             executable = os.access(engine_path, os.X_OK) if exists else False
             is_installed = exists and executable
@@ -583,8 +575,12 @@ class EngineManager:
         else:
             log.debug(f"[EngineManager] _install_from_source: No dependencies to install")
         
-        # Clone or update repository
-        if repo_dir.exists():
+        # Clone or update repository (skip if repo_url is None - engine uses custom build script)
+        if engine.repo_url is None:
+            log.info(f"[EngineManager] _install_from_source: No repo_url - engine uses custom build script")
+            # Ensure repo_dir exists for build commands that might need a working directory
+            repo_dir.mkdir(parents=True, exist_ok=True)
+        elif repo_dir.exists():
             update_progress(f"Updating {engine.display_name} source...")
             log.info(f"[EngineManager] _install_from_source: Repo exists, running git pull in {repo_dir}")
             result = subprocess.run(
@@ -656,6 +652,21 @@ class EngineManager:
         if not self.engines_dir.exists():
             log.info(f"[EngineManager] _install_from_source: Creating engines directory {self.engines_dir}")
             self.engines_dir.mkdir(parents=True, exist_ok=True)
+        
+        # For engines with repo_url=None (custom build scripts), the script handles installation
+        # Check if the binary already exists in the expected final location
+        if engine.repo_url is None:
+            # Custom build script installs directly to engines_dir/engine.name/
+            dst_dir = self.engines_dir / engine.name
+            dst_binary = dst_dir / engine.binary_path
+            if dst_binary.exists() and os.access(dst_binary, os.X_OK):
+                log.info(f"[EngineManager] _install_from_source: Custom script installed binary to {dst_binary}")
+                update_progress(f"Verifying {engine.display_name} installation...")
+                return True
+            else:
+                log.error(f"[EngineManager] _install_from_source: Custom script did not produce binary at {dst_binary}")
+                self._install_error = f"Binary not found after build: {dst_binary}"
+                return False
         
         # Copy binary to engines directory
         update_progress(f"Installing {engine.display_name}...")

@@ -1,4 +1,7 @@
 .*
+!.gitignore
+!.envrc
+!.github
 __pycache__
 **/7-Zip
 **/*.msi
@@ -10,4 +13,7 @@ __pycache__
 **/Win32DiskImager
 **/centaur.img
 **/.toggled
-**/build
+
+# Ignore all build output directories (meson, cmake, ninja, etc.)
+# The project scripts are now in scripts/, not build/
+**/build/

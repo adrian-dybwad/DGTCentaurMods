@@ -1,0 +1,76 @@
+# Build nightly release from main branch
+name: Nightly
+
+on:
+  push:
+    branches: [main, UniversalChess]
+  schedule:
+    # Run at 2 AM UTC daily
+    - cron: '0 2 * * *'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  build:
+    name: Build Nightly
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Generate nightly version
+        id: version
+        run: |
+          BASE_VERSION=$(grep -E "^Version:" packaging/deb-root/DEBIAN/control | cut -d' ' -f2)
+          NIGHTLY_VERSION="${BASE_VERSION}-nightly.$(date +%Y%m%d).${GITHUB_SHA::7}"
+          echo "version=$NIGHTLY_VERSION" >> $GITHUB_OUTPUT
+          echo "base_version=$BASE_VERSION" >> $GITHUB_OUTPUT
+          
+          # Update control file with nightly version
+          sed -i "s/^Version: .*/Version: ${NIGHTLY_VERSION}/" packaging/deb-root/DEBIAN/control
+          echo "Building nightly version: $NIGHTLY_VERSION"
+      
+      - name: Build .deb package
+        run: |
+          chmod +x scripts/build.sh
+          ./scripts/build.sh
+      
+      - name: Generate checksums
+        run: |
+          cd scripts/releases
+          sha256sum *.deb > SHA256SUMS.txt
+      
+      - name: Update nightly release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: Nightly Build
+          prerelease: true
+          files: |
+            scripts/releases/*.deb
+            scripts/releases/SHA256SUMS.txt
+          body: |
+            ## Nightly Build
+            
+            **This is an automated build from the latest development branch.**
+            **Not recommended for production use.**
+            
+            - Base version: ${{ steps.version.outputs.base_version }}
+            - Build version: ${{ steps.version.outputs.version }}
+            - Commit: ${{ github.sha }}
+            - Built: ${{ github.event.head_commit.timestamp }}
+            
+            ## Installation
+            
+            ```bash
+            sudo dpkg -i universal-chess_*_all.deb
+            sudo apt-get install -f
+            ```
+            
+            ## Switch to Stable
+            
+            To switch back to stable releases:
+            ```bash
+            sudo apt-get install --reinstall universal-chess
+            ```
+

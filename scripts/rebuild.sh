@@ -12,8 +12,8 @@ BRANCH_OR_TAG="${1:-UniversalChess}"
 # Always work repo-relative (portable across checkout folder names)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-BUILD_DIR="${REPO_DIR}/build"
-RELEASES_DIR="${BUILD_DIR}/releases"
+SCRIPTS_DIR="${REPO_DIR}/scripts"
+RELEASES_DIR="${SCRIPTS_DIR}/releases"
 
 if [ ! -d "$REPO_DIR/.git" ]; then
   echo "Repository not found at $REPO_DIR (expecting a git repo)." >&2
@@ -38,7 +38,7 @@ else
 fi
 
 log "3/8 Building package from '$BRANCH_OR_TAG'"
-cd "$BUILD_DIR"
+cd "$SCRIPTS_DIR"
 ./build.sh "$BRANCH_OR_TAG"
 
 log "4/8 Locating latest .deb artifact"

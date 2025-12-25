@@ -1,0 +1,84 @@
+# Create GitHub Release when a version tag is pushed
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build Package
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+      
+      - name: Build .deb package
+        run: |
+          chmod +x scripts/build.sh
+          ./scripts/build.sh
+      
+      - name: Generate checksums
+        run: |
+          cd scripts/releases
+          sha256sum *.deb > SHA256SUMS.txt
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: |
+            scripts/releases/*.deb
+            scripts/releases/SHA256SUMS.txt
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: ./artifacts
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Universal Chess v${{ needs.build.outputs.version }}
+          generate_release_notes: true
+          files: |
+            artifacts/*.deb
+            artifacts/SHA256SUMS.txt
+          body: |
+            ## Installation
+            
+            Download the `.deb` file and install on your Raspberry Pi:
+            
+            ```bash
+            sudo dpkg -i universal-chess_${{ needs.build.outputs.version }}_all.deb
+            sudo apt-get install -f  # Install any missing dependencies
+            ```
+            
+            ## Verify Download
+            
+            ```bash
+            sha256sum -c SHA256SUMS.txt
+            ```
+
