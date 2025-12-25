@@ -117,7 +117,7 @@ class AboutWidget(Widget):
         
         # Draw incomplete shutdown warning if detected
         try:
-            import universalchess.universal as universal_module
+            import universalchess.main as universal_module
             if universal_module.incomplete_shutdown:
                 draw.text((64, self.WARNING_Y), "Incomplete shutdown", 
                           font=version_font, fill=0, anchor="mm")

@@ -8,7 +8,7 @@ Environment=PYTHONUNBUFFERED=1
 Environment=DGTCM_PATH=/opt
 Environment=PYTHONPATH=/opt
 ExecStartPre=/bin/sleep 4
-ExecStart=/opt/universalchess/.venv/bin/python -m universalchess.universal
+ExecStart=/opt/universalchess/.venv/bin/python -m universalchess.main
 WorkingDirectory=/opt/universalchess
 StandardOutput=file:/var/log/modmenuoutput.log
 StandardError=file:/var/log/modmenuoutput.log

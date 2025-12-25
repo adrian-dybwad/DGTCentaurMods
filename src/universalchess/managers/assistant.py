@@ -7,7 +7,7 @@
 # ( https://github.com/EdNekebno/DGTCentaur )
 #
 # Provides a unified interface for assistant management. The game coordinator
-# (universal.py) works with this manager without needing to know the specific
+# (main.py) works with this manager without needing to know the specific
 # assistant type (Hand+Brain, hint, etc.).
 #
 # Licensed under the GNU General Public License v3.0 or later.
@@ -69,7 +69,7 @@ class AssistantManager:
     details behind a simple interface.
     
     Example:
-        # In universal.py
+        # In main.py
         config = AssistantManagerConfig(
             assistant_type=AssistantType.HAND_BRAIN,
             engine_name="stockfish"

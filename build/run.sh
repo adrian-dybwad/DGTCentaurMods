@@ -14,8 +14,8 @@
 #   ./run.sh ENGINE [SIDE] [PRESET]
 #
 # Arguments:
-#   MODULE        Optional Python module to run (e.g., universalchess.universal)
-#                 If not specified, defaults to universalchess.universal
+#   MODULE        Optional Python module to run (e.g., universalchess.main)
+#                 If not specified, defaults to universalchess.main
 #   MODULE_ARGS   Optional arguments to pass to the Python module
 #
 #   Special Modes:
@@ -32,10 +32,10 @@
 #   ./run.sh
 #     - Runs the default menu module
 #
-#   ./run.sh universalchess.universal
+#   ./run.sh universalchess.main
 #     - Explicitly runs the main app module
 #
-#   ./run.sh universalchess.universal --debug
+#   ./run.sh universalchess.main --debug
 #     - Runs the main app module with --debug flag
 #
 #   ./run.sh universalchess.tests.test_paths_fen
@@ -76,8 +76,8 @@
 #
 # ============================================================================
 
-# ./run.sh universalchess.universal --device-name "MILLENNIUM CHESS" --shadow-target "Chessnut Air" --relay
-# ./run.sh universalchess.universal --device-name "MILLENNIUM CHESS" --shadow-target "MILLENNIUM CHESS" --relay
+# ./run.sh universalchess.main --device-name "MILLENNIUM CHESS" --shadow-target "Chessnut Air" --relay
+# ./run.sh universalchess.main --device-name "MILLENNIUM CHESS" --shadow-target "MILLENNIUM CHESS" --relay
 
 # Always run relative to the repo (not ~ or /home/pi)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -127,7 +127,7 @@ fi
 # Parse command line arguments
 # Supports special modes (e.g., "sf" for Stockfish, engine names for UCI mode)
 # and general Python module execution
-DEFAULT_MODULE="universalchess.universal"
+DEFAULT_MODULE="universalchess.main"
 
 # Function to check if a string is in the engines list (case-insensitive)
 is_engine() {

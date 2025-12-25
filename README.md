@@ -100,7 +100,7 @@ See the install procedure in the release page for the target device image/packag
 
 ## Running locally
 
-- Main app: `./build/run.sh` (defaults to `python -m universalchess.universal`)
+- Main app: `./build/run.sh` (defaults to `python -m universalchess.main`)
   - Skip auto-update/pull: `./build/run.sh --no-update`
 - Web UI: `./build/run-web.sh`
 

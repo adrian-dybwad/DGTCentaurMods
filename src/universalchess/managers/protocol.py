@@ -170,7 +170,7 @@ class ProtocolManager:
     def receive_key(self, key_id):
         """Receive a key event from the app coordinator and forward to GameManager.
         
-        This is called by universal.py when it receives key events from the board.
+        This is called by main.py when it receives key events from the board.
         The event is forwarded to GameManager which handles game-related key logic.
         
         Args:
@@ -182,7 +182,7 @@ class ProtocolManager:
     def receive_field(self, piece_event: int, field: int, time_in_seconds: float):
         """Receive a field event from the app coordinator and forward to GameManager.
         
-        This is called by universal.py when it receives field events from the board.
+        This is called by main.py when it receives field events from the board.
         The event is forwarded to GameManager which handles piece detection logic.
         
         Args:

@@ -6,7 +6,7 @@ This document provides a comprehensive overview of all modules, their internal g
 
 ## Table of Contents
 
-1. [universal.py (Entry Point)](#universalpy-entry-point)
+1. [main.py (Entry Point)](#mainpy-entry-point)
 2. [board/ Module](#board-module)
 3. [managers/ Module](#managers-module)
 4. [state/ Module](#state-module)
@@ -20,7 +20,7 @@ This document provides a comprehensive overview of all modules, their internal g
 
 ---
 
-## universal.py (Entry Point)
+## main.py (Entry Point)
 
 ### Purpose
 Main application entry point - Universal Bluetooth Relay with BLE and RFCOMM support. Connects to target devices via Bluetooth and relays data between the board and connected clients.
@@ -599,7 +599,7 @@ Web interface for configuration and game viewing.
 ## Architecture Overview
 
 ```
-universal.py (Entry Point)
+main.py (Entry Point)
     |
     +-- board/ (Hardware Abstraction)
     |     +-- board.py (LED, sounds, state reading)

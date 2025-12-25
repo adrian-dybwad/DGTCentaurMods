@@ -841,7 +841,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                             elif long_press_key == Key.PLAY_DOWN:
                                 log.info('[board.events] Long press PLAY detected, starting shutdown countdown')
                                 if shutdown_countdown():
-                                    # Send LONG_PLAY to callback - universal.py handles cleanup_and_exit
+                                    # Send LONG_PLAY to callback - main.py handles cleanup_and_exit
                                     log.info('[board.events] Countdown complete, sending LONG_PLAY to callback')
                                     keycallback(Key.LONG_PLAY)
                                 else:

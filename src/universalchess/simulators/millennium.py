@@ -984,7 +984,7 @@ def main():
             log("  Install with: pip install pybluez")
         else:
             # Stop any existing rfcomm service/process that might be using the channel
-            # (same approach as universal.py)
+            # (same approach as main.py)
             log("Stopping any existing rfcomm processes...")
             os.system('sudo service rfcomm stop 2>/dev/null')
             time.sleep(1)

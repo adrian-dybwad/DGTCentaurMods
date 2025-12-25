@@ -108,7 +108,7 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     participant Board as Physical Board
-    participant Univ as universal.py
+    participant Univ as main.py
     participant CM as ControllerManager
     participant LC as LocalController
     participant GM as GameManager
@@ -149,7 +149,7 @@ sequenceDiagram
 sequenceDiagram
     participant App as Chess App (Phone)
     participant BLE as BleManager
-    participant Univ as universal.py
+    participant Univ as main.py
     participant CM as ControllerManager
     participant RC as RemoteController
     participant GM as GameManager
@@ -233,7 +233,7 @@ flowchart TD
 ```mermaid
 flowchart TD
     subgraph EntryPoint
-        MAIN[universal.py]
+        MAIN[main.py]
     end
     
     subgraph Managers

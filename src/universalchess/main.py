@@ -24,7 +24,7 @@ BLE Implementation:
 - Supports RFCOMM with pairing (Serial Port Profile)
 
 Usage:
-    python3 universal.py
+    python3 -m universalchess.main
 """
 
 import argparse
@@ -3133,7 +3133,7 @@ def main():
     log.info("")
     log.info("=" * 60)
     
-    # Subscribe to board events - universal.py is the single subscriber and routes events
+    # Subscribe to board events - main.py is the single subscriber and routes events
     try:
         log.info("[Main] Subscribing to board events...")
         if startup_splash:
