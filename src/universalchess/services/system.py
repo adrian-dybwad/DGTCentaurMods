@@ -112,7 +112,7 @@ class SystemPollingService:
             from universalchess.board.sync_centaur import command
             from universalchess.board import board
             
-            controller = board.controller
+            controller = board.get_controller()
             if controller is None:
                 return
             
