@@ -7,7 +7,7 @@ log() {
   printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
 }
 
-BRANCH_OR_TAG="${1:-AsyncController}"
+BRANCH_OR_TAG="${1:-UniversalChess}"
 
 # Always work repo-relative (portable across checkout folder names)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
