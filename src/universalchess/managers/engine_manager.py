@@ -244,9 +244,18 @@ ENGINES = {
         description="Neural network trained on human games to play like humans at various ELO levels (1100-1900). Uses lc0 backend with Maia weights. Makes realistic human moves and mistakes. Build takes ~30-45 minutes on Pi.",
         repo_url="https://github.com/LeelaChessZero/lc0.git",
         build_commands=[
-            # Configure meson build manually to control ninja parallelism
-            # This avoids OOM kills on Raspberry Pi with limited RAM
-            "meson setup build/release --buildtype=release -Ddefault_library=static -Dblas=true -Dcudnn=false -Dcuda=false -Dopencl=false -Ddx=false -Donednn=false",
+            # Wipe any existing build to ensure clean configuration
+            "rm -rf build/release",
+            # Configure meson build for ARM with BLAS-only backend (CPU)
+            # Disable all GPU backends (plain_cuda, cudnn, opencl, dx, metal)
+            # Disable x86-specific features (ispc, popcnt, f16c, pext)
+            # Disable optional features (gtest, onnx, nvcc, python_bindings)
+            "meson setup build/release --buildtype=release "
+            "-Ddefault_library=static "
+            "-Dblas=true -Dopenblas=true "
+            "-Dplain_cuda=false -Dcudnn=false -Dopencl=false -Ddx=false -Donednn=false -Dmetal=disabled "
+            "-Dispc=false -Dpopcnt=false -Df16c=false -Dpext=false "
+            "-Dgtest=false -Donnx=false -Dnvcc=false -Dpython_bindings=false",
             # Build with limited parallelism (-j2) to avoid OOM on Pi
             "ninja -C build/release -j2",
             # Download Maia weights
