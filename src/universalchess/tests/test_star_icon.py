@@ -47,7 +47,10 @@ class TestStarIcon(unittest.TestCase):
         IconButtonWidget = _import_icon_button_widget()
 
         # Create widget (don't render full widget, just test _draw_star_icon directly)
-        mock_draw = MagicMock(spec=ImageDraw.ImageDraw)
+        #
+        # Avoid spec'ing against ImageDraw.ImageDraw here because other tests may patch
+        # PIL internals; spec'ing against a patched object raises InvalidSpecError.
+        mock_draw = MagicMock()
 
         widget = IconButtonWidget(
             0, 0, 128, 64,
