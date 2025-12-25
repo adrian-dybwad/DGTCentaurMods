@@ -33,9 +33,12 @@ import os
 import subprocess
 import shutil
 import threading
-from dataclasses import dataclass
-from typing import Optional, Callable, List
+from dataclasses import dataclass, field
+from typing import Optional, Callable, List, Dict
 from pathlib import Path
+from queue import Queue
+from enum import Enum
+import time
 
 try:
     from universalchess.board.logging import log
@@ -46,6 +49,10 @@ except ImportError:
 # Engine installation directory
 ENGINES_DIR = "/opt/universalchess/engines"
 BUILD_TMP = "/opt/universalchess/tmp/engine_build"
+
+# Repository root (for build scripts)
+# Detect from this file's location: src/universalchess/managers/engine_manager.py -> repo root
+REPO_ROOT = str(Path(__file__).resolve().parent.parent.parent.parent)
 
 
 @dataclass
@@ -66,6 +73,26 @@ class EngineDefinition:
     clone_with_submodules: bool = False  # Use --recurse-submodules when cloning
     build_timeout: int = 600     # Timeout for build commands in seconds (default 10 min)
     estimated_install_minutes: int = 5  # Estimated install time in minutes for UI
+
+
+class InstallStatus(Enum):
+    """Status of an engine in the install queue."""
+    QUEUED = "queued"
+    INSTALLING = "installing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+@dataclass
+class QueuedEngine:
+    """An engine in the install queue."""
+    name: str
+    status: InstallStatus = InstallStatus.QUEUED
+    progress: str = ""
+    error: Optional[str] = None
+    started_at: Optional[float] = None
+    completed_at: Optional[float] = None
 
 
 # Engine definitions
@@ -306,7 +333,10 @@ ENGINES = {
 
 
 class EngineManager:
-    """Manages installation and removal of chess engines."""
+    """Manages installation and removal of chess engines.
+    
+    Supports queueing multiple engines for sequential installation.
+    """
     
     def __init__(self, engines_dir: str = ENGINES_DIR):
         """Initialize the engine manager.
@@ -320,6 +350,13 @@ class EngineManager:
         self._install_progress: str = ""
         self._install_error: Optional[str] = None
         self._installing_engine: Optional[str] = None
+        
+        # Install queue
+        self._queue: List[QueuedEngine] = []
+        self._queue_lock = threading.Lock()
+        self._queue_worker_thread: Optional[threading.Thread] = None
+        self._queue_running = False
+        self._progress_callbacks: List[Callable[[str, str, str], None]] = []
         
         log.info(f"[EngineManager] Initialized with engines_dir={engines_dir}")
         log.debug(f"[EngineManager] Build temp directory: {BUILD_TMP}")
@@ -873,6 +910,253 @@ class EngineManager:
     def get_install_error(self) -> Optional[str]:
         """Get the last installation error, if any."""
         return self._install_error
+    
+    # =========================================================================
+    # Install Queue Methods
+    # =========================================================================
+    
+    def add_progress_listener(self, callback: Callable[[str, str, str], None]) -> None:
+        """Add a listener for install progress events.
+        
+        Args:
+            callback: Function called with (engine_name, status, message)
+                      status is one of: "queued", "installing", "completed", "failed", "cancelled"
+        """
+        self._progress_callbacks.append(callback)
+        log.debug(f"[EngineManager] Added progress listener, total: {len(self._progress_callbacks)}")
+    
+    def remove_progress_listener(self, callback: Callable[[str, str, str], None]) -> None:
+        """Remove a progress listener."""
+        if callback in self._progress_callbacks:
+            self._progress_callbacks.remove(callback)
+            log.debug(f"[EngineManager] Removed progress listener, remaining: {len(self._progress_callbacks)}")
+    
+    def _notify_progress(self, engine_name: str, status: str, message: str) -> None:
+        """Notify all listeners of progress."""
+        for callback in self._progress_callbacks:
+            try:
+                callback(engine_name, status, message)
+            except Exception as e:
+                log.error(f"[EngineManager] Progress callback error: {e}")
+    
+    def queue_engine(self, engine_name: str) -> bool:
+        """Add an engine to the install queue.
+        
+        Args:
+            engine_name: Name of the engine to queue
+            
+        Returns:
+            True if engine was queued (False if already queued/installing or unknown)
+        """
+        if engine_name not in ENGINES:
+            log.warning(f"[EngineManager] queue_engine: Unknown engine '{engine_name}'")
+            return False
+        
+        if self.is_installed(engine_name):
+            log.info(f"[EngineManager] queue_engine: '{engine_name}' already installed")
+            return False
+        
+        with self._queue_lock:
+            # Check if already in queue
+            for item in self._queue:
+                if item.name == engine_name and item.status in (InstallStatus.QUEUED, InstallStatus.INSTALLING):
+                    log.info(f"[EngineManager] queue_engine: '{engine_name}' already in queue")
+                    return False
+            
+            # Add to queue
+            queued = QueuedEngine(name=engine_name)
+            self._queue.append(queued)
+            log.info(f"[EngineManager] queue_engine: Added '{engine_name}' to queue (position {len(self._queue)})")
+        
+        self._notify_progress(engine_name, "queued", f"Queued for installation")
+        
+        # Start queue worker if not running
+        self._start_queue_worker()
+        
+        return True
+    
+    def queue_engines(self, engine_names: List[str]) -> int:
+        """Add multiple engines to the install queue.
+        
+        Args:
+            engine_names: List of engine names to queue
+            
+        Returns:
+            Number of engines successfully queued
+        """
+        count = 0
+        for name in engine_names:
+            if self.queue_engine(name):
+                count += 1
+        log.info(f"[EngineManager] queue_engines: Queued {count}/{len(engine_names)} engines")
+        return count
+    
+    def queue_recommended(self) -> int:
+        """Queue recommended engines for a fresh install.
+        
+        Queues a balanced set of engines covering different strengths and styles.
+        
+        Returns:
+            Number of engines queued
+        """
+        # Recommended set: one top-tier, one specialty, one lightweight
+        recommended = ["berserk", "rodentIV", "ct800", "zahak"]
+        log.info(f"[EngineManager] queue_recommended: Queueing recommended engines: {recommended}")
+        return self.queue_engines(recommended)
+    
+    def cancel_queued(self, engine_name: str) -> bool:
+        """Cancel a queued (not yet installing) engine.
+        
+        Args:
+            engine_name: Engine to cancel
+            
+        Returns:
+            True if cancelled (False if not found or already installing)
+        """
+        with self._queue_lock:
+            for item in self._queue:
+                if item.name == engine_name and item.status == InstallStatus.QUEUED:
+                    item.status = InstallStatus.CANCELLED
+                    log.info(f"[EngineManager] cancel_queued: Cancelled '{engine_name}'")
+                    self._notify_progress(engine_name, "cancelled", "Installation cancelled")
+                    return True
+        return False
+    
+    def clear_queue(self) -> int:
+        """Cancel all queued (not yet installing) engines.
+        
+        Returns:
+            Number of engines cancelled
+        """
+        count = 0
+        with self._queue_lock:
+            for item in self._queue:
+                if item.status == InstallStatus.QUEUED:
+                    item.status = InstallStatus.CANCELLED
+                    count += 1
+                    self._notify_progress(item.name, "cancelled", "Installation cancelled")
+        log.info(f"[EngineManager] clear_queue: Cancelled {count} queued engines")
+        return count
+    
+    def get_queue_status(self) -> List[Dict]:
+        """Get the current queue status.
+        
+        Returns:
+            List of dicts with queue item info
+        """
+        with self._queue_lock:
+            return [
+                {
+                    "name": item.name,
+                    "display_name": ENGINES[item.name].display_name if item.name in ENGINES else item.name,
+                    "status": item.status.value,
+                    "progress": item.progress,
+                    "error": item.error,
+                    "estimated_minutes": ENGINES[item.name].estimated_install_minutes if item.name in ENGINES else 0,
+                }
+                for item in self._queue
+                if item.status in (InstallStatus.QUEUED, InstallStatus.INSTALLING)
+            ]
+    
+    def get_queue_history(self, limit: int = 10) -> List[Dict]:
+        """Get recent completed/failed installations.
+        
+        Args:
+            limit: Maximum number of items to return
+            
+        Returns:
+            List of dicts with completed install info
+        """
+        with self._queue_lock:
+            completed = [
+                {
+                    "name": item.name,
+                    "display_name": ENGINES[item.name].display_name if item.name in ENGINES else item.name,
+                    "status": item.status.value,
+                    "error": item.error,
+                    "duration_seconds": (item.completed_at - item.started_at) if item.started_at and item.completed_at else None,
+                }
+                for item in self._queue
+                if item.status in (InstallStatus.COMPLETED, InstallStatus.FAILED, InstallStatus.CANCELLED)
+            ]
+            return completed[-limit:]
+    
+    def is_queue_active(self) -> bool:
+        """Check if the queue is actively processing."""
+        return self._queue_running and self._queue_worker_thread is not None and self._queue_worker_thread.is_alive()
+    
+    def _start_queue_worker(self) -> None:
+        """Start the queue worker thread if not already running."""
+        if self._queue_worker_thread is not None and self._queue_worker_thread.is_alive():
+            return
+        
+        self._queue_running = True
+        self._queue_worker_thread = threading.Thread(
+            target=self._queue_worker,
+            name="engine-install-queue",
+            daemon=True
+        )
+        self._queue_worker_thread.start()
+        log.info("[EngineManager] Queue worker thread started")
+    
+    def _queue_worker(self) -> None:
+        """Background worker that processes the install queue."""
+        log.info("[EngineManager] Queue worker: Starting")
+        
+        while self._queue_running:
+            # Find next queued item
+            next_item: Optional[QueuedEngine] = None
+            with self._queue_lock:
+                for item in self._queue:
+                    if item.status == InstallStatus.QUEUED:
+                        next_item = item
+                        break
+            
+            if next_item is None:
+                # No more items, exit worker
+                log.info("[EngineManager] Queue worker: No more items, exiting")
+                break
+            
+            # Install this engine
+            engine_name = next_item.name
+            log.info(f"[EngineManager] Queue worker: Processing '{engine_name}'")
+            
+            with self._queue_lock:
+                next_item.status = InstallStatus.INSTALLING
+                next_item.started_at = time.time()
+            
+            self._notify_progress(engine_name, "installing", "Starting installation...")
+            
+            def progress_callback(msg: str):
+                with self._queue_lock:
+                    next_item.progress = msg
+                self._notify_progress(engine_name, "installing", msg)
+            
+            try:
+                success = self.install_engine(engine_name, progress_callback)
+                
+                with self._queue_lock:
+                    next_item.completed_at = time.time()
+                    if success:
+                        next_item.status = InstallStatus.COMPLETED
+                        log.info(f"[EngineManager] Queue worker: '{engine_name}' completed successfully")
+                        self._notify_progress(engine_name, "completed", "Installation complete")
+                    else:
+                        next_item.status = InstallStatus.FAILED
+                        next_item.error = self._install_error
+                        log.error(f"[EngineManager] Queue worker: '{engine_name}' failed: {self._install_error}")
+                        self._notify_progress(engine_name, "failed", self._install_error or "Installation failed")
+            
+            except Exception as e:
+                log.error(f"[EngineManager] Queue worker: '{engine_name}' exception: {e}")
+                with self._queue_lock:
+                    next_item.completed_at = time.time()
+                    next_item.status = InstallStatus.FAILED
+                    next_item.error = str(e)
+                self._notify_progress(engine_name, "failed", str(e))
+        
+        self._queue_running = False
+        log.info("[EngineManager] Queue worker: Stopped")
 
 
 # Module-level singleton
