@@ -55,7 +55,7 @@ class EngineDefinition:
     display_name: str            # Human-readable name for UI
     summary: str                 # Short summary for list display (~20 chars)
     description: str             # Full description for detail view
-    repo_url: Optional[str]      # Git repository URL (None for system package)
+    repo_url: Optional[str]      # Git repository URL (None for system package or bundled)
     build_commands: List[str]    # Commands to build after cloning
     binary_path: str             # Path to binary after build (relative to repo)
     is_system_package: bool      # True if installed via apt
@@ -241,13 +241,15 @@ ENGINES = {
         name="maia",
         display_name="Maia",
         summary="Human-like play",
-        description="Trained on millions of human games to play like humans at various ELO levels (1100-1900). Uses lc0 backend with Maia neural network weights. Makes realistic human moves and mistakes.",
+        description="Neural network trained on human games to play like humans at various ELO levels (1100-1900). Uses lc0 backend with Maia weights. Makes realistic human moves and mistakes. Build takes ~30-45 minutes on Pi.",
         repo_url="https://github.com/LeelaChessZero/lc0.git",
         build_commands=[
-            # Build lc0 with BLAS backend (CPU-only, no GPU needed)
-            # Use clang for better performance on ARM
-            "CC=clang CXX=clang++ ./build.sh",
-            # Download all Maia weights (1100-1900 ELO levels)
+            # Configure meson build manually to control ninja parallelism
+            # This avoids OOM kills on Raspberry Pi with limited RAM
+            "meson setup build/release --buildtype=release -Ddefault_library=static -Dblas=true -Dcudnn=false -Dcuda=false -Dopencl=false -Ddx=false -Donednn=false",
+            # Build with limited parallelism (-j2) to avoid OOM on Pi
+            "ninja -C build/release -j2",
+            # Download Maia weights
             "mkdir -p maia_weights",
             "wget -q -O maia_weights/maia-1100.pb.gz https://github.com/CSSLab/maia-chess/raw/main/maia_weights/maia-1100.pb.gz || true",
             "wget -q -O maia_weights/maia-1200.pb.gz https://github.com/CSSLab/maia-chess/raw/main/maia_weights/maia-1200.pb.gz || true",
@@ -263,11 +265,10 @@ ENGINES = {
         is_system_package=False,
         package_name=None,
         extra_files=["maia_weights"],
-        # clang recommended for lc0 builds on ARM (Raspberry Pi)
-        dependencies=["build-essential", "git", "clang", "meson", "ninja-build", "libopenblas-dev", "python3-pip", "wget"],
+        dependencies=["build-essential", "git", "clang", "meson", "ninja-build", "libopenblas-dev", "zlib1g-dev", "wget", "pkg-config"],
         clone_with_submodules=True,
-        build_timeout=1800,
-        estimated_install_minutes=30,  # Complex lc0 build + weight downloads
+        build_timeout=3600,  # 60 minutes - lc0 with -j2 takes longer but avoids OOM
+        estimated_install_minutes=45,
     ),
     
     # === LIGHTWEIGHT/FAST COMPILE ===
@@ -372,6 +373,7 @@ class EngineManager:
             is_installed = self.is_installed(name)
             if is_installed:
                 installed_count += 1
+            
             result.append({
                 "name": name,
                 "display_name": engine.display_name,
@@ -410,6 +412,7 @@ class EngineManager:
             return False
         
         engine = ENGINES[engine_name]
+        
         self._installing_engine = engine_name
         self._install_error = None
         
