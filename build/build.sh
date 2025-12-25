@@ -27,8 +27,9 @@ function detectVersion {
         exit 1
     fi
 
-    DEB_PACKAGE_NAME="$(awk -F': *' '$1 == \"Package\" {print $2}' \"${CONTROL_FILE}\" | head -n1)"
-    VERSION="$(awk -F': *' '$1 == \"Version\" {print $2}' \"${CONTROL_FILE}\" | head -n1)"
+    # Use grep/cut to avoid awk quoting issues across environments.
+    DEB_PACKAGE_NAME="$(grep -m1 '^Package:' \"${CONTROL_FILE}\" | cut -d':' -f2- | xargs)"
+    VERSION="$(grep -m1 '^Version:' \"${CONTROL_FILE}\" | cut -d':' -f2- | xargs)"
 
     if [ -z "${DEB_PACKAGE_NAME}" ] || [ -z "${VERSION}" ]; then
         echo "Failed to parse Package/Version from ${CONTROL_FILE}" >&2
