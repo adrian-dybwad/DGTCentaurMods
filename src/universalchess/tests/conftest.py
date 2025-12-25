@@ -4,10 +4,37 @@ Pytest configuration and fixtures for Universal-Chess tests.
 This module provides:
 - Mock controller fixture for tests that need board functionality
 - Automatic cleanup of board state between tests
+- Hardware module stubs for running tests on non-Pi systems
 """
 
+import sys
+import types
+from unittest.mock import MagicMock
+
+# Stub hardware-specific modules BEFORE any universalchess imports.
+# This allows tests to run on non-Raspberry Pi systems (CI, development machines).
+# These modules are only used for actual hardware interaction and are mocked during tests anyway.
+
+_hardware_modules = [
+    "spidev",
+    "RPi",
+    "RPi.GPIO",
+    "gpiozero",
+    "lgpio",
+    "smbus",
+    "smbus2",
+]
+
+for module_name in _hardware_modules:
+    if module_name not in sys.modules:
+        # Create a mock module that won't fail on import
+        mock_module = MagicMock()
+        # For RPi, ensure RPi.GPIO is accessible
+        if module_name == "RPi":
+            mock_module.GPIO = MagicMock()
+        sys.modules[module_name] = mock_module
+
 import pytest
-from unittest.mock import MagicMock, PropertyMock
 
 
 @pytest.fixture
@@ -48,6 +75,3 @@ def mock_controller():
     
     # Restore original (likely None in tests)
     board.controller = original_controller
-
-
-
