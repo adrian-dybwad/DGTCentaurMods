@@ -118,7 +118,7 @@ dev = Settings.read('system', 'developer', 'False')
 MAX_INIT_RETRIES = 3
 INIT_TIMEOUT_SECONDS = 10  # Shorter timeout per attempt for faster retry
 
-controller = None
+controller: Optional[SyncCentaur] = None
 
 # Import init callback module for status updates during initialization
 from universalchess.board import init_callback
@@ -179,8 +179,20 @@ def _init_board_with_retry():
     return controller
 
 
-# Initialize the controller with retry logic
-controller = _init_board_with_retry()
+def get_controller() -> Optional[SyncCentaur]:
+    """Return the global board controller, initializing it lazily if needed.
+    
+    This module must be importable in non-hardware environments (unit tests,
+    dev machines) without triggering serial discovery or background threads.
+    The controller is therefore initialized on first use rather than at import.
+    
+    Returns:
+        The initialized SyncCentaur controller, or None if initialization failed.
+    """
+    global controller
+    if controller is None:
+        controller = _init_board_with_retry()
+    return controller
 
 # But the address might not be that :( Here we send an initial 0x4d to ask the board to provide its address
 
