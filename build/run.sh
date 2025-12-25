@@ -66,7 +66,7 @@
 #     - Runs Zahak engine as white with DEFAULT preset
 #
 # Environment:
-#   - Requires Python virtual environment at DGTCentaurMods/.venv
+#   - Requires Python virtual environment at repo-root .venv
 #   - Automatically stops/starts universal-chess.service if present
 #   - Sets PYTHONPATH to include the repo src/ directory
 #
@@ -88,8 +88,10 @@ cd "${REPO_ROOT}"
 # Ensure virtualenv exists (repo-root .venv)
 if [ ! -d "${REPO_ROOT}/.venv" ]; then
   echo "No .venv found at ${REPO_ROOT}/.venv"
-  echo "Create one with:"
-  echo "   python3 -m venv --system-site-packages .venv && source .venv/bin/activate && pip install -r src/universalchess/setup/requirements.txt"
+  echo "Create one with (from repo root):"
+  echo "   cd \"${REPO_ROOT}\" && python3 -m venv --system-site-packages .venv && source .venv/bin/activate && pip install -r src/universalchess/setup/requirements.txt"
+  echo "If you're currently in build/:"
+  echo "   cd .. && python3 -m venv --system-site-packages .venv && source .venv/bin/activate && pip install -r src/universalchess/setup/requirements.txt"
   exit 1
 fi
 

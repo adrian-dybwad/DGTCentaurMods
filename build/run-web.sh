@@ -9,6 +9,10 @@ cd "${REPO_ROOT}"
 
 if [ ! -d "${REPO_ROOT}/.venv" ]; then
   echo "No .venv found at ${REPO_ROOT}/.venv"
+  echo "Create one with (from repo root):"
+  echo "   cd \"${REPO_ROOT}\" && python3 -m venv --system-site-packages .venv && source .venv/bin/activate && pip install -r src/universalchess/setup/requirements.txt"
+  echo "If you're currently in build/:"
+  echo "   cd .. && python3 -m venv --system-site-packages .venv && source .venv/bin/activate && pip install -r src/universalchess/setup/requirements.txt"
   exit 1
 fi
 

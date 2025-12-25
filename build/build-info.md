@@ -35,7 +35,7 @@ get the repo on the pi:
 cd ~
 git clone https://github.com/adrian-dybwad/DGTCentaurUniversal.git
 cd DGTCentaurUniversal/src
-python3 -m venv --system-site-packages DGTCentaurMods/.venv && source DGTCentaurMods/.venv/bin/activate && pip install -r DGTCentaurMods/setup/requirements.txt
+python3 -m venv --system-site-packages .venv && source .venv/bin/activate && pip install -r src/universalchess/setup/requirements.txt
 ```
 
 Run it
