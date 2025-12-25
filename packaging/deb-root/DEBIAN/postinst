@@ -281,6 +281,15 @@ rm -f "${ENGINES_DIR}/stockfish_pi_armhf"
 # present, print a warning and continue.
 if command -v stockfish &> /dev/null; then
     STOCKFISH_PATH=$(command -v stockfish)
+elif [ -x "/usr/games/stockfish" ]; then
+    STOCKFISH_PATH="/usr/games/stockfish"
+elif [ -x "/usr/bin/stockfish" ]; then
+    STOCKFISH_PATH="/usr/bin/stockfish"
+else
+    STOCKFISH_PATH=""
+fi
+
+if [ -n "${STOCKFISH_PATH}" ]; then
     echo -e "::: Found system Stockfish at ${STOCKFISH_PATH}"
     ln -sf "${STOCKFISH_PATH}" "${ENGINES_DIR}/${STOCKFISH}"
     chown -h pi:pi "${ENGINES_DIR}/${STOCKFISH}"
@@ -300,7 +309,6 @@ export DEBIAN_FRONTEND=noninteractive
 # Create venv if missing
 if [ ! -x "$VENV_DIR/bin/python" ]; then
   python3 -m venv --system-site-packages "$VENV_DIR"
-  sudo chmod +x $PACKAGES_PATH/run.sh
 fi
 
 # Upgrade pip/wheel inside the venv
