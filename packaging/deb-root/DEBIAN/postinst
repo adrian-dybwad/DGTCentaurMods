@@ -272,14 +272,13 @@ rm -f "${ENGINES_DIR}/stockfish_pi"
 rm -f "${ENGINES_DIR}/stockfish_pi_arm64"
 rm -f "${ENGINES_DIR}/stockfish_pi_armhf"
 
-# Install stockfish from system package if not already installed
-if ! command -v stockfish &> /dev/null; then
-    echo -e "::: Installing Stockfish from system package"
-    apt-get update -qq
-    apt-get install -y stockfish
-fi
-
-# Create symlink to system stockfish
+# NOTE:
+# Do NOT run apt/apt-get from maintainer scripts. During installation, dpkg/apt
+# may already hold the frontend lock, which will make apt-get calls fail and
+# break installation.
+#
+# Stockfish should be declared as a dependency in DEBIAN/control. If it is not
+# present, print a warning and continue.
 if command -v stockfish &> /dev/null; then
     STOCKFISH_PATH=$(command -v stockfish)
     echo -e "::: Found system Stockfish at ${STOCKFISH_PATH}"
@@ -287,7 +286,7 @@ if command -v stockfish &> /dev/null; then
     chown -h pi:pi "${ENGINES_DIR}/${STOCKFISH}"
     echo -e "::: Created symlink ${ENGINES_DIR}/${STOCKFISH} -> ${STOCKFISH_PATH}"
 else
-    echo -e "::: WARNING: Could not install Stockfish from system package"
+    echo -e "::: WARNING: Stockfish not found on PATH. Install it with: sudo apt-get install -y stockfish"
 fi
 
 #
