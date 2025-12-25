@@ -143,40 +143,8 @@ ENGINES = {
     ),
     
     # === STRONG TIER - Tournament-level engines ===
-    "fire": EngineDefinition(
-        name="fire",
-        display_name="Fire",
-        summary="~3200 ELO, fast",
-        description="Strong C++ engine optimized for speed on modern CPUs. Excellent for rapid games. Good balance of tactical and positional play.",
-        repo_url="https://github.com/FireFather/fire.git",
-        build_commands=[
-            # Fire builds from src directory
-            "cd src && make -j$(nproc) EXE=fire",
-        ],
-        binary_path="src/fire",
-        is_system_package=False,
-        package_name=None,
-        extra_files=[],
-        dependencies=["build-essential", "git"],
-        estimated_install_minutes=8,  # Medium complexity C++ engine
-    ),
-    "laser": EngineDefinition(
-        name="laser",
-        display_name="Laser",
-        summary="~3100 ELO, tactical",
-        description="Fast tactical engine known for quick search speed. Good for finding tactical shots and combinations. Lightweight and efficient.",
-        repo_url="https://github.com/jeffreyan11/laser-chess-engine.git",
-        build_commands=[
-            # Laser builds from src directory
-            "cd src && make -j$(nproc)",
-        ],
-        binary_path="src/laser",
-        is_system_package=False,
-        package_name=None,
-        extra_files=[],
-        dependencies=["build-essential", "git"],
-        estimated_install_minutes=5,  # Lightweight C++ engine
-    ),
+    # NOTE: Fire engine removed - uses Windows-specific <intrin.h> header, doesn't compile on ARM/Linux
+    # NOTE: Laser engine removed - uses x86-specific flags (-msse3, -mpopcnt), doesn't compile on ARM
     "demolito": EngineDefinition(
         name="demolito",
         display_name="Demolito",
