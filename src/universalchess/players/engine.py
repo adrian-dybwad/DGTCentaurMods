@@ -333,6 +333,9 @@ class EnginePlayer(Player):
         Resets engine state for the new game.
         """
         log.info(f"[EnginePlayer] New game - resetting {self.engine_name}")
+        self._pending_move = None
+        self._lifted_squares = []
+        self._thinking = False
         # The chess.engine library handles ucinewgame automatically
     
     def on_takeback(self, board: chess.Board) -> None:
