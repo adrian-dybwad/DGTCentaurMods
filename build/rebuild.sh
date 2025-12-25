@@ -100,10 +100,10 @@ if [ "${#unexpected_dgt[@]}" -gt 0 ]; then
 fi
 
 log "8/8 Ensuring Font.ttc is present (optional step)"
-FONT_TARGET="/opt/DGTCentaurMods/resources/Font.ttc"
-FONT_SOURCE="$REPO_DIR/DGTCentaurMods/opt/DGTCentaurMods/resources/Font.ttc"
+FONT_TARGET="/opt/universalchess/resources/Font.ttc"
+FONT_SOURCE="$REPO_DIR/packaging/deb-root/opt/universalchess/universalchess/resources/Font.ttc"
 if [ ! -f "$FONT_TARGET" ] && [ -f "$FONT_SOURCE" ]; then
-  sudo mkdir -p "/opt/DGTCentaurMods/resources"
+  sudo mkdir -p "/opt/universalchess/resources"
   sudo cp -f "$FONT_SOURCE" "$FONT_TARGET"
   sudo chmod 0644 "$FONT_TARGET"
   log "Copied Font.ttc to $FONT_TARGET"

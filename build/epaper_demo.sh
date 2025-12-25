@@ -2,7 +2,7 @@
 
 git pull
 
-cd ~/DGTCentaurMods/DGTCentaurMods/opt
+cd ~/DGTCentaurMods/src
 
 # Activate the virtual environment
 source DGTCentaurMods/.venv/bin/activate

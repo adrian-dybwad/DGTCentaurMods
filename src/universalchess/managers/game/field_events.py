@@ -1,0 +1,160 @@
+"""Field event routing for GameManager.
+
+This module extracts the orchestration of physical board field events (LIFT/PLACE)
+from `GameManager._process_field_event` while preserving behavior.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Callable, Optional
+
+import chess
+
+from universalchess.board.logging import log
+from universalchess.managers.events import EVENT_LIFT_PIECE, EVENT_PLACE_PIECE
+from universalchess.state.chess_game import ChessGameState
+
+from .move_state import INVALID_SQUARE
+
+
+@dataclass(frozen=True)
+class FieldEventContext:
+    chess_board: chess.Board
+    move_state: object
+    correction_mode: object
+    player_manager: object
+    board_module: object
+
+    # Callbacks
+    event_callback: Optional[Callable]
+    enter_correction_mode_fn: Callable[[], None]
+    provide_correction_guidance_fn: Callable[[object, object], None]
+    handle_field_event_in_correction_mode_fn: Callable[[int, int, float], None]
+    handle_piece_event_without_player_fn: Callable[[int], None]
+    on_piece_event_fn: Callable[[str, int, chess.Board], None]
+    handle_king_lift_resign_fn: Callable[[int, object], None]
+
+    # Menu state and callbacks
+    get_kings_in_center_menu_active_fn: Callable[[], bool]
+    set_kings_in_center_menu_active_fn: Callable[[bool], None]
+    on_kings_in_center_cancel_fn: Optional[Callable[[], None]]
+
+    get_king_lift_resign_menu_active_fn: Callable[[], bool]
+    set_king_lift_resign_menu_active_fn: Callable[[bool], None]
+    on_king_lift_resign_cancel_fn: Optional[Callable[[], None]]
+
+    # Expected state helper
+    chess_board_to_state_fn: Callable[[chess.Board], Optional[bytearray]]
+
+
+def process_field_event(
+    ctx: FieldEventContext, piece_event: int, field: int, time_in_seconds: float
+) -> None:
+    """Process one field event (LIFT=0, PLACE=1)."""
+    field_name = chess.square_name(field)
+
+    # Piece color selection rules:
+    # - LIFT: use color_at(field)
+    # - PLACE: use stored source_piece_color (captures), fallback to color_at(field)
+    if piece_event == 0:
+        if ctx.event_callback is not None:
+            ctx.event_callback(EVENT_LIFT_PIECE, piece_event, field, time_in_seconds)
+        piece_color = ctx.chess_board.color_at(field)
+    else:
+        if ctx.event_callback is not None:
+            ctx.event_callback(EVENT_PLACE_PIECE, piece_event, field, time_in_seconds)
+        if getattr(ctx.move_state, "source_piece_color", None) is not None:
+            piece_color = ctx.move_state.source_piece_color
+        else:
+            piece_color = ctx.chess_board.color_at(field)
+
+    log.info(
+        f"[GameManager.receive_field] piece_event={piece_event} field={field} fieldname={field_name} "
+        f"color_at={'White' if piece_color else 'Black'} time_in_seconds={time_in_seconds}"
+    )
+
+    is_lift = piece_event == 0
+
+    # When a resign menu is active (kings-in-center or king-lift), check for:
+    # 1. Board corrected (pieces returned to position) → cancel menu
+    # 2. LIFT event → cancel menu and enter correction mode to guide pieces back
+    if ctx.get_kings_in_center_menu_active_fn() or ctx.get_king_lift_resign_menu_active_fn():
+        expected_state = ctx.chess_board_to_state_fn(ctx.chess_board)
+        current_state = ctx.board_module.getChessState()
+
+        if current_state is not None and expected_state is not None:
+            if ChessGameState.states_match(current_state, expected_state):
+                log.info("[GameManager.receive_field] Board corrected while resign menu active - cancelling menu")
+                if ctx.get_kings_in_center_menu_active_fn():
+                    ctx.set_kings_in_center_menu_active_fn(False)
+                    if ctx.on_kings_in_center_cancel_fn:
+                        ctx.on_kings_in_center_cancel_fn()
+                if ctx.get_king_lift_resign_menu_active_fn():
+                    ctx.set_king_lift_resign_menu_active_fn(False)
+                    ctx.move_state._cancel_king_lift_timer()
+                    ctx.move_state.king_lifted_square = INVALID_SQUARE
+                    ctx.move_state.king_lifted_color = None
+                    if ctx.on_king_lift_resign_cancel_fn:
+                        ctx.on_king_lift_resign_cancel_fn()
+                return
+
+        if is_lift:
+            log.info(
+                "[GameManager.receive_field] Piece lifted while resign menu active - cancelling menu and entering correction mode"
+            )
+            if ctx.get_kings_in_center_menu_active_fn():
+                ctx.set_kings_in_center_menu_active_fn(False)
+                if ctx.on_kings_in_center_cancel_fn:
+                    ctx.on_kings_in_center_cancel_fn()
+            if ctx.get_king_lift_resign_menu_active_fn():
+                ctx.set_king_lift_resign_menu_active_fn(False)
+                ctx.move_state._cancel_king_lift_timer()
+                ctx.move_state.king_lifted_square = INVALID_SQUARE
+                ctx.move_state.king_lifted_color = None
+                if ctx.on_king_lift_resign_cancel_fn:
+                    ctx.on_king_lift_resign_cancel_fn()
+            ctx.enter_correction_mode_fn()
+            if current_state is not None and expected_state is not None:
+                ctx.provide_correction_guidance_fn(current_state, expected_state)
+            return
+
+        return  # Skip all other processing while menu is active (PLACE events)
+
+    # Handle correction mode - piece events help correct the board
+    if ctx.correction_mode.is_active:
+        ctx.handle_field_event_in_correction_mode_fn(piece_event, field, time_in_seconds)
+        return
+
+    # If no PlayerManager, handle piece events directly
+    if not ctx.player_manager:
+        if not is_lift:
+            ctx.handle_piece_event_without_player_fn(field)
+        return
+
+    # Forward to player manager
+    ctx.on_piece_event_fn("lift" if is_lift else "place", field, ctx.chess_board)
+
+    # Handle king-lift resign (board-level concern)
+    if is_lift:
+        ctx.handle_king_lift_resign_fn(field, piece_color)
+        return
+
+    # Cancel king-lift resign timer on any piece placement
+    if ctx.move_state.king_lift_timer is not None:
+        ctx.move_state._cancel_king_lift_timer()
+        log.debug("[GameManager._process_field_event] Cancelled king-lift resign timer on PLACE")
+
+        if ctx.get_king_lift_resign_menu_active_fn():
+            log.info("[GameManager._process_field_event] King placed - cancelling resign menu")
+            ctx.set_king_lift_resign_menu_active_fn(False)
+            if ctx.on_king_lift_resign_cancel_fn:
+                ctx.on_king_lift_resign_cancel_fn()
+
+        ctx.move_state.king_lifted_square = INVALID_SQUARE
+        ctx.move_state.king_lifted_color = None
+
+
+__all__ = ["FieldEventContext", "process_field_event"]
+
+

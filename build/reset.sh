@@ -58,7 +58,7 @@ require_root
 
 # Paths and constants
 PACKAGE_NAME="dgtcentaurmods"
-DGTCM_DIR="/opt/DGTCentaurMods"
+DGTCM_DIR="/opt/universalchess"
 DIST_PKG_SYMLINK="/usr/lib/python3/dist-packages/DGTCentaurMods"
 NGINX_SITES_AVAILABLE="/etc/nginx/sites-available"
 NGINX_SITES_ENABLED="/etc/nginx/sites-enabled"
@@ -70,7 +70,7 @@ BT_MAIN="/etc/bluetooth/main.conf"
 BT_PINCONF="/etc/bluetooth/pin.conf"
 MACHINE_INFO="/etc/machine-info"
 ENGINES_DIR="/home/pi/centaur/engines"
-FEN_LOG="/opt/DGTCentaurMods/tmp/fen.log"
+FEN_LOG="/opt/universalchess/tmp/fen.log"
 
 # Detect firmware mount (fallback for older releases)
 if [ ! -f "$CONFIG_TXT" ] && [ -f "/boot/config.txt" ]; then

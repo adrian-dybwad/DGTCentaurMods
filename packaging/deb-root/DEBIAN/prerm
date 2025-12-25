@@ -1,0 +1,28 @@
+#!/usr/bin/bash
+
+PACKAGE="universal-chess"
+DGTCM_PATH="/opt/${PACKAGE}"
+
+function removePycache {    
+    find ${DGTCM_PATH} | grep -E "(__pycache__|\.pyc|\.pyo$|epaper.jpg)" | xargs rm -rf
+}
+
+
+function stopServices {
+    systemctl stop rfcomm.service
+    systemctl stop universal-chess-web.service
+    systemctl stop universal-chess.service
+    systemctl stop var-run-sdp.path
+    systemctl stop var-run-sdp.service
+    systemctl stop universal-chess-stop-controller.service
+    systemctl stop var-run-sdp.path
+}
+
+
+case $1 in
+    remove* )
+        removePycache
+        stopServices
+        exit 0
+        ;;
+esac

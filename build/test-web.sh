@@ -8,11 +8,11 @@ has_cmd()      { command -v "$1" >/dev/null 2>&1; }
 require_path() { [[ -e "$1" ]] || die "Missing required: $1"; }
 
 # Installation layout (device defaults)
-VENVPY="/opt/DGTCentaurMods/.venv/bin/python"
-APP_DIR="/opt/DGTCentaurMods/web"
+VENVPY="/opt/universalchess/.venv/bin/python"
+APP_DIR="/opt/universalchess/web"
 APP_MAIN="$APP_DIR/app.py"
 APP_HELPER="$APP_DIR/centaurflask.py"
-DB_FILE="/opt/DGTCentaurMods/db/centaur.db"
+DB_FILE="/opt/universalchess/db/centaur.db"
 NGINX_SITE_AVAILABLE="/etc/nginx/sites-available/centaurmods-web"
 NGINX_SITE_ENABLED="/etc/nginx/sites-enabled/centaurmods-web"
 WEB_SERVICE="DGTCentaurModsWeb.service"

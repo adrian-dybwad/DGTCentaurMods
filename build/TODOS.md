@@ -20,10 +20,10 @@ Currently, the back button menu in Universal mode allows resign/draw, but these 
 3. **Handle incoming**: If app/opponent resigns, update local state and database
 
 ### Affected Files
-- `DGTCentaurMods/opt/DGTCentaurMods/game_handler.py` - `handle_resign()`, `handle_draw()`
-- `DGTCentaurMods/opt/DGTCentaurMods/emulators/millennium.py`
-- `DGTCentaurMods/opt/DGTCentaurMods/emulators/pegasus.py`
-- `DGTCentaurMods/opt/DGTCentaurMods/emulators/chessnut.py`
+- `src/universalchess/universal.py` (orchestrator; game end actions live here and in `src/universalchess/managers/game/`)
+- `src/universalchess/emulators/millennium.py`
+- `src/universalchess/emulators/pegasus.py`
+- `src/universalchess/emulators/chessnut.py`
 
 ### Notes
 - For standalone engine mode (no app connected), immediate resign/draw is acceptable
@@ -45,22 +45,22 @@ Currently, the back button menu in Universal mode allows resign/draw, but these 
 
 ## Files Modified
 
-1. **DGTCentaurMods/opt/DGTCentaurMods/board/board.py**
+1. **src/universalchess/board/board.py**
 
                                                 - Add `sleep_controller()` function
                                                 - Improve `shutdown()` with LED cascade and better cleanup
 
-2. **DGTCentaurMods/opt/DGTCentaurMods/menu.py**
+2. **src/universalchess/universal.py**
 
                                                 - Update shutdown handler (lines 817-820) with proper cleanup
                                                 - (Optional) Add LED pattern to reboot handler
 
-3. **DGTCentaurMods/opt/DGTCentaurMods/board/shutdown.py**
+3. **src/universalchess/board/shutdown.py**
 
                                                 - Simplify to call `board.sleep_controller()` OR
                                                 - Delete if using direct function call in systemd
 
-4. **DGTCentaurMods/etc/systemd/system/DGTStopController.service**
+4. **packaging/deb-root/etc/systemd/system/DGTStopController.service**
 
                                                 - Update to call `sleep_controller()` directly OR
                                                 - Keep calling simplified shutdown.py

@@ -1,0 +1,20 @@
+[Unit]
+Description=Universal Chess
+After=network.target bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+Environment=PYTHONUNBUFFERED=1
+Environment=DGTCM_PATH=/opt
+Environment=PYTHONPATH=/opt
+ExecStartPre=/bin/sleep 4
+ExecStart=/opt/universalchess/.venv/bin/python -m universalchess.universal
+WorkingDirectory=/opt/universalchess
+StandardOutput=file:/var/log/modmenuoutput.log
+StandardError=file:/var/log/modmenuoutput.log
+Restart=on-failure
+RestartSec=3
+User=pi
+
+[Install]
+WantedBy=multi-user.target

@@ -14,12 +14,12 @@
 #   ./run.sh ENGINE [SIDE] [PRESET]
 #
 # Arguments:
-#   MODULE        Optional Python module to run (e.g., DGTCentaurMods.menu)
-#                 If not specified, defaults to DGTCentaurMods.menu
+#   MODULE        Optional Python module to run (e.g., universalchess.universal)
+#                 If not specified, defaults to universalchess.universal
 #   MODULE_ARGS   Optional arguments to pass to the Python module
 #
 #   Special Modes:
-#   sf            Runs Stockfish mode (DGTCentaurMods.game.stockfish)
+#   sf            (legacy) Stockfish mode is no longer wired in this launcher
 #     SIDE        Side to play (white|black|random), default: white
 #     ELO         Stockfish ELO (1350-2850 recommended), default: 2000
 #
@@ -32,13 +32,13 @@
 #   ./run.sh
 #     - Runs the default menu module
 #
-#   ./run.sh DGTCentaurMods.menu
-#     - Explicitly runs the menu module
+#   ./run.sh universalchess.universal
+#     - Explicitly runs the main app module
 #
-#   ./run.sh DGTCentaurMods.game.gamemanager --debug
-#     - Runs the gamemanager module with --debug flag
+#   ./run.sh universalchess.universal --debug
+#     - Runs the main app module with --debug flag
 #
-#   ./run.sh DGTCentaurMods.tests.test_uci_cli
+#   ./run.sh universalchess.tests.test_paths_fen
 #     - Runs a specific test module
 #
 #   ./run.sh sf
@@ -67,8 +67,8 @@
 #
 # Environment:
 #   - Requires Python virtual environment at DGTCentaurMods/.venv
-#   - Automatically stops/starts DGTCentaurMods.service if present
-#   - Sets PYTHONPATH to include the project root
+#   - Automatically stops/starts universal-chess.service if present
+#   - Sets PYTHONPATH to include the repo src/ directory
 #
 # Exit Codes:
 #   0   - Success
@@ -76,46 +76,39 @@
 #
 # ============================================================================
 
-# ./run.sh DGTCentaurMods.universal --device-name "MILLENNIUM CHESS" --shadow-target "Chessnut Air" --relay
-# ./run.sh DGTCentaurMods.universal --device-name "MILLENNIUM CHESS" --shadow-target "MILLENNIUM CHESS" --relay
+# ./run.sh universalchess.universal --device-name "MILLENNIUM CHESS" --shadow-target "Chessnut Air" --relay
+# ./run.sh universalchess.universal --device-name "MILLENNIUM CHESS" --shadow-target "MILLENNIUM CHESS" --relay
 
-# Always run from the project root
-cd "$(dirname "$0")" || exit 1
+# Always run relative to the repo (not ~ or /home/pi)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-# Support both project names
-if [ -d ~/DGTCentaurUniversal ]; then
-  cd ~/DGTCentaurUniversal/DGTCentaurMods/opt
-else
-  cd ~/DGTCentaurMods/DGTCentaurMods/opt
-fi
+cd "${REPO_ROOT}"
 
-git pull
-
-# Ensure virtualenv exists
-if [ ! -d "DGTCentaurMods/.venv" ]; then
-  echo "No .venv found! Create one with:"
-  echo "   python3 -m venv --system-site-packages DGTCentaurMods/.venv && source DGTCentaurMods/.venv/bin/activate && pip install -r DGTCentaurMods/setup/requirements.txt"
+# Ensure virtualenv exists (repo-root .venv)
+if [ ! -d "${REPO_ROOT}/.venv" ]; then
+  echo "No .venv found at ${REPO_ROOT}/.venv"
+  echo "Create one with:"
+  echo "   python3 -m venv --system-site-packages .venv && source .venv/bin/activate && pip install -r src/universalchess/setup/requirements.txt"
   exit 1
 fi
 
 # Activate the virtual environment
-source DGTCentaurMods/.venv/bin/activate
+# shellcheck disable=SC1091
+source "${REPO_ROOT}/.venv/bin/activate"
 
-# Add project root to Python path (for flat layout)
-export PYTHONPATH="$PWD:$PYTHONPATH"
+# Ensure src-layout imports work
+export PYTHONPATH="${REPO_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
 
-# Stop web service if it exists
-if systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}' | grep -Fxq "DGTCentaurMods.service"; then
-	sudo systemctl stop DGTCentaurMods 2>/dev/null || true
+# Stop service if it exists (best-effort)
+if systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}' | grep -Fxq "universal-chess.service"; then
+	sudo systemctl stop universal-chess.service 2>/dev/null || true
 fi
 
 # Parse command line arguments
 # Supports special modes (e.g., "sf" for Stockfish, engine names for UCI mode)
 # and general Python module execution
-DEFAULT_MODULE="DGTCentaurMods.universal"
-
-# List of available engines (lowercase for case-insensitive matching)
-AVAILABLE_ENGINES=("ct800" "maia" "rodentiv" "zahak")
+DEFAULT_MODULE="universalchess.universal"
 
 # Function to check if a string is in the engines list (case-insensitive)
 is_engine() {
@@ -133,39 +126,7 @@ if [ $# -eq 0 ]; then
   # No arguments provided - use default module with no args
   MODULE="$DEFAULT_MODULE"
   MODULE_ARGS=()
-elif [ "$1" == "sf" ]; then
-  # Special mode: Stockfish launcher
-  # Arg1: side (white|black|random), default: white
-  # Arg2: ELO (1350-2850 recommended), default: 2000
-  shift
-  SIDE=${1:-white}
-  ELO=${2:-2000}
-  MODULE="DGTCentaurMods.game.stockfish"
-  MODULE_ARGS=("$SIDE" "$ELO")
-  echo "Launching Stockfish mode: side=$SIDE, ELO=$ELO"
-elif is_engine "$1"; then
-  # Engine mode: Launch a UCI engine
-  # Arg1: engine name (ct800|maia|rodentiv|zahak)
-  # Arg2: side (white|black|random), default: random
-  # Arg3: preset name from .uci file, default: DEFAULT
-  ENGINE_NAME="$1"
-  shift
-  SIDE=${1:-random}
-  PRESET=${2:-DEFAULT}
-  
-  # Normalize engine name to match actual file names (case handling)
-  case "${ENGINE_NAME,,}" in
-    "ct800")     ENGINE_FILE="ct800" ;;
-    "maia")      ENGINE_FILE="maia" ;;
-    "rodentiv")  ENGINE_FILE="rodentIV" ;;
-    "zahak")     ENGINE_FILE="zahak" ;;
-    *)           ENGINE_FILE="${ENGINE_NAME}" ;;
-  esac
-  
-  MODULE="DGTCentaurMods.game.uci"
-  MODULE_ARGS=("$SIDE" "$ENGINE_FILE" "$PRESET")
-  echo "Launching UCI engine mode: engine=$ENGINE_FILE, side=$SIDE, preset=$PRESET"
-elif [[ "$1" == DGTCentaurMods.* ]] || [[ "$1" == *"."* ]]; then
+elif [[ "$1" == universalchess.* ]] || [[ "$1" == *"."* ]]; then
   # First argument looks like a module path - use it as the module
   MODULE="$1"
   shift
@@ -184,6 +145,6 @@ python -m "$MODULE" "${MODULE_ARGS[@]}"
 deactivate
 
 # Start web service if it exists
-#if systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}' | grep -Fxq "DGTCentaurMods.service"; then
-#	sudo systemctl start DGTCentaurMods 2>/dev/null || true
+#if systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}' | grep -Fxq "universal-chess.service"; then
+#	sudo systemctl start universal-chess.service 2>/dev/null || true
 #fi

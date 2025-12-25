@@ -12,7 +12,7 @@ from PIL import Image
 import io
 
 # Import ePaper service from DGTCentaurMods
-sys.path.insert(0, '/opt/DGTCentaurMods')
+sys.path.insert(0, '/opt/universalchess')
 try:
     from DGTCentaurMods.display.epaper_service import service
 except ImportError:

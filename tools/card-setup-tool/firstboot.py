@@ -132,7 +132,7 @@ def main():
     else:
         print(f"[warn] Package not found: {DEFAULT_DEB} (skipping)")
 
-    run("systemctl stop DGTCentaurMods.service", check=False)
+    run("systemctl stop universal-chess.service", check=False)
 
     animate = False
     msg.join(timeout=0.1)

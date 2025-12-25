@@ -34,7 +34,7 @@ get the repo on the pi:
 ```
 cd ~
 git clone https://github.com/adrian-dybwad/DGTCentaurUniversal.git
-cd DGTCentaurUniversal/DGTCentaurMods/opt
+cd DGTCentaurUniversal/src
 python3 -m venv --system-site-packages DGTCentaurMods/.venv && source DGTCentaurMods/.venv/bin/activate && pip install -r DGTCentaurMods/setup/requirements.txt
 ```
 
@@ -87,7 +87,7 @@ cd ~/DGTCentaurMods/build
 ./build.sh AsyncController          # or a branch/tag you’re working on
 sudo cp ./releases/dgtcentaurmods_1.3.3_armhf.deb /tmp/
 sudo apt -y install /tmp/dgtcentaurmods_1.3.3_armhf.deb
-cp ~/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods/resources/Font.ttc /opt/DGTCentaurMods/resources/
+cp ~/DGTCentaurMods/packaging/deb-root/opt/universalchess/universalchess/resources/Font.ttc /opt/universalchess/resources/
 sudo systemctl restart dgt*      # restart services (service names vary by build)
 ```
 

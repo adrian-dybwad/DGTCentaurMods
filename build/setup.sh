@@ -8,36 +8,36 @@ echo "Setting up dev resources..."
 
 # Create the directories AssetManager expects
 sudo mkdir -p /home/pi/resources
-sudo mkdir -p /opt/DGTCentaurMods/resources
+sudo mkdir -p /opt/universalchess/resources
 
 # Active config
-sudo mkdir -p /opt/DGTCentaurMods/config
+sudo mkdir -p /opt/universalchess/config
 
 # Populate runtime config from defaults (if missing)
-if [ ! -f /opt/DGTCentaurMods/config/centaur.ini ]; then
-    sudo cp /home/pi/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods/defaults/config/centaur.ini /opt/DGTCentaurMods/config/
+if [ ! -f /opt/universalchess/config/centaur.ini ]; then
+    sudo cp /home/pi/DGTCentaurMods/packaging/deb-root/opt/universalchess/universalchess/defaults/config/centaur.ini /opt/universalchess/config/
 fi
 
 # Copy resources for AssetManager (best effort)
-if [ -d /home/pi/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods/resources ]; then
-  sudo cp -r /home/pi/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods/resources/* /opt/DGTCentaurMods/resources/ || true
+if [ -d /home/pi/DGTCentaurMods/packaging/deb-root/opt/universalchess/universalchess/resources ]; then
+  sudo cp -r /home/pi/DGTCentaurMods/packaging/deb-root/opt/universalchess/universalchess/resources/* /opt/universalchess/resources/ || true
 fi
 
-sudo chown -R pi:pi /opt/DGTCentaurMods
-sudo chmod -R u+w /opt/DGTCentaurMods
-sudo chown -R pi:pi /opt/DGTCentaurMods/resources
-sudo chown -R pi:pi /opt/DGTCentaurMods/config
+sudo chown -R pi:pi /opt/universalchess
+sudo chmod -R u+w /opt/universalchess
+sudo chown -R pi:pi /opt/universalchess/resources
+sudo chown -R pi:pi /opt/universalchess/config
 
 # Create symlink for stockfish_pi in dev engines directory
-DEV_ENGINES_DIR="/home/pi/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods/engines"
+DEV_ENGINES_DIR="/home/pi/DGTCentaurMods/packaging/deb-root/opt/universalchess/universalchess/engines"
 STOCKFISH_NAME="stockfish_pi"
 STOCKFISH_DEV_PATH="${DEV_ENGINES_DIR}/${STOCKFISH_NAME}"
 
 # Check if stockfish_pi exists in old location or installed location
 if [ -f "/home/pi/centaur/engines/${STOCKFISH_NAME}" ]; then
     STOCKFISH_SOURCE="/home/pi/centaur/engines/${STOCKFISH_NAME}"
-elif [ -f "/opt/DGTCentaurMods/engines/${STOCKFISH_NAME}" ]; then
-    STOCKFISH_SOURCE="/opt/DGTCentaurMods/engines/${STOCKFISH_NAME}"
+elif [ -f "/opt/universalchess/engines/${STOCKFISH_NAME}" ]; then
+    STOCKFISH_SOURCE="/opt/universalchess/engines/${STOCKFISH_NAME}"
 else
     STOCKFISH_SOURCE=""
 fi
@@ -52,7 +52,7 @@ if [ -n "$STOCKFISH_SOURCE" ]; then
     ln -s "$STOCKFISH_SOURCE" "$STOCKFISH_DEV_PATH"
     echo "✓ Created symlink: $STOCKFISH_DEV_PATH -> $STOCKFISH_SOURCE"
 else
-    echo "⚠ stockfish_pi not found in /home/pi/centaur/engines/ or /opt/DGTCentaurMods/engines/"
+    echo "⚠ stockfish_pi not found in /home/pi/centaur/engines/ or /opt/universalchess/engines/"
     echo "   Skipping symlink creation"
 fi
 
@@ -65,10 +65,10 @@ else
     echo "✗ Font.ttc NOT found in /home/pi/resources/"
 fi
 
-if [ -f "/opt/DGTCentaurMods/resources/Font.ttc" ]; then
-    echo "✓ Font.ttc found in /opt/DGTCentaurMods/resources/"
+if [ -f "/opt/universalchess/resources/Font.ttc" ]; then
+    echo "✓ Font.ttc found in /opt/universalchess/resources/"
 else
-    echo "✗ Font.ttc NOT found in /opt/DGTCentaurMods/resources/"
+    echo "✗ Font.ttc NOT found in /opt/universalchess/resources/"
 fi
 
 echo ""

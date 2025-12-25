@@ -37,8 +37,8 @@ You can also download the files on your development machine and copy them to the
 
 2. Copy the weight files to the Pi:
    ```bash
-   scp -r DGTCentaurMods/engines/maia_weights pi@dgt.local:/opt/DGTCentaurMods/engines/
-   scp DGTCentaurMods/engines/maia-1900.pb.gz pi@dgt.local:/opt/DGTCentaurMods/engines/
+   scp -r DGTCentaurMods/engines/maia_weights pi@dgt.local:/opt/universalchess/engines/
+   scp DGTCentaurMods/engines/maia-1900.pb.gz pi@dgt.local:/opt/universalchess/engines/
    ```
 
 ## Requirements
@@ -86,7 +86,7 @@ https://github.com/CSSLab/maia-chess/tree/master/maia_weights
 
 After installation, verify the files exist:
 ```bash
-ls -lh /opt/DGTCentaurMods/engines/maia_weights/
+ls -lh /opt/universalchess/engines/maia_weights/
 ```
 
 You should see 9 `.pb.gz` files.

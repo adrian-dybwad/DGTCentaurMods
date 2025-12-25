@@ -1,0 +1,408 @@
+#!/bin/bash
+
+set -euo pipefail
+
+# Configure needrestart to automatic mode (suppress blue screen prompts)
+# This prevents interactive dialogs during package updates/kernel upgrades
+if [ -f /etc/needrestart/needrestart.conf ]; then
+    # Set restart mode to automatic (no prompts)
+    if grep -q '^\$nrconf{restart}' /etc/needrestart/needrestart.conf; then
+        sed -i "s/^\$nrconf{restart}.*$/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
+    elif grep -q "^#.*\$nrconf{restart}" /etc/needrestart/needrestart.conf; then
+        sed -i "s/^#.*\$nrconf{restart}.*$/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
+    else
+        echo "\$nrconf{restart} = 'a';" >> /etc/needrestart/needrestart.conf
+    fi
+    echo "::: Configured needrestart for automatic mode (no prompts)"
+fi
+
+DEFAULT_HOSTNAME="raspberrypi"
+ARCH=`uname -m`
+NEW_HOSTNAME="dgtcentaur"
+
+# Detect boot partition location (Trixie uses /boot/firmware, Bullseye uses /boot)
+if [ -d "/boot/firmware" ] && [ -f "/boot/firmware/config.txt" ]; then
+    BOOT_DIR="/boot/firmware"
+elif [ -f "/boot/config.txt" ]; then
+    BOOT_DIR="/boot"
+else
+    echo "Warning: Could not detect boot partition location, defaulting to /boot/firmware"
+    BOOT_DIR="/boot/firmware"
+fi
+
+CONFIG="${BOOT_DIR}/config.txt"
+CMDLINEFILE="${BOOT_DIR}/cmdline.txt"
+
+PACKAGE="universalchess"
+PACKAGES_PATH="/opt"
+DGTCM_PATH="${PACKAGES_PATH}/${PACKAGE}"
+DATABASE="${DGTCM_PATH}/db/centaur.db"
+CONFIGINI="${DGTCM_PATH}/config/centaur.ini"
+BTMAIN="/etc/bluetooth/main.conf"
+DBUSSERVICE="/etc/systemd/system/dbus-org.bluez.service"
+CENTAUR="/home/pi/centaur/"
+CENTAUR_ENGINE="/home/pi/centaur/engines"
+STOCKFISH="stockfish"
+VENV_DIR="$DGTCM_PATH/.venv"
+REQ_VENV="$DGTCM_PATH/setup/requirements.txt"
+WHEELS_DIR="$DGTCM_PATH/wheels"   # ship this in the .deb (optional but recommended)
+LEGACY_RC_LOCAL="/etc/rc.local"
+LEGACY_RC_LOCAL_MARKER="Starting DGT Centaur menu"
+################################
+
+if ! cat $CONFIG | grep -q "#dgtcentaurmods"
+then
+    echo -e "::: Hardware configuration"
+    echo -e "::: Backup some first"
+    cp $CONFIG $CONFIG.bak
+    cp $CMDLINEFILE $CMDLINEFILE.bak
+
+    # Disable SPI0 to avoid GPIO 7 conflict with e-Paper BUSY pin
+    echo "::: Checking SPI"
+    # SPI0 uses GPIO 7 as CE1, which conflicts with e-Paper BUSY pin
+    # e-Paper display uses SPI1 instead (configured below)
+    if grep -q '^dtparam=spi=on' "$CONFIG"; then
+      sed -i 's/^dtparam=spi=on/#dtparam=spi=on  # Disabled: conflicts with e-Paper BUSY pin (GPIO 7)/' "$CONFIG"
+    elif ! grep -q '^#dtparam=spi=on' "$CONFIG" && ! grep -q 'dtparam=spi=off' "$CONFIG"; then
+      printf '%s\n' '#dtparam=spi=on  # Disabled: conflicts with e-Paper BUSY pin (GPIO 7)' >> "$CONFIG"
+    fi
+    
+    echo -e "::: Checking SPI 1.0 bus."
+    # If you really need /dev/spidev1.x, add an SPI1 overlay (choose CS count)
+    if ! grep -q '^dtoverlay=spi1-.*cs' "$CONFIG"; then
+      printf '%s\n' 'dtoverlay=spi1-1cs,cs0_spidev=on' >> "$CONFIG"
+    elif grep -q '^dtoverlay=spi1-1cs' "$CONFIG" && ! grep -q 'cs0_spidev=on' "$CONFIG"; then
+      # upgrade existing line to include spidev binding
+      sed -i 's/^dtoverlay=spi1-1cs.*/dtoverlay=spi1-1cs,cs0_spidev=on/' "$CONFIG"
+    fi
+
+    # Note: SPI0 is disabled above to avoid GPIO 7 conflict
+    # SPI1 is enabled via dtoverlay=spi1-1cs above
+    # raspi-config command removed to avoid re-enabling SPI0
+  
+    # Ensure the user has SPI permissions
+    adduser pi spi || true
+
+    echo "::: Checking serial port. "
+    # Enable UART (idempotent)
+    if grep -q '^#enable_uart=1' "$CONFIG"; then
+      sed -i 's/^#enable_uart=1.*/enable_uart=1/' "$CONFIG"
+    elif ! grep -q '^enable_uart=1' "$CONFIG"; then
+      printf '%s\n' 'enable_uart=1' >> "$CONFIG"
+    fi
+    
+    # Mark file as modified
+    sed -i "$ a #dgtcentaurmods" $CONFIG
+fi
+
+if cat $CMDLINEFILE | grep -q "console=serial0"
+then
+    echo -e "::: Disable console on ttyS0"
+        REPLY=$(sed 's/[^ ]* *//' $CMDLINEFILE)
+        echo -e "$REPLY" > $CMDLINEFILE
+fi
+
+    # Setting up Bluetooth configuration
+    echo -e "::: Setting up Bluetooth configuration"
+
+    # Unblock Bluetooth hardware
+    sudo rfkill unblock bluetooth || true
+
+    # Install Bluetooth configuration files
+    sudo mkdir -p /etc/bluetooth
+    sudo mkdir -p /etc/systemd/system/bluetooth.service.d
+
+    # Copy pin.conf if it doesn't exist
+    if [ ! -f /etc/bluetooth/pin.conf ]; then
+        echo "* *" | sudo tee /etc/bluetooth/pin.conf > /dev/null
+    fi
+
+    # Copy machine-info for Bluetooth name
+    if [ ! -f /etc/machine-info ]; then
+        echo "PRETTY_HOSTNAME=PCS-REVII-081500" | sudo tee /etc/machine-info > /dev/null
+    fi
+
+    # Install systemd service overrides (but NOT rfcomm.service)
+    sudo mkdir -p /etc/systemd/system/bluetooth.service.d
+    sudo mkdir -p /etc/systemd/system/bthelper@.service.d
+    sudo cp ${DGTCM_PATH}/../etc/systemd/system/bluetooth.service.d/*.conf /etc/systemd/system/bluetooth.service.d/ 2>/dev/null || true
+    sudo cp ${DGTCM_PATH}/../etc/systemd/system/var-run-sdp.* /etc/systemd/system/ 2>/dev/null || true
+    sudo cp ${DGTCM_PATH}/../etc/systemd/system/bthelper@.service.d/*.conf /etc/systemd/system/bthelper@.service.d/ 2>/dev/null || true
+
+    # Set correct permissions
+    sudo chmod 644 /etc/bluetooth/pin.conf
+    sudo chmod 644 /etc/machine-info
+
+    echo -e "::: Enabling Bluetooth services"
+    systemctl daemon-reload
+    systemctl enable bluetooth.service || true
+    systemctl enable var-run-sdp.path || true
+
+    # Start Bluetooth
+    systemctl start bluetooth || true
+
+
+# Make DGTCM available to all users (idempotent)
+DISTPKG_DIR="/usr/lib/python3/dist-packages"
+TARGET_PATH="${DISTPKG_DIR}/DGTCentaurMods"
+install -d "$DISTPKG_DIR"
+# Replace any existing file/dir/symlink with a symlink to $DGTCM_PATH
+rm -rf "$TARGET_PATH"
+ln -sfnT "$DGTCM_PATH" "$TARGET_PATH"
+
+# Allow flask on port 80
+# sudo touch /etc/authbind/byport/80
+# sudo chmod 777 /etc/authbind/byport/80
+
+# Allow memory access for epaper driver
+sudo usermod -a -G gpio pi
+sudo usermod -a -G kmem pi
+
+# Allow Bluetooth service advertising (required for advertise_service)
+sudo usermod -a -G bluetooth pi
+
+
+##### Enable systemd services.
+echo -e "::: Setup services"
+    systemctl daemon-reload
+    echo -e "::: Disabling rfcomm.service (application manages RFCOMM in Python)"
+    systemctl disable rfcomm.service 2>/dev/null || true
+    systemctl stop rfcomm.service 2>/dev/null || true
+    # Migrate web service name: stop/disable old unit, remove file if present
+    if systemctl list-unit-files | grep -q '^centaurmods-web.service'; then
+        systemctl stop centaurmods-web.service 2>/dev/null || true
+        systemctl disable centaurmods-web.service 2>/dev/null || true
+    fi
+    if [ -e /etc/systemd/system/centaurmods-web.service ]; then
+        rm -f /etc/systemd/system/centaurmods-web.service
+        systemctl daemon-reload
+    fi
+    # Cleanup legacy services
+    # stopDGTController.service - old name for shutdown service
+    systemctl stop stopDGTController.service 2>/dev/null || true
+    systemctl disable stopDGTController.service 2>/dev/null || true
+    if [ -e /etc/systemd/system/stopDGTController.service ]; then
+        rm -f /etc/systemd/system/stopDGTController.service
+        systemctl daemon-reload
+    fi
+    systemctl enable universal-chess-web.service
+    systemctl enable universal-chess.service
+    # universal-chess-stop-controller.service - fallback shutdown hook for when main service isn't running
+    # The main service disables this on startup and re-enables on non-shutdown exit
+    systemctl enable universal-chess-stop-controller.service
+
+    # Migrate previous unit names (stop/disable best effort; files may or may not exist)
+    systemctl stop DGTCentaurModsWeb.service 2>/dev/null || true
+    systemctl disable DGTCentaurModsWeb.service 2>/dev/null || true
+    systemctl stop DGTCentaurMods.service 2>/dev/null || true
+    systemctl disable DGTCentaurMods.service 2>/dev/null || true
+    systemctl stop DGTStopController.service 2>/dev/null || true
+    systemctl disable DGTStopController.service 2>/dev/null || true
+#    systemctl enable ntp
+    systemctl enable var-run-sdp.path
+    systemctl enable var-run-sdp.service
+    systemctl start var-run-sdp.path
+
+# Setup nginx proxy for web service
+echo -e "::: Setting up nginx proxy"
+    if [ -f "${DGTCM_PATH}/scripts/enable-web-proxy.sh" ]; then
+        chmod +x "${DGTCM_PATH}/scripts/enable-web-proxy.sh"
+        "${DGTCM_PATH}/scripts/enable-web-proxy.sh"
+    else
+        echo -e "::: Warning: enable-web-proxy.sh not found"
+    fi
+
+# Install dhcpcd hook for WiFi status widget
+echo -e "::: Installing dhcpcd hook for WiFi status widget"
+    if [ -f "${DGTCM_PATH}/../etc/dhcpcd/dhcpcd-hooks/50-dgtcm-wifi-notify" ]; then
+        sudo mkdir -p /lib/dhcpcd/dhcpcd-hooks
+        sudo cp "${DGTCM_PATH}/../etc/dhcpcd/dhcpcd-hooks/50-dgtcm-wifi-notify" /lib/dhcpcd/dhcpcd-hooks/
+        sudo chmod +x /lib/dhcpcd/dhcpcd-hooks/50-dgtcm-wifi-notify
+        # Create notification file directory
+        sudo mkdir -p /var/run
+        sudo touch /var/run/dgtcm-wifi-hook-notify
+        sudo chmod 666 /var/run/dgtcm-wifi-hook-notify
+    else
+        echo -e "::: Warning: dhcpcd hook script not found"
+    fi
+
+# Update main.conf in /etc/bluetooth
+    cp $BTMAIN $BTMAIN.bak
+    sed -i "/DiscoverableTimeout/s/^# *//" $BTMAIN
+    sed -i "/PairableTimeout/s/^# *//" $BTMAIN
+    sed -i "s/#JustWorksRepairing = never/JustWorksRepairing = always/g" $BTMAIN
+    
+    # Set Bluetooth Class of Device to Audio/Video (headphones icon) to match real Millennium board
+    # Class 0x200404 = Service Class (Audio) + Major Class (Audio/Video) + Minor Class (Headphones)
+    if grep -q "^#Class = " $BTMAIN; then
+        # Uncomment and set the Class line
+        sed -i "s/^#Class = .*/Class = 0x200404/" $BTMAIN
+    elif grep -q "^Class = " $BTMAIN; then
+        # Update existing Class line
+        sed -i "s/^Class = .*/Class = 0x200404/" $BTMAIN
+    else
+        # Add Class line under [General] section
+        sed -i "/^\[General\]/a Class = 0x200404" $BTMAIN
+    fi
+    echo -e "::: Bluetooth Class set to 0x200404 (Audio/Video - headphones icon)"
+    
+    #Mark file as changed
+    sed -i "$ a #dgtcentaurmods" $BTMAIN
+
+systemctl daemon-reload
+
+function update_hostname {
+#Do not update unless hostname is still the default one.
+if [ $(hostname) = $DEFAULT_HOSTNAME ]
+then
+    sed -i "s/$DEFAULT_HOSTNAME/$NEW_HOSTNAME/g" /etc/hosts
+    sed -i "s/$DEFAULT_HOSTNAME/$NEW_HOSTNAME/g" /etc/hostname
+fi
+}
+
+# Install Stockfish from system package and create symlink
+# This ensures we get the correct architecture binary automatically
+echo -e "::: Setting up Stockfish engine"
+ENGINES_DIR="${DGTCM_PATH}/engines"
+
+# Remove old compiled binaries and symlinks
+rm -f "${ENGINES_DIR}/${STOCKFISH}"
+# Remove old _pi named binaries from previous versions
+rm -f "${ENGINES_DIR}/stockfish_pi"
+rm -f "${ENGINES_DIR}/stockfish_pi_arm64"
+rm -f "${ENGINES_DIR}/stockfish_pi_armhf"
+
+# Install stockfish from system package if not already installed
+if ! command -v stockfish &> /dev/null; then
+    echo -e "::: Installing Stockfish from system package"
+    apt-get update -qq
+    apt-get install -y stockfish
+fi
+
+# Create symlink to system stockfish
+if command -v stockfish &> /dev/null; then
+    STOCKFISH_PATH=$(command -v stockfish)
+    echo -e "::: Found system Stockfish at ${STOCKFISH_PATH}"
+    ln -sf "${STOCKFISH_PATH}" "${ENGINES_DIR}/${STOCKFISH}"
+    chown -h pi:pi "${ENGINES_DIR}/${STOCKFISH}"
+    echo -e "::: Created symlink ${ENGINES_DIR}/${STOCKFISH} -> ${STOCKFISH_PATH}"
+else
+    echo -e "::: WARNING: Could not install Stockfish from system package"
+fi
+
+#
+#echo -e "::: Installing python packages."
+#    cd $DGTCM_PATH
+#    CFLAGS="-fcommon" pip3 install -r $DGTCM_PATH/setup/requirements.txt
+echo -e "::: Installing python packages (trixie-safe)"
+
+export DEBIAN_FRONTEND=noninteractive
+
+# Create venv if missing
+if [ ! -x "$VENV_DIR/bin/python" ]; then
+  python3 -m venv --system-site-packages "$VENV_DIR"
+  sudo chmod +x $PACKAGES_PATH/run.sh
+fi
+
+# Upgrade pip/wheel inside the venv
+"$VENV_DIR/bin/python" -m pip install --upgrade pip wheel
+
+# Install your extra packages into the venv
+if [ -f "$REQ_VENV" ]; then
+  if [ -d "$WHEELS_DIR" ]; then
+    # fully offline / reproducible
+    "$VENV_DIR/bin/pip" install --no-index --find-links "$WHEELS_DIR" -r "$REQ_VENV"
+  else
+    # will hit the network; avoid if possible
+    "$VENV_DIR/bin/pip" install -r "$REQ_VENV"
+  fi
+fi
+
+# Note: Additional engines (ct800, rodentIV, zahak, maia) can be installed
+# from the Engine Manager in Settings -> Engine Manager on the board.
+# They will be built from source for the correct architecture.
+
+# Setting final permissions
+function setPermissions {
+    chown -R pi:pi ${DGTCM_PATH}
+    if [[ -d "${CENTAUR}" ]]; then
+        chown -R pi:root ${CENTAUR}
+        # Ensure centaur executable has execute permissions (Trixie compatibility)
+        if [[ -f "${CENTAUR}centaur" ]]; then
+            chmod +x "${CENTAUR}centaur"
+        fi
+    fi
+
+}
+
+
+function copyDefaults {
+    cp -rn ${DGTCM_PATH}/defaults/* ${DGTCM_PATH}/
+}
+
+update_hostname
+
+#Old versions special handling tasks
+function cleanOldBeta {
+    rm -rf /home/pi/DGTCentaurMods
+}
+
+
+function restoreConfig {
+    cp /tmp/config/centaur.ini $CONFIGINI
+}
+
+
+function restoreDatabase {
+    cp /tmp/db/centaur.db ${DGTCM_PATH}/db && rm -r /tmp/db
+}
+
+
+function removeLegacyRcLocal {
+    if [ -f "$LEGACY_RC_LOCAL" ] && grep -q "$LEGACY_RC_LOCAL_MARKER" "$LEGACY_RC_LOCAL"; then
+        echo -e "::: Removing legacy rc.local launcher"
+        rm -f "$LEGACY_RC_LOCAL"
+    fi
+}
+
+
+case $1 in
+    configure* )
+        case $2 in
+            1.0-beta|1.0.1-beta)
+                cleanOldBeta
+                ;;
+        esac       
+    echo -e "::: Finalizing install..."
+    #Copy over all defaults from /defaults
+    copyDefaults
+
+    # Setup nginx proxy for web service
+    echo -e "::: Setting up nginx proxy"
+    if [ -f "${DGTCM_PATH}/scripts/enable-web-proxy.sh" ]; then
+        chmod +x "${DGTCM_PATH}/scripts/enable-web-proxy.sh"
+        "${DGTCM_PATH}/scripts/enable-web-proxy.sh"
+    else
+        echo -e "::: Warning: enable-web-proxy.sh not found"
+    fi
+
+    removeLegacyRcLocal
+    setPermissions
+    
+    # Guarded reboot (fresh installs and upgrades)
+    # if [ -z "${DGTCM_SKIP_REBOOT:-}" ]; then
+    #     echo "Rebooting to complete DGTCentaurMods installation..."
+    #     if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+    #         nohup /bin/sh -c "sleep 3; systemctl reboot" >/dev/null 2>&1 &
+    #     else
+    #         nohup /bin/sh -c "sleep 3; /sbin/shutdown -r now" >/dev/null 2>&1 &
+    #     fi
+    # else
+    #     echo "DGTCM_SKIP_REBOOT set; skipping automatic reboot."
+    # fi
+    ;;
+esac
+
+
+exit 0
+

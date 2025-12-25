@@ -1,0 +1,398 @@
+"""
+WiFi status information module.
+
+Provides functions to query WiFi adapter status and format
+WiFi information for display in menus.
+
+Supports subscribing to WiFi status changes via callbacks.
+"""
+
+import subprocess
+import threading
+import os
+import re
+from typing import Optional, Tuple, Callable, List
+
+try:
+    from universalchess.board.logging import log
+except ImportError:
+    import logging
+    log = logging.getLogger(__name__)
+
+
+# Module-level subscription system
+_subscribers: List[Callable[[dict], None]] = []
+_monitor_thread: Optional[threading.Thread] = None
+_monitor_running = False
+_monitor_stop_event = threading.Event()
+_last_status: Optional[dict] = None
+_hook_notification_file = "/var/run/dgtcm-wifi-hook-notify"
+_last_hook_mtime = 0.0
+
+
+def get_wifi_status() -> dict:
+    """Get current WiFi adapter status and connection information.
+    
+    Returns:
+        Dictionary with keys:
+        - enabled: bool, whether WiFi is enabled (not blocked by rfkill)
+        - connected: bool, whether connected to a network
+        - ssid: str, current network SSID (empty if not connected)
+        - ip_address: str, IP address (empty if not connected)
+        - netmask: str, subnet mask (empty if not available)
+        - gateway: str, default gateway (empty if not available)
+        - signal: int, signal strength percentage (0-100, 0 if not connected)
+        - frequency: str, connection frequency (e.g., "2.4 GHz", empty if not connected)
+        - mac_address: str, WiFi adapter MAC address
+    """
+    status = {
+        'enabled': False,
+        'connected': False,
+        'ssid': '',
+        'ip_address': '',
+        'netmask': '',
+        'gateway': '',
+        'signal': 0,
+        'frequency': '',
+        'mac_address': '',
+    }
+    
+    # Check rfkill status
+    try:
+        result = subprocess.run(['rfkill', 'list', 'wifi'],
+                               capture_output=True, text=True, timeout=5)
+        # If "Soft blocked: no" is in output, WiFi is enabled
+        status['enabled'] = 'Soft blocked: no' in result.stdout
+    except Exception as e:
+        log.warning(f"[WiFi] Failed to check rfkill status: {e}")
+    
+    # Get SSID
+    try:
+        result = subprocess.run(['iwgetid', '-r'],
+                               capture_output=True, text=True, timeout=5)
+        if result.returncode == 0 and result.stdout.strip():
+            status['ssid'] = result.stdout.strip()
+            status['connected'] = True
+    except Exception as e:
+        log.warning(f"[WiFi] Failed to get SSID: {e}")
+    
+    # Get IP address and netmask via ip command
+    if status['connected']:
+        try:
+            result = subprocess.run(['ip', '-o', '-4', 'addr', 'show', 'wlan0'],
+                                   capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                # Parse output like: "3: wlan0    inet 192.168.1.100/24 brd 192.168.1.255 scope global wlan0"
+                parts = result.stdout.split()
+                for i, part in enumerate(parts):
+                    if part == 'inet' and i + 1 < len(parts):
+                        ip_cidr = parts[i + 1]
+                        if '/' in ip_cidr:
+                            ip, cidr = ip_cidr.split('/')
+                            status['ip_address'] = ip
+                            # Convert CIDR to netmask
+                            cidr_int = int(cidr)
+                            mask = (0xffffffff >> (32 - cidr_int)) << (32 - cidr_int)
+                            status['netmask'] = f"{(mask >> 24) & 0xff}.{(mask >> 16) & 0xff}.{(mask >> 8) & 0xff}.{mask & 0xff}"
+                        else:
+                            status['ip_address'] = ip_cidr
+                        break
+        except Exception as e:
+            log.warning(f"[WiFi] Failed to get IP address: {e}")
+        
+        # Fallback to hostname -I if ip command didn't work
+        if not status['ip_address']:
+            try:
+                result = subprocess.run(['hostname', '-I'],
+                                       capture_output=True, text=True, timeout=5)
+                ips = result.stdout.strip().split()
+                if ips:
+                    status['ip_address'] = ips[0]
+            except Exception:
+                pass
+    
+    # Get gateway
+    try:
+        result = subprocess.run(['ip', 'route', 'show', 'default'],
+                               capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            # Parse output like: "default via 192.168.1.1 dev wlan0"
+            parts = result.stdout.split()
+            for i, part in enumerate(parts):
+                if part == 'via' and i + 1 < len(parts):
+                    status['gateway'] = parts[i + 1]
+                    break
+    except Exception as e:
+        log.warning(f"[WiFi] Failed to get gateway: {e}")
+    
+    # Get signal strength and frequency via iwconfig
+    if status['connected']:
+        try:
+            result = subprocess.run(['iwconfig', 'wlan0'],
+                                   capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                output = result.stdout
+                
+                # Parse signal level (e.g., "Signal level=-45 dBm")
+                import re
+                signal_match = re.search(r'Signal level[=:](-?\d+)', output)
+                if signal_match:
+                    dbm = int(signal_match.group(1))
+                    # Convert dBm to percentage (rough approximation)
+                    # -30 dBm = 100%, -90 dBm = 0%
+                    percentage = max(0, min(100, (dbm + 90) * 100 // 60))
+                    status['signal'] = percentage
+                
+                # Parse frequency (e.g., "Frequency:2.437 GHz")
+                freq_match = re.search(r'Frequency[=:](\d+\.?\d*)\s*GHz', output)
+                if freq_match:
+                    freq = float(freq_match.group(1))
+                    if freq < 3:
+                        status['frequency'] = "2.4 GHz"
+                    else:
+                        status['frequency'] = "5 GHz"
+        except Exception as e:
+            log.warning(f"[WiFi] Failed to get signal info: {e}")
+    
+    # Get MAC address
+    try:
+        result = subprocess.run(['cat', '/sys/class/net/wlan0/address'],
+                               capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            status['mac_address'] = result.stdout.strip().upper()
+    except Exception as e:
+        log.warning(f"[WiFi] Failed to get MAC address: {e}")
+    
+    return status
+
+
+def format_status_label(status: dict) -> str:
+    """Format WiFi status into a multi-line label for display.
+    
+    Shows SSID, IP address, signal strength, and other connection details.
+    
+    Args:
+        status: Dictionary from get_wifi_status()
+        
+    Returns:
+        Multi-line string for display
+    """
+    lines = []
+    
+    if status['connected']:
+        # Connected - show network details
+        lines.append(status['ssid'])
+        
+        if status['ip_address']:
+            lines.append(status['ip_address'])
+        
+        if status['signal'] > 0:
+            lines.append(f"Signal: {status['signal']}%")
+        
+        if status['frequency']:
+            lines.append(status['frequency'])
+    elif status['enabled']:
+        lines.append("Not connected")
+        lines.append("WiFi enabled")
+    else:
+        lines.append("WiFi disabled")
+    
+    return '\n'.join(lines)
+
+
+def enable_wifi() -> bool:
+    """Enable WiFi via rfkill.
+    
+    Returns:
+        True if command succeeded, False otherwise
+    """
+    try:
+        subprocess.run(['sudo', 'rfkill', 'unblock', 'wifi'], timeout=5)
+        log.info("[WiFi] Enabled via rfkill")
+        return True
+    except Exception as e:
+        log.error(f"[WiFi] Failed to enable: {e}")
+        return False
+
+
+def disable_wifi() -> bool:
+    """Disable WiFi via rfkill.
+    
+    Returns:
+        True if command succeeded, False otherwise
+    """
+    try:
+        subprocess.run(['sudo', 'rfkill', 'block', 'wifi'], timeout=5)
+        log.info("[WiFi] Disabled via rfkill")
+        return True
+    except Exception as e:
+        log.error(f"[WiFi] Failed to disable: {e}")
+        return False
+
+
+def _status_changed(old: Optional[dict], new: dict) -> bool:
+    """Check if WiFi status has meaningfully changed.
+    
+    Compares key fields to determine if subscribers should be notified.
+    Only checks connection-related fields, not signal strength (which
+    fluctuates constantly and would cause excessive refreshes).
+    
+    Args:
+        old: Previous status dict (may be None on first check)
+        new: Current status dict
+        
+    Returns:
+        True if status changed, False otherwise
+    """
+    if old is None:
+        return True
+    
+    # Compare only connection-related fields (not signal strength which fluctuates)
+    # Signal changes are cosmetic and don't need menu refreshes
+    fields_to_check = ['enabled', 'connected', 'ssid', 'ip_address']
+    for field in fields_to_check:
+        if old.get(field) != new.get(field):
+            return True
+    return False
+
+
+def _notify_subscribers(status: dict) -> None:
+    """Notify all subscribers of a status change.
+    
+    Calls each subscriber callback with the new status.
+    Removes any subscribers that raise exceptions.
+    
+    Args:
+        status: Current WiFi status dict
+    """
+    global _subscribers
+    failed_subscribers = []
+    
+    for callback in _subscribers:
+        try:
+            callback(status)
+        except Exception as e:
+            log.warning(f"[WiFi] Subscriber callback failed: {e}")
+            failed_subscribers.append(callback)
+    
+    # Remove failed subscribers
+    for callback in failed_subscribers:
+        try:
+            _subscribers.remove(callback)
+        except ValueError:
+            pass
+
+
+def _monitor_loop() -> None:
+    """Background loop that monitors WiFi status changes.
+    
+    Polls every 5 seconds and also checks for dhcpcd hook notifications.
+    Notifies subscribers when connection status changes (not signal strength).
+    """
+    global _last_status, _last_hook_mtime, _monitor_running
+    
+    log.debug("[WiFi] Monitor thread started")
+    
+    while _monitor_running:
+        try:
+            # Check for dhcpcd hook notification (immediate update)
+            hook_notified = False
+            if os.path.exists(_hook_notification_file):
+                try:
+                    current_mtime = os.path.getmtime(_hook_notification_file)
+                    if current_mtime > _last_hook_mtime:
+                        _last_hook_mtime = current_mtime
+                        hook_notified = True
+                        log.debug("[WiFi] dhcpcd hook notification detected")
+                except Exception as e:
+                    log.debug(f"[WiFi] Error checking hook notification: {e}")
+            
+            # Get current status
+            current_status = get_wifi_status()
+            
+            # Check if status changed or hook notified
+            if _status_changed(_last_status, current_status) or hook_notified:
+                log.debug(f"[WiFi] Status changed: connected={current_status['connected']}, ssid={current_status['ssid']}")
+                _last_status = current_status
+                _notify_subscribers(current_status)
+            
+            # Sleep for 5 seconds, interruptible
+            _monitor_stop_event.wait(timeout=5.0)
+            _monitor_stop_event.clear()
+            
+        except Exception as e:
+            log.error(f"[WiFi] Monitor loop error: {e}")
+            _monitor_stop_event.wait(timeout=5.0)
+            _monitor_stop_event.clear()
+    
+    log.debug("[WiFi] Monitor thread stopped")
+
+
+def subscribe(callback: Callable[[dict], None]) -> None:
+    """Subscribe to WiFi status change notifications.
+    
+    The callback will be called with the current status dict whenever
+    WiFi status changes (connect, disconnect, enable, disable, signal change).
+    
+    Starts the monitor thread if not already running.
+    
+    Args:
+        callback: Function to call with status dict when status changes
+    """
+    global _monitor_thread, _monitor_running, _subscribers
+    
+    if callback not in _subscribers:
+        _subscribers.append(callback)
+        log.debug(f"[WiFi] Subscriber added, total: {len(_subscribers)}")
+    
+    # Start monitor thread if not running
+    if not _monitor_running:
+        _monitor_running = True
+        _monitor_stop_event.clear()
+        _monitor_thread = threading.Thread(
+            target=_monitor_loop,
+            name="wifi-monitor",
+            daemon=True
+        )
+        _monitor_thread.start()
+        log.debug("[WiFi] Monitor thread started")
+
+
+def unsubscribe(callback: Callable[[dict], None]) -> None:
+    """Unsubscribe from WiFi status change notifications.
+    
+    Stops the monitor thread if no subscribers remain.
+    
+    Args:
+        callback: Previously subscribed callback function
+    """
+    global _monitor_thread, _monitor_running, _subscribers
+    
+    try:
+        _subscribers.remove(callback)
+        log.debug(f"[WiFi] Subscriber removed, remaining: {len(_subscribers)}")
+    except ValueError:
+        pass  # Callback wasn't subscribed
+    
+    # Stop monitor thread if no subscribers
+    if len(_subscribers) == 0 and _monitor_running:
+        _monitor_running = False
+        _monitor_stop_event.set()
+        if _monitor_thread:
+            _monitor_thread.join(timeout=3.0)
+            if _monitor_thread.is_alive():
+                log.warning("[WiFi] Monitor thread did not stop within timeout")
+            _monitor_thread = None
+        log.debug("[WiFi] Monitor thread stopped (no subscribers)")
+
+
+def get_last_status() -> Optional[dict]:
+    """Get the last cached WiFi status.
+    
+    Returns the most recent status from the monitor thread,
+    or None if no status has been cached yet.
+    
+    Returns:
+        Last status dict, or None if not available
+    """
+    return _last_status

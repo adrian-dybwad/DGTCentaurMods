@@ -1,12 +1,12 @@
 #!/usr/bin/bash
 
 BASE="$(pwd)/../.."
-cd ../../DGTCentaurMods/opt
+cd ../../src
 LINK_PATH=$(pwd)
 
 PCK_NAME="DGTCentaurMods"
 INSTALL_DIR=/opt
-SERVICES=(DGTCentaurMods.service DGTCentaurModsWeb.service)
+SERVICES=(universal-chess.service universal-chess-web.service)
 
 function restartServices {
     echo -e "Restarting services"

@@ -5,10 +5,10 @@
 set -e  # Exit on error
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DGTCM_PATH="/opt/DGTCentaurMods"
+DGTCM_PATH="/opt/universalchess"
 TMP_DIR="${DGTCM_PATH}/tmp"
 
-# Ensure /opt/DGTCentaurMods directory structure exists
+# Ensure /opt/universalchess directory structure exists
 if [ ! -d "$DGTCM_PATH" ]; then
     echo "Creating $DGTCM_PATH directory structure..."
     sudo mkdir -p "$DGTCM_PATH"
