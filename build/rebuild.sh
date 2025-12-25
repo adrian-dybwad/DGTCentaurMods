@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-
 set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
@@ -10,21 +9,19 @@ log() {
 
 BRANCH_OR_TAG="${1:-AsyncController}"
 
-# Support both project names
-if [ -d "$HOME/DGTCentaurUniversal" ]; then
-  REPO_DIR="$HOME/DGTCentaurUniversal"
-else
-  REPO_DIR="$HOME/DGTCentaurMods"
-fi
-BUILD_DIR="$REPO_DIR/build"
-RELEASES_DIR="$BUILD_DIR/releases"
+# Always work repo-relative (portable across checkout folder names)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+BUILD_DIR="${REPO_DIR}/build"
+RELEASES_DIR="${BUILD_DIR}/releases"
 
 if [ ! -d "$REPO_DIR/.git" ]; then
   echo "Repository not found at $REPO_DIR (expecting a git repo)." >&2
   exit 1
 fi
 
-log "1/8 Purging existing dgtcentaurmods (if installed)"
+log "1/8 Purging existing packages (if installed)"
+sudo apt-get -y purge universal-chess || true
 sudo apt-get -y purge dgtcentaurmods || true
 #sudo apt-get -y autoremove --purge || true
 
@@ -46,7 +43,7 @@ cd "$BUILD_DIR"
 
 log "4/8 Locating latest .deb artifact"
 # Multi-arch package uses _all.deb
-artifact=$(ls -1t "$RELEASES_DIR"/dgtcentaurmods_*_all.deb 2>/dev/null | head -n1 || true)
+artifact=$(ls -1t "$RELEASES_DIR"/universal-chess_*_all.deb 2>/dev/null | head -n1 || true)
 if [ -z "${artifact:-}" ] || [ ! -f "$artifact" ]; then
   echo "No .deb artifact found in $RELEASES_DIR" >&2
   exit 1
@@ -62,46 +59,22 @@ sudo apt-get -y install "$TMP_ART"
 log "6/8 Reloading systemd units"
 sudo systemctl daemon-reload || true
 
-restart_ci() {
-  # $1: base unit name without .service (e.g., DGTCentaurMods)
-  local name="$1"
-  local match
-  match=$(systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -iE "^${name}\\.service$" || true)
-  if [ -n "$match" ]; then
-    log "Restarting service (matched case-insensitively): $match"
-    sudo systemctl restart "$match" || true
+restart_if_present() {
+  local unit="$1"
+  if systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}' | grep -Fxq "${unit}"; then
+    log "Restarting ${unit}"
+    sudo systemctl restart "${unit}" || true
   fi
 }
 
-log "7/8 Restarting services (case-insensitive, specific then wildcard)"
-restart_ci DGTCentaurMods
-restart_ci DGTCentaurModsWeb
-
-# Fallback: restart any service whose name starts with 'dgt' (case-insensitive)
-mapfile -t dgt_units < <(systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -i '^dgt.*\\.service' || true)
-if [ "${#dgt_units[@]}" -gt 0 ]; then
-  log "Fallback restart for units: ${dgt_units[*]}"
-  sudo systemctl restart "${dgt_units[@]}" || true
-fi
-
-# Warn if there are unexpected services that contain 'dgt' (case-insensitive)
-mapfile -t all_dgt_units < <(systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -i 'dgt.*\\.service' | sort -u || true)
-unexpected_dgt=()
-for unit in "${all_dgt_units[@]:-}"; do
-  [[ -z "$unit" ]] && continue  # Skip empty entries
-  ul="${unit,,}"
-  if [[ "$ul" == "dgtcentaurmods.service" || "$ul" == "dgtstopcontroller.service" ]]; then
-    continue
-  fi
-  unexpected_dgt+=("$unit")
-done
-if [ "${#unexpected_dgt[@]}" -gt 0 ]; then
-  log "WARNING: Unexpected services containing 'dgt' detected: ${unexpected_dgt[*]}"
-fi
+log "7/8 Restarting services"
+restart_if_present "universal-chess.service"
+restart_if_present "universal-chess-web.service"
+restart_if_present "universal-chess-stop-controller.service"
 
 log "8/8 Ensuring Font.ttc is present (optional step)"
 FONT_TARGET="/opt/universalchess/resources/Font.ttc"
-FONT_SOURCE="$REPO_DIR/packaging/deb-root/opt/universalchess/universalchess/resources/Font.ttc"
+FONT_SOURCE="${REPO_DIR}/src/universalchess/resources/Font.ttc"
 if [ ! -f "$FONT_TARGET" ] && [ -f "$FONT_SOURCE" ]; then
   sudo mkdir -p "/opt/universalchess/resources"
   sudo cp -f "$FONT_SOURCE" "$FONT_TARGET"
