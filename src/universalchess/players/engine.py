@@ -141,7 +141,7 @@ class EnginePlayer(Player):
         def _init_engine():
             try:
                 log.info(f"[EnginePlayer] Starting engine: {engine_path}")
-                engine = chess.engine.SimpleEngine.popen_uci(str(engine_path))
+                engine = chess.engine.SimpleEngine.popen_uci(str(engine_path), timeout=None)
                 
                 # Apply UCI options
                 if self._uci_options:

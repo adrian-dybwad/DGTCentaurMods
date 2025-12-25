@@ -134,7 +134,7 @@ class HandBrainAssistant(Assistant):
         def _init_engine():
             try:
                 log.info(f"[HandBrain] Starting engine: {engine_path}")
-                engine = chess.engine.SimpleEngine.popen_uci(str(engine_path))
+                engine = chess.engine.SimpleEngine.popen_uci(str(engine_path), timeout=None)
                 
                 if self._uci_options:
                     log.info(f"[HandBrain] Configuring with options: {self._uci_options}")
