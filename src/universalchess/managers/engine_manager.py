@@ -239,7 +239,8 @@ ENGINES = {
         description="Personality engine with 50+ playing styles from beginner to GM level. Can emulate famous players or specific playing styles. Great for practice and entertainment.",
         repo_url="https://github.com/nescitus/rodent-iv.git",
         build_commands=[
-            "make -j$(nproc)",
+            # Makefile is in sources/ directory, override EXENAME to output to repo root
+            "cd sources && make -j$(nproc) EXENAME=../rodentIV",
         ],
         binary_path="rodentIV",
         is_system_package=False,
@@ -255,11 +256,11 @@ ENGINES = {
         description="Emulates a dedicated chess computer. Classic playing style reminiscent of 1980s chess computers. Good for casual play with a nostalgic feel.",
         repo_url="https://github.com/bcm314/CT800.git",
         build_commands=[
-            # Build produces ct800 binary in the uci directory
-            "cd src/application/uci && make -j$(nproc)",
+            # Use the raspi build script, then rename output to fixed name
+            "cd source/application-uci && mkdir -p output && bash make_ct800_raspi.sh && mv output/CT800_* output/ct800",
         ],
-        # Binary name is ct800 (lowercase) after build
-        binary_path="src/application/uci/ct800",
+        # Binary renamed to fixed name ct800
+        binary_path="source/application-uci/output/ct800",
         is_system_package=False,
         package_name=None,
         extra_files=[],
