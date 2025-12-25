@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # Universal Bluetooth Relay
 #
-# This file is part of the DGTCentaurUniversal project
-# ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
+# This file is part of the Universal-Chess project
+# ( https://github.com/adrian-dybwad/Universal-Chess )
 #
 # This project started as a fork of DGTCentaur Mods by EdNekebno
 # ( https://github.com/EdNekebno/DGTCentaur )
@@ -3035,7 +3035,7 @@ def main():
     
     try:
         log.info("[Main] Parsing arguments...")
-        parser = argparse.ArgumentParser(description="DGT Centaur Universal")
+        parser = argparse.ArgumentParser(description="Universal Chess")
         parser.add_argument("--local-name", type=str, default="MILLENNIUM CHESS",
                            help="Local name for BLE advertisement")
         parser.add_argument("--shadow-target", type=str, default="MILLENNIUM CHESS",
@@ -3120,7 +3120,7 @@ def main():
                     pass
     
     log.info("=" * 60)
-    log.info("DGT Centaur Universal Starting")
+    log.info("Universal Chess Starting")
     log.info("=" * 60)
     log.info("")
     log.info("Configuration:")

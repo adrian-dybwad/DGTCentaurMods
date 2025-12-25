@@ -1,7 +1,7 @@
 # Player Base Class
 #
-# This file is part of the DGTCentaurUniversal project
-# ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
+# This file is part of the Universal-Chess project
+# ( https://github.com/adrian-dybwad/Universal-Chess )
 #
 # Abstract base class for all players. A player is an entity that makes
 # moves in a chess game. Each game has two players (White and Black).

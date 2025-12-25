@@ -1,7 +1,7 @@
 # UCI Engine Player
 #
-# This file is part of the DGTCentaurUniversal project
-# ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
+# This file is part of the Universal-Chess project
+# ( https://github.com/adrian-dybwad/Universal-Chess )
 #
 # A player that uses a UCI chess engine (Stockfish, Maia, CT800, etc.)
 # to compute moves. The engine runs as a subprocess and communicates

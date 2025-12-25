@@ -1,7 +1,7 @@
 # Assistant Base Class
 #
-# This file is part of the DGTCentaurUniversal project
-# ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
+# This file is part of the Universal-Chess project
+# ( https://github.com/adrian-dybwad/Universal-Chess )
 #
 # Abstract base class for all assistants. An assistant helps the user
 # play by providing suggestions, hints, or guidance without making

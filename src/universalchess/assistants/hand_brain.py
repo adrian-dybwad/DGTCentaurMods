@@ -1,7 +1,7 @@
 # Hand+Brain Assistant
 #
-# This file is part of the DGTCentaurUniversal project
-# ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
+# This file is part of the Universal-Chess project
+# ( https://github.com/adrian-dybwad/Universal-Chess )
 #
 # Implements the "Brain" part of Hand+Brain mode. The engine suggests
 # which piece type to move, and the player chooses which specific piece

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # Chessnut Air BLE Simulator
 #
-# This file is part of the DGTCentaurUniversal project
-# ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
+# This file is part of the Universal-Chess project
+# ( https://github.com/adrian-dybwad/Universal-Chess )
 #
 # This project started as a fork of DGTCentaur Mods by EdNekebno
 # ( https://github.com/EdNekebno/DGTCentaur )

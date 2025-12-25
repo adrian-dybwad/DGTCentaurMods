@@ -1,7 +1,7 @@
 # Assistants Module
 #
-# This file is part of the DGTCentaurUniversal project
-# ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
+# This file is part of the Universal-Chess project
+# ( https://github.com/adrian-dybwad/Universal-Chess )
 #
 # Assistants are entities that help the user play. They provide suggestions,
 # hints, or guidance without making moves themselves. Examples: Hand+Brain

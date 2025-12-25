@@ -1,7 +1,7 @@
 # Hand+Brain Player
 #
-# This file is part of the DGTCentaurUniversal project
-# ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
+# This file is part of the Universal-Chess project
+# ( https://github.com/adrian-dybwad/Universal-Chess )
 #
 # A hybrid player for Hand+Brain chess variants where human and engine
 # collaborate on moves:

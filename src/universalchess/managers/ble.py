@@ -1,7 +1,7 @@
 # BLE Manager
 #
-# This file is part of the DGTCentaurUniversal project
-# ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
+# This file is part of the Universal-Chess project
+# ( https://github.com/adrian-dybwad/Universal-Chess )
 #
 # Licensed under the GNU General Public License v3.0 or later.
 # See LICENSE.md for details.

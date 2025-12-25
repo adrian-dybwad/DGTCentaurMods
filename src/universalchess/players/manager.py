@@ -1,7 +1,7 @@
 # Player Manager
 #
-# This file is part of the DGTCentaurUniversal project
-# ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
+# This file is part of the Universal-Chess project
+# ( https://github.com/adrian-dybwad/Universal-Chess )
 #
 # Manages both players in a chess game. Each game has a white player
 # and a black player, and this manager coordinates between them.

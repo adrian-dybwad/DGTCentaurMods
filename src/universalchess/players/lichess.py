@@ -1,7 +1,7 @@
 # Lichess Player
 #
-# This file is part of the DGTCentaurUniversal project
-# ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
+# This file is part of the Universal-Chess project
+# ( https://github.com/adrian-dybwad/Universal-Chess )
 #
 # A player that connects to Lichess for online games. Moves come from
 # the Lichess server (either from a remote human opponent or Lichess AI).

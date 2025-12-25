@@ -1,7 +1,7 @@
 # Connection Manager
 #
-# This file is part of the DGTCentaurUniversal project
-# ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
+# This file is part of the Universal-Chess project
+# ( https://github.com/adrian-dybwad/Universal-Chess )
 #
 # Centralizes BLE and RFCOMM data routing to ControllerManager.
 # Buffers incoming protocol data when ControllerManager is not yet ready

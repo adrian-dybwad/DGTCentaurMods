@@ -1,7 +1,7 @@
 # Human Player
 #
-# This file is part of the DGTCentaurUniversal project
-# ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
+# This file is part of the Universal-Chess project
+# ( https://github.com/adrian-dybwad/Universal-Chess )
 #
 # A human player whose moves come from the physical board.
 # Moves are constructed from piece lift/place events.

@@ -25,7 +25,6 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from universalchess.epaper import Manager, SplashScreen
-from universalchess.board.async_centaur import AsyncCentaur, command, Key
 from universalchess.board.sync_centaur import SyncCentaur, command, Key
 import sys
 import os

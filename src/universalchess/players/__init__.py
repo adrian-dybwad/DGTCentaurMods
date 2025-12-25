@@ -1,7 +1,7 @@
 # Players Module
 #
-# This file is part of the DGTCentaurUniversal project
-# ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
+# This file is part of the Universal-Chess project
+# ( https://github.com/adrian-dybwad/Universal-Chess )
 #
 # Players are entities that make moves in a chess game. Each game has two
 # players (White and Black). A player can be:

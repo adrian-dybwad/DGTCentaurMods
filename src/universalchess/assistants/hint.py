@@ -1,7 +1,7 @@
 # Hint Assistant
 #
-# This file is part of the DGTCentaurUniversal project
-# ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
+# This file is part of the Universal-Chess project
+# ( https://github.com/adrian-dybwad/Universal-Chess )
 #
 # Provides move hints on demand. Used when the player presses the
 # HELP button to get a suggestion for the current position.
