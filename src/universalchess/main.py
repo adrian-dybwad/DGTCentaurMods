@@ -1270,7 +1270,9 @@ def _start_game_mode(
     # Hand-brain mode is enabled if either player is a hand_brain player
     is_hand_brain = (p1.type == 'hand_brain' or p2.type == 'hand_brain')
 
-    # Get analysis engine path (only if analysis mode is enabled)
+    # Get analysis engine path if analysis mode is enabled
+    # The engine registry handles sharing - if a player engine uses the same binary,
+    # the registry returns the same instance with serialized access
     from universalchess.paths import get_engine_path
     game = settings.game
     analysis_mode = game.analysis_mode
@@ -2558,6 +2560,15 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
             log.info("[Cleanup] SystemPollingService stopped")
         except Exception as e:
             log.error(f"[Cleanup] Error stopping system service: {e}", exc_info=True)
+        
+        # Shutdown all engines via registry
+        log.info("[Cleanup] Shutting down engine registry...")
+        try:
+            from universalchess.services.engine_registry import get_engine_registry
+            get_engine_registry().shutdown()
+            log.info("[Cleanup] Engine registry shut down")
+        except Exception as e:
+            log.error(f"[Cleanup] Error shutting down engine registry: {e}", exc_info=True)
         
         # NOTE: Display manager cleanup is deferred until after shutdown splash/LEDs
         # so the display can show the shutdown message

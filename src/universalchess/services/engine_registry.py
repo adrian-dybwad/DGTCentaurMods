@@ -1,0 +1,253 @@
+# Engine Registry
+#
+# This file is part of the Universal-Chess project
+# ( https://github.com/adrian-dybwad/Universal-Chess )
+#
+# Centralized registry for UCI chess engines. Each engine binary is loaded
+# once and shared across all consumers (player engines, analysis, hand-brain).
+# Access is serialized per engine to handle UCI's stateful nature.
+#
+# Licensed under the GNU General Public License v3.0 or later.
+# See LICENSE.md for details.
+
+from __future__ import annotations
+
+import pathlib
+import threading
+from dataclasses import dataclass, field
+from typing import Dict, Optional, Callable
+
+import chess
+import chess.engine
+
+from universalchess.board.logging import log
+
+
+@dataclass
+class EngineHandle:
+    """Handle to a shared engine instance.
+    
+    Provides serialized access to the underlying UCI engine.
+    All operations acquire the lock before interacting with the engine.
+    """
+    path: str
+    engine: chess.engine.SimpleEngine
+    lock: threading.Lock = field(default_factory=threading.Lock)
+    ref_count: int = 0
+    
+    def configure(self, options: Dict[str, str]) -> None:
+        """Configure UCI options (serialized).
+        
+        Args:
+            options: Dict of UCI option name -> value
+        """
+        if not options:
+            return
+        with self.lock:
+            self.engine.configure(options)
+    
+    def play(
+        self,
+        board: chess.Board,
+        limit: chess.engine.Limit,
+        options: Optional[Dict[str, str]] = None
+    ) -> chess.engine.PlayResult:
+        """Compute best move (serialized).
+        
+        Args:
+            board: Current position
+            limit: Time/depth limit
+            options: Optional UCI options to apply before this search
+            
+        Returns:
+            PlayResult with best move
+        """
+        with self.lock:
+            if options:
+                self.engine.configure(options)
+            return self.engine.play(board, limit)
+    
+    def analyse(
+        self,
+        board: chess.Board,
+        limit: chess.engine.Limit,
+        multipv: int = 1
+    ) -> chess.engine.InfoDict:
+        """Analyze position (serialized).
+        
+        Args:
+            board: Position to analyze
+            limit: Time/depth limit
+            multipv: Number of principal variations
+            
+        Returns:
+            Analysis info dict
+        """
+        with self.lock:
+            return self.engine.analyse(board, limit, multipv=multipv)
+
+
+class EngineRegistry:
+    """Singleton registry for shared UCI engine instances.
+    
+    Engines are loaded lazily on first request and cached by resolved path.
+    Multiple consumers can share the same engine; access is serialized.
+    
+    Usage:
+        registry = get_engine_registry()
+        handle = await registry.acquire("/path/to/stockfish")
+        result = handle.play(board, chess.engine.Limit(time=1.0))
+        registry.release(handle)
+    """
+    
+    _instance: Optional[EngineRegistry] = None
+    _instance_lock = threading.Lock()
+    
+    def __init__(self):
+        self._engines: Dict[str, EngineHandle] = {}
+        self._lock = threading.Lock()
+    
+    @classmethod
+    def get_instance(cls) -> EngineRegistry:
+        """Get the singleton registry instance."""
+        if cls._instance is None:
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = EngineRegistry()
+        return cls._instance
+    
+    def acquire(
+        self,
+        engine_path: str,
+        on_ready: Optional[Callable[[EngineHandle], None]] = None
+    ) -> Optional[EngineHandle]:
+        """Acquire a handle to an engine, loading it if necessary.
+        
+        This is a blocking call that may take time on first load.
+        For async loading, use acquire_async().
+        
+        Args:
+            engine_path: Path to engine executable
+            on_ready: Optional callback when engine is ready (for async pattern)
+            
+        Returns:
+            EngineHandle for the engine, or None on failure
+        """
+        resolved = str(pathlib.Path(engine_path).resolve())
+        
+        with self._lock:
+            if resolved in self._engines:
+                handle = self._engines[resolved]
+                handle.ref_count += 1
+                log.debug(f"[EngineRegistry] Reusing engine {resolved} (refs={handle.ref_count})")
+                if on_ready:
+                    on_ready(handle)
+                return handle
+        
+        # Load engine outside lock to avoid blocking other paths
+        log.info(f"[EngineRegistry] Loading engine: {resolved}")
+        try:
+            engine = chess.engine.SimpleEngine.popen_uci(resolved, timeout=None)
+        except Exception as e:
+            log.error(f"[EngineRegistry] Failed to load engine {resolved}: {e}")
+            return None
+        
+        handle = EngineHandle(path=resolved, engine=engine, ref_count=1)
+        
+        with self._lock:
+            # Check again in case another thread loaded it
+            if resolved in self._engines:
+                # Another thread beat us, close ours and use theirs
+                try:
+                    engine.quit()
+                except Exception:
+                    pass
+                handle = self._engines[resolved]
+                handle.ref_count += 1
+                log.debug(f"[EngineRegistry] Race: using existing engine {resolved} (refs={handle.ref_count})")
+            else:
+                self._engines[resolved] = handle
+                log.info(f"[EngineRegistry] Engine loaded: {resolved}")
+        
+        if on_ready:
+            on_ready(handle)
+        return handle
+    
+    def acquire_async(
+        self,
+        engine_path: str,
+        on_ready: Callable[[EngineHandle], None],
+        on_error: Optional[Callable[[Exception], None]] = None
+    ) -> None:
+        """Acquire engine handle asynchronously in a background thread.
+        
+        Args:
+            engine_path: Path to engine executable
+            on_ready: Callback with EngineHandle when ready
+            on_error: Optional callback on failure
+        """
+        def _load():
+            try:
+                handle = self.acquire(engine_path)
+                if handle:
+                    on_ready(handle)
+                elif on_error:
+                    on_error(Exception(f"Failed to load engine: {engine_path}"))
+            except Exception as e:
+                log.error(f"[EngineRegistry] Async load error: {e}")
+                if on_error:
+                    on_error(e)
+        
+        thread = threading.Thread(
+            target=_load,
+            name=f"engine-load-{pathlib.Path(engine_path).name}",
+            daemon=True
+        )
+        thread.start()
+    
+    def release(self, handle: EngineHandle) -> None:
+        """Release a handle to an engine.
+        
+        The engine is kept loaded for potential reuse by other consumers.
+        Call shutdown() to actually close engines.
+        
+        Args:
+            handle: The handle to release
+        """
+        with self._lock:
+            if handle.path in self._engines:
+                handle.ref_count = max(0, handle.ref_count - 1)
+                log.debug(f"[EngineRegistry] Released {handle.path} (refs={handle.ref_count})")
+    
+    def shutdown(self) -> None:
+        """Shutdown all engines and clear the registry.
+        
+        Called during application shutdown.
+        """
+        with self._lock:
+            for path, handle in self._engines.items():
+                try:
+                    log.info(f"[EngineRegistry] Closing engine: {path}")
+                    handle.engine.quit()
+                except Exception as e:
+                    log.debug(f"[EngineRegistry] Error closing {path}: {e}")
+            self._engines.clear()
+        log.info("[EngineRegistry] All engines shut down")
+    
+    def get_loaded_engines(self) -> Dict[str, int]:
+        """Get dict of loaded engine paths -> ref counts (for debugging)."""
+        with self._lock:
+            return {path: handle.ref_count for path, handle in self._engines.items()}
+
+
+def get_engine_registry() -> EngineRegistry:
+    """Get the global engine registry singleton."""
+    return EngineRegistry.get_instance()
+
+
+__all__ = [
+    "EngineHandle",
+    "EngineRegistry",
+    "get_engine_registry",
+]
+

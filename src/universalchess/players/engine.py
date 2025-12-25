@@ -21,6 +21,7 @@ import chess
 import chess.engine
 
 from universalchess.board.logging import log
+from universalchess.services.engine_registry import get_engine_registry, EngineHandle
 from .base import Player, PlayerConfig, PlayerState, PlayerType
 
 
@@ -74,8 +75,8 @@ class EnginePlayer(Player):
         super().__init__(config or EnginePlayerConfig())
         self._engine_config: EnginePlayerConfig = self._config
         
-        # Engine process handle
-        self._engine: Optional[chess.engine.SimpleEngine] = None
+        # Engine handle from registry (shared, serialized access)
+        self._engine_handle: Optional[EngineHandle] = None
         
         # Threading
         self._init_thread: Optional[threading.Thread] = None
@@ -137,38 +138,34 @@ class EnginePlayer(Player):
         if uci_file_path:
             self._load_uci_options(uci_file_path)
         
-        # Start engine initialization in background
-        def _init_engine():
-            try:
-                log.info(f"[EnginePlayer] Starting engine: {engine_path}")
-                engine = chess.engine.SimpleEngine.popen_uci(str(engine_path), timeout=None)
-                
-                # Apply UCI options
-                if self._uci_options:
-                    log.info(f"[EnginePlayer] Configuring with options: {self._uci_options}")
-                    engine.configure(self._uci_options)
-                
-                with self._lock:
-                    self._engine = engine
-                
-                color_name = 'White' if self._color == chess.WHITE else 'Black' if self._color == chess.BLACK else ''
-                log.info(f"[EnginePlayer] {color_name} engine ready: {self.engine_name} @ {self.elo_section}")
-                self._report_status(f"{self.engine_name} ready")
-                
-                # Set state OUTSIDE lock - _set_state may call _do_request_move
-                # which needs to acquire the lock
-                self._set_state(PlayerState.READY)
-                
-            except Exception as e:
-                log.error(f"[EnginePlayer] Failed to initialize engine: {e}")
-                self._set_state(PlayerState.ERROR, str(e))
+        # Acquire engine from registry (async)
+        def _on_engine_ready(handle: EngineHandle):
+            # Apply UCI options
+            if self._uci_options:
+                log.info(f"[EnginePlayer] Configuring with options: {self._uci_options}")
+                handle.configure(self._uci_options)
+            
+            with self._lock:
+                self._engine_handle = handle
+            
+            color_name = 'White' if self._color == chess.WHITE else 'Black' if self._color == chess.BLACK else ''
+            log.info(f"[EnginePlayer] {color_name} engine ready: {self.engine_name} @ {self.elo_section}")
+            self._report_status(f"{self.engine_name} ready")
+            
+            # Set state OUTSIDE lock - _set_state may call _do_request_move
+            # which needs to acquire the lock
+            self._set_state(PlayerState.READY)
         
-        self._init_thread = threading.Thread(
-            target=_init_engine,
-            name=f"engine-init-{self.engine_name}",
-            daemon=True
+        def _on_engine_error(e: Exception):
+            log.error(f"[EnginePlayer] Failed to initialize engine: {e}")
+            self._set_state(PlayerState.ERROR, str(e))
+        
+        log.info(f"[EnginePlayer] Requesting engine from registry: {engine_path}")
+        get_engine_registry().acquire_async(
+            str(engine_path),
+            on_ready=_on_engine_ready,
+            on_error=_on_engine_error
         )
-        self._init_thread.start()
         
         return True
     
@@ -180,15 +177,12 @@ class EnginePlayer(Player):
         if self._init_thread and self._init_thread.is_alive():
             self._init_thread.join(timeout=1.0)
         
-        # Close engine
+        # Release engine handle back to registry
         with self._lock:
-            if self._engine:
-                try:
-                    self._engine.quit()
-                    log.info(f"[EnginePlayer] Engine closed: {self.engine_name}")
-                except Exception as e:
-                    log.debug(f"[EnginePlayer] Error closing engine: {e}")
-                self._engine = None
+            if self._engine_handle:
+                get_engine_registry().release(self._engine_handle)
+                log.info(f"[EnginePlayer] Engine released: {self.engine_name}")
+                self._engine_handle = None
         
         self._set_state(PlayerState.STOPPED)
     
@@ -223,9 +217,10 @@ class EnginePlayer(Player):
             return
         
         with self._lock:
-            if not self._engine:
+            if not self._engine_handle:
                 log.warning("[EnginePlayer] Engine not initialized")
                 return
+            handle = self._engine_handle
         
         # Reset state for new turn
         self._lifted_squares = []
@@ -240,22 +235,14 @@ class EnginePlayer(Player):
             try:
                 log.info(f"[EnginePlayer] {self.engine_name} thinking...")
                 
-                # Re-apply UCI options before each move (some engines reset)
-                with self._lock:
-                    if self._engine and self._uci_options:
-                        self._engine.configure(self._uci_options)
-                
-                # Get engine move
+                # Get engine move (registry handles serialization and options)
                 time_limit = self._engine_config.time_limit_seconds
-                with self._lock:
-                    if self._engine:
-                        result = self._engine.play(
-                            board_copy,
-                            chess.engine.Limit(time=time_limit)
-                        )
-                        move = result.move
-                    else:
-                        move = None
+                result = handle.play(
+                    board_copy,
+                    chess.engine.Limit(time=time_limit),
+                    options=self._uci_options if self._uci_options else None
+                )
+                move = result.move
                 
                 if move:
                     log.info(f"[EnginePlayer] {self.engine_name} computed: {move.uci()}")

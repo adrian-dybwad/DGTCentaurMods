@@ -24,6 +24,7 @@ import chess.engine
 from universalchess.board import board
 from universalchess.board.logging import log
 from universalchess.services import get_chess_clock_service
+from universalchess.services.engine_registry import get_engine_registry, EngineHandle
 from universalchess.state import get_chess_clock as get_clock_state
 from universalchess.state import get_chess_game
 
@@ -146,7 +147,8 @@ class DisplayManager:
         self.chess_board_widget = None
         self.clock_widget = None
         self.analysis_widget = None
-        self.analysis_engine = None
+        self.analysis_engine = None  # Backwards compat - raw engine reference
+        self._analysis_engine_handle = None  # EngineHandle from registry
         self.alert_widget = None
         self.pause_widget = None
         self.game_over_widget = None
@@ -181,41 +183,38 @@ class DisplayManager:
             self._init_analysis_engine_async(analysis_engine_path)
     
     def _init_analysis_engine_async(self, engine_path: str):
-        """Initialize the UCI analysis engine asynchronously.
+        """Initialize the UCI analysis engine asynchronously via registry.
         
-        Starts engine initialization in a background thread to avoid blocking
-        game startup. The AnalysisService will process positions once the
-        engine is available.
+        Acquires the engine from the registry, which may reuse an existing
+        instance if another consumer (player engine) is using the same binary.
         
         Args:
             engine_path: Path to the UCI engine executable
         """
-        def _init_engine():
-            try:
-                resolved_path = str(pathlib.Path(engine_path).resolve())
-                log.info(f"[DisplayManager] Starting analysis engine initialization: {resolved_path}")
-                engine = chess.engine.SimpleEngine.popen_uci(resolved_path, timeout=None)
-                
-                # Set the engine on DisplayManager (for hints) and AnalysisService
-                self.analysis_engine = engine
-                
-                # Set engine on AnalysisService
-                from universalchess.services.analysis import get_analysis_service
-                analysis_service = get_analysis_service()
-                analysis_service.set_engine(engine)
-                analysis_service.start()
-                
-                log.info(f"[DisplayManager] Analysis engine ready: {resolved_path}")
-            except Exception as e:
-                log.warning(f"[DisplayManager] Could not initialize analysis engine: {e}")
-                self.analysis_engine = None
+        def _on_engine_ready(handle: EngineHandle):
+            log.info(f"[DisplayManager] Analysis engine ready: {handle.path}")
+            
+            # Store handle for hints
+            self._analysis_engine_handle = handle
+            self.analysis_engine = handle.engine  # For backwards compat
+            
+            # Set engine handle on AnalysisService
+            from universalchess.services.analysis import get_analysis_service
+            analysis_service = get_analysis_service()
+            analysis_service.set_engine_handle(handle)
+            analysis_service.start()
         
-        self._engine_init_thread = threading.Thread(
-            target=_init_engine,
-            name="analysis-engine-init",
-            daemon=True
+        def _on_engine_error(e: Exception):
+            log.warning(f"[DisplayManager] Could not initialize analysis engine: {e}")
+            self.analysis_engine = None
+            self._analysis_engine_handle = None
+        
+        log.info(f"[DisplayManager] Starting analysis engine initialization: {engine_path}")
+        get_engine_registry().acquire_async(
+            engine_path,
+            on_ready=_on_engine_ready,
+            on_error=_on_engine_error
         )
-        self._engine_init_thread.start()
     
     def _reload_display_settings(self):
         """Reload display settings from config file.
@@ -402,13 +401,13 @@ class DisplayManager:
         Returns:
             chess.Move object if a hint is available, None otherwise
         """
-        if not self.analysis_engine:
+        if not self._analysis_engine_handle:
             log.warning("[DisplayManager] No analysis engine available for hint")
             return None
         
         try:
             import chess.engine
-            result = self.analysis_engine.play(board_obj, chess.engine.Limit(time=time_limit))
+            result = self._analysis_engine_handle.play(board_obj, chess.engine.Limit(time=time_limit))
             if result.move:
                 log.info(f"[DisplayManager] Hint move: {result.move.uci()}")
                 return result.move
@@ -989,18 +988,18 @@ class DisplayManager:
             except Exception as e:
                 log.debug(f"[DisplayManager] Error cleaning up game over widget: {e}")
         
-        # Quit analysis engine
-        log.info("[DisplayManager] Quitting analysis engine...")
-        if self.analysis_engine:
+        # Release analysis engine handle back to registry
+        log.info("[DisplayManager] Releasing analysis engine...")
+        if self._analysis_engine_handle:
             try:
-                self.analysis_engine.quit()
-                log.info("[DisplayManager] Analysis engine quit")
+                get_engine_registry().release(self._analysis_engine_handle)
+                log.info("[DisplayManager] Analysis engine released")
             except Exception as e:
-                # Engine may already be terminated during shutdown - this is expected
-                log.debug(f"[DisplayManager] Analysis engine already terminated: {e}")
+                log.debug(f"[DisplayManager] Error releasing analysis engine: {e}")
+            self._analysis_engine_handle = None
             self.analysis_engine = None
         else:
-            log.info("[DisplayManager] No analysis engine to quit")
+            log.info("[DisplayManager] No analysis engine to release")
         
         # Clear widgets - skip creating status bar during shutdown
         log.info("[DisplayManager] Clearing widgets...")

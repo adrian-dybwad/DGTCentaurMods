@@ -72,6 +72,31 @@ class MockEngine:
         pass
 
 
+class MockEngineHandle:
+    """Mock EngineHandle that wraps a MockEngine for testing.
+    
+    Provides the same interface as EngineHandle from the registry.
+    """
+    
+    def __init__(self, engine: MockEngine = None):
+        self.engine = engine or MockEngine()
+        self.lock = MagicMock()
+        self.lock.locked.return_value = False
+        self.path = "/mock/engine"
+        self.ref_count = 1
+    
+    def configure(self, options):
+        self.engine.configure(options)
+    
+    def play(self, board, limit, options=None):
+        if options:
+            self.engine.configure(options)
+        return self.engine.play(board, limit)
+    
+    def analyse(self, board, limit, multipv=1):
+        return self.engine.analyse(board, limit)
+
+
 class TestReverseModeReselection(unittest.TestCase):
     """Test cases for piece type re-selection in reverse hand-brain mode."""
     
@@ -90,8 +115,8 @@ class TestReverseModeReselection(unittest.TestCase):
         )
         player = HandBrainPlayer(config)
         
-        # Inject mock engine
-        player._engine = MockEngine()
+        # Inject mock engine handle
+        player._engine_handle = MockEngineHandle()
         player._state = player.state.__class__.READY  # PlayerState.READY
         
         return player
@@ -186,7 +211,7 @@ class TestReverseModeReselection(unittest.TestCase):
         # Second call: return rook move
         knight_move = chess.Move(chess.E4, chess.F6)
         rook_move = chess.Move(chess.A1, chess.A8)
-        player._engine.play_results = [knight_move, rook_move]
+        player._engine_handle.engine.play_results = [knight_move, rook_move]
         
         # Start the turn
         player._do_request_move(board)
@@ -242,7 +267,7 @@ class TestReverseModeReselection(unittest.TestCase):
         board = chess.Board("8/8/8/8/4N3/8/8/4K2N w - - 0 1")
         
         knight_move = chess.Move(chess.E4, chess.F6)
-        player._engine.play_results = [knight_move, knight_move]
+        player._engine_handle.engine.play_results = [knight_move, knight_move]
         
         # Start turn and select knight
         player._do_request_move(board)
@@ -251,7 +276,7 @@ class TestReverseModeReselection(unittest.TestCase):
         
         time.sleep(0.3)
         
-        initial_call_count = player._engine.play_call_count
+        initial_call_count = player._engine_handle.engine.play_call_count
         initial_pending_move = player._pending_move
         
         # Bump the OTHER knight (h1) - same piece TYPE
@@ -283,7 +308,7 @@ class TestReverseModeReselectionEdgeCases(unittest.TestCase):
             engine_name="mock_engine"
         )
         player = HandBrainPlayer(config)
-        player._engine = MockEngine()
+        player._engine_handle = MockEngineHandle()
         player._state = player.state.__class__.READY
         
         return player
@@ -688,7 +713,7 @@ class TestHandBrainHint(unittest.TestCase):
             time_limit_seconds=0.1,
         )
         player = HandBrainPlayer(config)
-        player._engine = MockEngine()
+        player._engine_handle = MockEngineHandle()
         player._set_state(PlayerState.READY)
         return player
     
@@ -700,7 +725,7 @@ class TestHandBrainHint(unittest.TestCase):
             time_limit_seconds=0.1,
         )
         player = HandBrainPlayer(config)
-        player._engine = MockEngine()
+        player._engine_handle = MockEngineHandle()
         player._set_state(PlayerState.READY)
         return player
     
@@ -720,7 +745,7 @@ class TestHandBrainHint(unittest.TestCase):
         
         board = chess.Board()
         # Configure engine to return e2e4
-        player._engine.play_results = [chess.Move.from_uci("e2e4")]
+        player._engine_handle.engine.play_results = [chess.Move.from_uci("e2e4")]
         
         # Start the turn (computes suggestion)
         player._do_request_move(board)
@@ -757,7 +782,7 @@ class TestHandBrainHint(unittest.TestCase):
         
         board = chess.Board()
         # Configure engine to return e2e4 (pawn move)
-        player._engine.play_results = [chess.Move.from_uci("e2e4")]
+        player._engine_handle.engine.play_results = [chess.Move.from_uci("e2e4")]
         
         # Get hint
         hint = player.get_hint(board)

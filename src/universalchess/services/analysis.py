@@ -13,7 +13,7 @@ This follows the pattern:
 
 import queue
 import threading
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 import chess
 import chess.engine
@@ -27,6 +27,9 @@ except ImportError:
 from universalchess.state import get_chess_game
 from universalchess.state.analysis import get_analysis, AnalysisState
 from universalchess.state.chess_game import ChessGameState
+
+if TYPE_CHECKING:
+    from universalchess.services.engine_registry import EngineHandle
 
 
 class AnalysisService:
@@ -49,8 +52,8 @@ class AnalysisService:
         self._game_state: ChessGameState = get_chess_game()
         self._analysis_state: AnalysisState = get_analysis()
         
-        # Analysis engine (set via set_engine)
-        self._engine: Optional[chess.engine.SimpleEngine] = None
+        # Analysis engine handle (set via set_engine_handle)
+        self._engine_handle: Optional["EngineHandle"] = None
         
         # Analysis queue and worker
         self._analysis_queue: queue.Queue = queue.Queue(maxsize=50)
@@ -99,13 +102,29 @@ class AnalysisService:
         log.info("[AnalysisService] Stopped")
     
     def set_engine(self, engine: Optional[chess.engine.SimpleEngine]) -> None:
-        """Set the analysis engine.
+        """Set the analysis engine (deprecated, use set_engine_handle).
+        
+        For backwards compatibility only.
         
         Args:
             engine: Chess engine for analysis, or None to disable.
         """
-        self._engine = engine
+        # Wrap in a simple handle-like object for backwards compat
+        if engine is not None:
+            from universalchess.services.engine_registry import EngineHandle
+            self._engine_handle = EngineHandle(path="<legacy>", engine=engine)
+        else:
+            self._engine_handle = None
         log.info(f"[AnalysisService] Engine set: {engine is not None}")
+    
+    def set_engine_handle(self, handle: Optional["EngineHandle"]) -> None:
+        """Set the analysis engine handle from registry.
+        
+        Args:
+            handle: EngineHandle from registry, or None to disable.
+        """
+        self._engine_handle = handle
+        log.info(f"[AnalysisService] Engine handle set: {handle is not None}")
     
     def set_time_limit(self, seconds: float) -> None:
         """Set the time limit for analysis.
@@ -240,7 +259,7 @@ class AnalysisService:
                     continue
                 
                 # Wait for engine
-                if self._engine is None:
+                if self._engine_handle is None:
                     try:
                         self._analysis_queue.put_nowait(request)
                     except queue.Full:
@@ -259,9 +278,9 @@ class AnalysisService:
                     self._analysis_queue.task_done()
                     continue
                 
-                # Run analysis
+                # Run analysis (via handle for serialized access)
                 try:
-                    info = self._engine.analyse(board_copy, chess.engine.Limit(time=time_limit))
+                    info = self._engine_handle.analyse(board_copy, chess.engine.Limit(time=time_limit))
                     
                     # Check again after analysis
                     if request_generation != self._reset_generation:

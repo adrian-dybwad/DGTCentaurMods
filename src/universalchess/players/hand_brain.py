@@ -28,6 +28,7 @@ import chess.engine
 
 from universalchess.board.logging import log
 from universalchess.board.settings import Settings
+from universalchess.services.engine_registry import get_engine_registry, EngineHandle
 from .base import Player, PlayerConfig, PlayerState, PlayerType
 
 
@@ -192,8 +193,8 @@ class HandBrainPlayer(Player):
         super().__init__(config or HandBrainConfig())
         self._hb_config: HandBrainConfig = self._config
         
-        # Engine process handle
-        self._engine: Optional[chess.engine.SimpleEngine] = None
+        # Engine handle from registry (shared, serialized access)
+        self._engine_handle: Optional[EngineHandle] = None
         
         # Threading
         self._init_thread: Optional[threading.Thread] = None
@@ -343,45 +344,43 @@ class HandBrainPlayer(Player):
             The hint move, or None if engine not ready.
         """
         with self._lock:
-            if not self._engine:
+            if not self._engine_handle:
                 log.warning("[HandBrain] Hint (REVERSE mode): engine not ready")
                 return None
-            
-            try:
-                # Re-apply UCI options before computation
-                if self._uci_options:
-                    self._engine.configure(self._uci_options)
+            handle = self._engine_handle
+        
+        try:
+            # Get engine's best move (use short time limit for responsiveness)
+            result = handle.play(
+                board,
+                chess.engine.Limit(time=min(self._hb_config.time_limit_seconds, 1.0)),
+                options=self._uci_options if self._uci_options else None
+            )
+            best_move = result.move
                 
-                # Get engine's best move (use short time limit for responsiveness)
-                result = self._engine.play(
-                    board,
-                    chess.engine.Limit(time=min(self._hb_config.time_limit_seconds, 1.0))
-                )
-                best_move = result.move
-                
-                if best_move:
-                    piece = board.piece_at(best_move.from_square)
-                    if piece:
-                        piece_name = chess.piece_name(piece.piece_type).capitalize()
-                        log.info(f"[HandBrain] Hint (REVERSE mode): suggest {piece_name} from best move {best_move.uci()}")
-                        
-                        # Light up squares with this piece type
-                        self._show_piece_type_leds(board, piece.piece_type)
-                        
-                        # Show status message
-                        self._report_status(f"Hint: {piece_name}")
-                        
-                        return best_move
-                    else:
-                        log.warning("[HandBrain] Hint (REVERSE mode): no piece at from_square")
-                        return None
-                else:
-                    log.warning("[HandBrain] Hint (REVERSE mode): engine returned no move")
-                    return None
+            if best_move:
+                piece = board.piece_at(best_move.from_square)
+                if piece:
+                    piece_name = chess.piece_name(piece.piece_type).capitalize()
+                    log.info(f"[HandBrain] Hint (REVERSE mode): suggest {piece_name} from best move {best_move.uci()}")
                     
-            except Exception as e:
-                log.error(f"[HandBrain] Hint error: {e}")
+                    # Light up squares with this piece type
+                    self._show_piece_type_leds(board, piece.piece_type)
+                    
+                    # Show status message
+                    self._report_status(f"Hint: {piece_name}")
+                    
+                    return best_move
+                else:
+                    log.warning("[HandBrain] Hint (REVERSE mode): no piece at from_square")
+                    return None
+            else:
+                log.warning("[HandBrain] Hint (REVERSE mode): engine returned no move")
                 return None
+                
+        except Exception as e:
+            log.error(f"[HandBrain] Hint error: {e}")
+            return None
     
     def start(self) -> bool:
         """Initialize and start the engine.
@@ -410,34 +409,30 @@ class HandBrainPlayer(Player):
         if uci_file_path:
             self._load_uci_options(uci_file_path)
         
-        # Start engine initialization in background
-        def _init_engine():
-            try:
-                log.info(f"[HandBrain] Starting engine: {engine_path}")
-                engine = chess.engine.SimpleEngine.popen_uci(str(engine_path), timeout=None)
-                
-                # Apply UCI options
-                if self._uci_options:
-                    log.info(f"[HandBrain] Configuring with options: {self._uci_options}")
-                    engine.configure(self._uci_options)
-                
-                with self._lock:
-                    self._engine = engine
-                
-                log.info(f"[HandBrain] Engine ready: {self.engine_name} @ {self.elo_section} ({mode_str})")
-                self._report_status(f"{self.engine_name} ready")
-                self._set_state(PlayerState.READY)
-                
-            except Exception as e:
-                log.error(f"[HandBrain] Failed to initialize engine: {e}")
-                self._set_state(PlayerState.ERROR, str(e))
+        # Acquire engine from registry (async)
+        def _on_engine_ready(handle: EngineHandle):
+            # Apply UCI options
+            if self._uci_options:
+                log.info(f"[HandBrain] Configuring with options: {self._uci_options}")
+                handle.configure(self._uci_options)
+            
+            with self._lock:
+                self._engine_handle = handle
+            
+            log.info(f"[HandBrain] Engine ready: {self.engine_name} @ {self.elo_section} ({mode_str})")
+            self._report_status(f"{self.engine_name} ready")
+            self._set_state(PlayerState.READY)
         
-        self._init_thread = threading.Thread(
-            target=_init_engine,
-            name=f"hb-init-{self.engine_name}",
-            daemon=True
+        def _on_engine_error(e: Exception):
+            log.error(f"[HandBrain] Failed to initialize engine: {e}")
+            self._set_state(PlayerState.ERROR, str(e))
+        
+        log.info(f"[HandBrain] Requesting engine from registry: {engine_path}")
+        get_engine_registry().acquire_async(
+            str(engine_path),
+            on_ready=_on_engine_ready,
+            on_error=_on_engine_error
         )
-        self._init_thread.start()
         
         return True
     
@@ -453,15 +448,12 @@ class HandBrainPlayer(Player):
         if self._think_thread and self._think_thread.is_alive():
             self._think_thread.join(timeout=2.0)
         
-        # Close engine
+        # Release engine handle back to registry
         with self._lock:
-            if self._engine:
-                try:
-                    self._engine.quit()
-                    log.info(f"[HandBrain] Engine closed: {self.engine_name}")
-                except Exception as e:
-                    log.debug(f"[HandBrain] Error closing engine: {e}")
-                self._engine = None
+            if self._engine_handle:
+                get_engine_registry().release(self._engine_handle)
+                log.info(f"[HandBrain] Engine released: {self.engine_name}")
+                self._engine_handle = None
         
         self._set_state(PlayerState.STOPPED)
     
@@ -504,20 +496,18 @@ class HandBrainPlayer(Player):
         def _compute_suggestion():
             try:
                 with self._lock:
-                    if not self._engine:
+                    if not self._engine_handle:
                         log.warning("[HandBrain] Engine not ready")
                         return
-                    
-                    # Re-apply UCI options before computation
-                    if self._uci_options:
-                        self._engine.configure(self._uci_options)
-                    
-                    # Get engine's best move
-                    result = self._engine.play(
-                        board_copy,
-                        chess.engine.Limit(time=self._hb_config.time_limit_seconds)
-                    )
-                    best_move = result.move
+                    handle = self._engine_handle
+                
+                # Get engine's best move (registry handles serialization)
+                result = handle.play(
+                    board_copy,
+                    chess.engine.Limit(time=self._hb_config.time_limit_seconds),
+                    options=self._uci_options if self._uci_options else None
+                )
+                best_move = result.move
                 
                 if best_move:
                     # Extract piece type from the best move
@@ -818,51 +808,54 @@ class HandBrainPlayer(Player):
         def _compute():
             try:
                 with self._lock:
-                    if not self._engine:
+                    if not self._engine_handle:
                         log.warning("[HandBrain] Engine not ready")
                         return
-                    
-                    # Re-apply UCI options before computation
-                    if self._uci_options:
-                        self._engine.configure(self._uci_options)
-                    
-                    # Step 1: Try root_moves constraint (faster if engine respects it)
-                    log.debug(f"[HandBrain] Trying root_moves with {len(legal_moves)} moves: {[m.uci() for m in legal_moves]}")
-                    result = self._engine.play(
+                    handle = self._engine_handle
+                
+                # Step 1: Try root_moves constraint (faster if engine respects it)
+                log.debug(f"[HandBrain] Trying root_moves with {len(legal_moves)} moves: {[m.uci() for m in legal_moves]}")
+                
+                # Configure options and play with root_moves
+                if self._uci_options:
+                    handle.configure(self._uci_options)
+                
+                with handle.lock:
+                    result = handle.engine.play(
                         board_copy,
                         chess.engine.Limit(time=self._hb_config.time_limit_seconds),
                         root_moves=legal_moves
                     )
-                    move = result.move
-                    
-                    # Validate the result
-                    if move and move in legal_moves:
-                        # Engine respected root_moves - record success and use the move
-                        _record_root_moves_result(engine_name, success=True)
-                        log.info(f"[HandBrain] Best {piece_name} move (root_moves): {move.uci()}")
-                        if compute_generation == self._compute_generation and self._selected_piece_type == piece_type:
-                            self._set_pending_move(move)
-                        return
-                    
-                    # Engine did NOT respect root_moves - record failure
-                    if move:
-                        log.warning(f"[HandBrain] Engine ignored root_moves: got {move.uci()}, expected one of {[m.uci() for m in legal_moves]}")
-                    else:
-                        log.warning("[HandBrain] Engine returned no move")
-                    _record_root_moves_result(engine_name, success=False)
-                    
-                    # Step 2: Fall back to per-move analysis
-                    log.info(f"[HandBrain] Falling back to per-move analysis for {len(legal_moves)} candidates")
-                    best_move = self._evaluate_candidates(board_copy, legal_moves, piece_name)
-                    
-                    if best_move:
-                        if compute_generation == self._compute_generation and self._selected_piece_type == piece_type:
-                            self._set_pending_move(best_move)
-                    else:
-                        # Last resort fallback
-                        log.warning("[HandBrain] Per-move analysis failed, using first legal move")
-                        if compute_generation == self._compute_generation and self._selected_piece_type == piece_type:
-                            self._set_pending_move(legal_moves[0])
+                move = result.move
+                
+                # Validate the result
+                if move and move in legal_moves:
+                    # Engine respected root_moves - record success and use the move
+                    _record_root_moves_result(engine_name, success=True)
+                    log.info(f"[HandBrain] Best {piece_name} move (root_moves): {move.uci()}")
+                    if compute_generation == self._compute_generation and self._selected_piece_type == piece_type:
+                        self._set_pending_move(move)
+                    return
+                
+                # Engine did NOT respect root_moves - record failure
+                if move:
+                    log.warning(f"[HandBrain] Engine ignored root_moves: got {move.uci()}, expected one of {[m.uci() for m in legal_moves]}")
+                else:
+                    log.warning("[HandBrain] Engine returned no move")
+                _record_root_moves_result(engine_name, success=False)
+                
+                # Step 2: Fall back to per-move analysis
+                log.info(f"[HandBrain] Falling back to per-move analysis for {len(legal_moves)} candidates")
+                best_move = self._evaluate_candidates(board_copy, legal_moves, piece_name)
+                
+                if best_move:
+                    if compute_generation == self._compute_generation and self._selected_piece_type == piece_type:
+                        self._set_pending_move(best_move)
+                else:
+                    # Last resort fallback
+                    log.warning("[HandBrain] Per-move analysis failed, using first legal move")
+                    if compute_generation == self._compute_generation and self._selected_piece_type == piece_type:
+                        self._set_pending_move(legal_moves[0])
                     
             except Exception as e:
                 log.error(f"[HandBrain] Error computing move: {e}")
@@ -900,7 +893,7 @@ class HandBrainPlayer(Player):
         Returns:
             The best move, or None if evaluation fails.
         """
-        if not self._engine:
+        if not self._engine_handle:
             return None
         
         best_move = None
@@ -922,7 +915,13 @@ class HandBrainPlayer(Player):
             
             try:
                 # Analyze the resulting position
-                info = self._engine.analyse(
+                with self._lock:
+                    if not self._engine_handle:
+                        log.warning("[HandBrain] Engine not ready during per-move analysis")
+                        continue
+                    handle = self._engine_handle
+                
+                info = handle.analyse(
                     test_board,
                     chess.engine.Limit(time=time_per_move)
                 )
