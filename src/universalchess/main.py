@@ -346,12 +346,15 @@ def _board_init_status_callback(message: str):
 from universalchess.board import init_callback
 init_callback.set_callback(_board_init_status_callback)
 
-# Now import board module - this triggers SyncCentaur initialization and waits for ready
+# Import board module (no longer triggers initialization at import time)
 from universalchess.board import board
 
 # Transfer the early display manager to board module so it's available globally
 if _early_display_manager is not None:
     board.display_manager = _early_display_manager
+
+# Explicitly initialize the board controller - this waits for ready
+board.init_board()
 
 # Board is now ready - update splash
 if _startup_splash:

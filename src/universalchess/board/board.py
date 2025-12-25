@@ -129,8 +129,12 @@ def _create_controller():
     return SyncCentaur(developer_mode=False)
 
 
-def _init_board_with_retry():
+def init_board():
     """Initialize the board controller with retry logic.
+    
+    Called explicitly during startup (from main.py). After this returns,
+    the global `controller` is guaranteed to be set and can be used directly
+    by all functions in this module.
     
     If the board fails to initialize within the timeout, the controller is
     cleaned up and a new one is created. This handles cases where the board
@@ -176,22 +180,6 @@ def _init_board_with_retry():
     # All retries exhausted - log error but continue with last controller
     log.error(f"[board] Board initialization failed after {MAX_INIT_RETRIES} attempts")
     log.warning("[board] Continuing with potentially uninitialized board - functionality may be limited")
-    return controller
-
-
-def get_controller() -> Optional[SyncCentaur]:
-    """Return the global board controller, initializing it lazily if needed.
-    
-    This module must be importable in non-hardware environments (unit tests,
-    dev machines) without triggering serial discovery or background threads.
-    The controller is therefore initialized on first use rather than at import.
-    
-    Returns:
-        The initialized SyncCentaur controller, or None if initialization failed.
-    """
-    global controller
-    if controller is None:
-        controller = _init_board_with_retry()
     return controller
 
 # But the address might not be that :( Here we send an initial 0x4d to ask the board to provide its address

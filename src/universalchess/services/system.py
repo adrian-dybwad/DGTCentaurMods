@@ -112,11 +112,10 @@ class SystemPollingService:
             from universalchess.board.sync_centaur import command
             from universalchess.board import board
             
-            controller = board.get_controller()
-            if controller is None:
+            if board.controller is None:
                 return
             
-            resp = controller.request_response(command.DGT_SEND_BATTERY_INFO)
+            resp = board.controller.request_response(command.DGT_SEND_BATTERY_INFO)
             if resp is None or len(resp) == 0:
                 return
             
