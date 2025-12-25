@@ -13,8 +13,37 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BUILD_TMP="/var/tmp"
 RELEASES_DIR="${SCRIPT_DIR}/releases"
 
-DEB_ROOT="${REPO_ROOT}/packaging/deb-root"
-CONTROL_FILE="${DEB_ROOT}/DEBIAN/control"
+function _find_control_file {
+    # Prefer the new layout first, then fall back to any DEBIAN/control found.
+    local preferred="${REPO_ROOT}/packaging/deb-root/DEBIAN/control"
+    if [ -f "${preferred}" ]; then
+        echo "${preferred}"
+        return 0
+    fi
+
+    # Search for a Debian control file in a bounded depth to avoid scanning the world.
+    # Note: macOS/BSD find supports -maxdepth; Debian find also supports it.
+    local found
+    found="$(find "${REPO_ROOT}" -maxdepth 5 -type f -path '*/DEBIAN/control' 2>/dev/null | head -n1 || true)"
+    if [ -n "${found}" ] && [ -f "${found}" ]; then
+        echo "${found}"
+        return 0
+    fi
+
+    return 1
+}
+
+CONTROL_FILE="$(_find_control_file || true)"
+if [ -z "${CONTROL_FILE}" ] || [ ! -f "${CONTROL_FILE}" ]; then
+    echo "Missing Debian control file under repo root: ${REPO_ROOT}" >&2
+    echo "Expected one of:" >&2
+    echo "  - ${REPO_ROOT}/packaging/deb-root/DEBIAN/control" >&2
+    echo "  - <any path matching */DEBIAN/control within 5 levels>" >&2
+    exit 1
+fi
+
+# Debian staging root is the parent directory of DEBIAN/
+DEB_ROOT="$(cd "$(dirname "${CONTROL_FILE}")/.." && pwd)"
 
 # Debian package name (control: Package) is not the same as the install dir.
 OPT_DIR_NAME="universalchess"
@@ -22,14 +51,11 @@ INSTALLDIR="/opt/${OPT_DIR_NAME}"
 
 function detectVersion {
     echo "::: Getting version/package from ${CONTROL_FILE}"
-    if [ ! -f "${CONTROL_FILE}" ]; then
-        echo "Missing Debian control file: ${CONTROL_FILE}" >&2
-        exit 1
-    fi
+    # CONTROL_FILE is resolved early and must exist by this point.
 
     # Use grep/cut to avoid awk quoting issues across environments.
-    DEB_PACKAGE_NAME="$(grep -m1 '^Package:' \"${CONTROL_FILE}\" | cut -d':' -f2- | xargs)"
-    VERSION="$(grep -m1 '^Version:' \"${CONTROL_FILE}\" | cut -d':' -f2- | xargs)"
+    DEB_PACKAGE_NAME="$(grep -m1 '^Package:' "${CONTROL_FILE}" | cut -d':' -f2- | xargs)"
+    VERSION="$(grep -m1 '^Version:' "${CONTROL_FILE}" | cut -d':' -f2- | xargs)"
 
     if [ -z "${DEB_PACKAGE_NAME}" ] || [ -z "${VERSION}" ]; then
         echo "Failed to parse Package/Version from ${CONTROL_FILE}" >&2
