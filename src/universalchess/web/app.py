@@ -1630,10 +1630,14 @@ def api_get_engine_levels(engine_name):
         config = configparser.ConfigParser()
         config.read(str(uci_path))
         
-        levels = ["Default"]
+        levels = []
         for section in config.sections():
             if section != "DEFAULT":
                 levels.append(section)
+        
+        # Ensure "Default" is always first option if not already present
+        if "Default" not in levels:
+            levels.insert(0, "Default")
         
         return json.dumps(levels)
     except Exception as e:
