@@ -7,7 +7,7 @@
 
 <div class="columns">
   <div class="column is-8">
-    {% include "liveboard.html" %}
+{% include "liveboard.html" %}
   </div>
   <div class="column is-4">
     <div class="box">
@@ -207,6 +207,11 @@
     if (analysisQueue.length === 0) {
       isProcessingQueue = false;
       console.log('[Analysis] Queue processing complete');
+      // Now analyze the current live position at full depth
+      if (lastGameState && lastGameState.fen && !lastGameState.game_over) {
+        console.log('[Analysis] Starting live analysis of current position');
+        analyzePosition(lastGameState.fen, lastGameState.move_number || 1);
+      }
       return;
     }
     
@@ -215,6 +220,9 @@
     console.log('[Analysis] Analyzing queued position', next.moveNum, 'remaining:', analysisQueue.length);
     analyzePositionQueued(next.fen, next.moveNum);
   }
+  
+  // Store last game state for use after queue completes
+  let lastGameState = null;
   
   // Track whether current analysis is from queue or live
   let isQueuedAnalysis = false;
@@ -369,6 +377,9 @@
       return;
     }
     
+    // Store for use after queue processing completes
+    lastGameState = state;
+    
     const white = state.white || 'White';
     const black = state.black || 'Black';
     const turn = state.turn === 'w' ? 'White' : 'Black';
@@ -410,11 +421,15 @@
         hasReplayedCurrentGame = true;
         console.log('[Analysis] Replaying existing game PGN');
         replayPgnForAnalysis(state.pgn);
+        // Don't start live analysis yet - let queue finish first
+        // The current position will be analyzed as part of the queue
+        return;
       }
     }
     
     // Trigger analysis on new position (live move)
-    if (state.fen && state.fen !== currentAnalysisFen && !gameOver) {
+    // Skip if queue is still processing (don't interrupt replay)
+    if (state.fen && state.fen !== currentAnalysisFen && !gameOver && !isProcessingQueue) {
       analyzePosition(state.fen, moveNum);
     }
   }
