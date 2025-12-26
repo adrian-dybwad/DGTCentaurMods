@@ -8,9 +8,9 @@
   </div>
   <div class="column is-4">
     <div class="box">
-      <h3 class="title is-5" style="color: var(--color-accent-secondary);">Recent Games</h3>
-      <div id="recent-games-list">
-        <p class="has-text-grey">Loading...</p>
+      <h3 class="title is-5" style="color: var(--color-accent-secondary);">Current Game</h3>
+      <div id="current-game-info">
+        <p class="has-text-grey">Waiting for game...</p>
       </div>
       <a href="/pgn" class="button is-primary is-small" style="margin-top: 1rem;">View All Games</a>
     </div>
@@ -23,48 +23,47 @@
 </div>
 
 <script>
-  function loadRecentGames() {
-    fetch('/getgames/1')
-      .then(response => response.json())
-      .then(games => {
-        const container = document.getElementById('recent-games-list');
-        if (Object.keys(games).length === 0) {
-          container.innerHTML = '<p class="has-text-grey">No games yet</p>';
-          return;
-        }
-        
-        let html = '';
-        let count = 0;
-        for (let key in games) {
-          if (count >= 5) break;
-          const game = games[key];
-          const white = game.white && game.white !== 'None' ? game.white : 'Player';
-          const black = game.black && game.black !== 'None' ? game.black : 'Player';
-          const result = game.result && game.result !== 'None' ? game.result : '';
-          const date = game.created_at && game.created_at !== 'None' 
-            ? new Date(game.created_at).toLocaleDateString() 
-            : '';
-          
-          html += `
-            <a href="/analyse/${game.id}" class="panel-block" style="padding: 0.5rem 0; border: none;">
-              <span style="flex: 1;">
-                <strong>${white}</strong> <span style="color: var(--color-text-muted);">(W)</span> vs <strong>${black}</strong> <span style="color: var(--color-text-muted);">(B)</span>
-                ${result ? '<span class="tag is-small" style="margin-left: 0.5rem;">' + result + '</span>' : ''}
-              </span>
-              <span class="has-text-grey is-size-7">${date}</span>
-            </a>
-          `;
-          count++;
-        }
-        container.innerHTML = html;
-      })
-      .catch(err => {
-        document.getElementById('recent-games-list').innerHTML = '<p class="has-text-danger">Failed to load</p>';
-      });
+  // Update current game info from SSE game state updates
+  function updateCurrentGameInfo(state) {
+    const container = document.getElementById('current-game-info');
+    if (!state || !state.fen) {
+      container.innerHTML = '<p class="has-text-grey">Waiting for game...</p>';
+      return;
+    }
+    
+    const white = state.white || 'White';
+    const black = state.black || 'Black';
+    const turn = state.turn === 'w' ? 'White' : 'Black';
+    const moveNum = state.move_number || 1;
+    const result = state.result || '';
+    const gameOver = state.game_over || false;
+    
+    let statusText = '';
+    if (gameOver && result) {
+      statusText = `<span class="tag is-info">${result}</span>`;
+    } else {
+      statusText = `<span class="tag is-light">Move ${moveNum} - ${turn} to play</span>`;
+    }
+    
+    container.innerHTML = `
+      <div style="padding: 0.5rem 0;">
+        <div style="margin-bottom: 0.5rem;">
+          <strong>${white}</strong> <span style="color: var(--color-text-muted);">(W)</span>
+          vs
+          <strong>${black}</strong> <span style="color: var(--color-text-muted);">(B)</span>
+        </div>
+        ${statusText}
+      </div>
+    `;
   }
   
-  loadRecentGames();
-  setInterval(loadRecentGames, 30000);
+  // Listen for game state updates from SSE (dispatched by liveboard.html)
+  window.addEventListener('gameStateUpdate', function(event) {
+    updateCurrentGameInfo(event.detail);
+  });
+  
+  // Initial state - will be updated when SSE connects
+  updateCurrentGameInfo(null);
 </script>
 
 {% endblock %}
