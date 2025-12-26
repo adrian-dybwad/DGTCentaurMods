@@ -54,6 +54,7 @@
   let isProcessingQueue = false;
   let hasReplayedCurrentGame = false;
   let lastSeenPgn = '';
+  let lastGameState = null;  // Store for use after queue processing completes
   
   function initEvalHistoryChart() {
     const ctx = document.getElementById('eval-history-chart');
@@ -220,10 +221,7 @@
     console.log('[Analysis] Analyzing queued position', next.moveNum, 'remaining:', analysisQueue.length);
     analyzePositionQueued(next.fen, next.moveNum);
   }
-  
-  // Store last game state for use after queue completes
-  let lastGameState = null;
-  
+
   // Track whether current analysis is from queue or live
   let isQueuedAnalysis = false;
   let queuedMoveNumber = 0;
