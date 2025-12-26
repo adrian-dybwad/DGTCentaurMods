@@ -54,7 +54,7 @@
   let isProcessingQueue = false;
   let hasReplayedCurrentGame = false;
   let lastSeenPgn = '';
-  let lastGameState = null;  // Store for use after queue processing completes
+  // Note: lastGameState is declared in liveboard.html which is included above
   
   function initEvalHistoryChart() {
     const ctx = document.getElementById('eval-history-chart');
