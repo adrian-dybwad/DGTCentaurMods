@@ -32,9 +32,8 @@ GITHUB_OWNER = "adrian-dybwad"
 GITHUB_REPO = "Universal-Chess"
 GITHUB_API_BASE = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}"
 
-# Local version file
+# Local version file (created by build.sh)
 VERSION_FILE = "/opt/universalchess/VERSION"
-CONTROL_FILE = "/opt/universalchess/DEBIAN/control"  # Fallback for version
 
 
 class UpdateChannel(Enum):

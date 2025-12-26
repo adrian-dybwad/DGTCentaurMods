@@ -178,6 +178,12 @@ function removeDev {
     rm -f "${STAGE_DIR}${INSTALLDIR}/db/centaur.db" || true
 }
 
+function createVersionFile {
+    # Create VERSION file for update checker to read
+    echo "::: Creating VERSION file"
+    echo "${VERSION}" > "${STAGE_DIR}${INSTALLDIR}/VERSION"
+}
+
 function build {
     echo "::: Building ${DEB_PACKAGE_NAME} version ${VERSION}"
     mkdir -p "${RELEASES_DIR}"
@@ -200,6 +206,7 @@ function main {
     detectVersion
     stage
     removeDev
+    createVersionFile
     setPermissions
     prepareEngines
     buildLc0
