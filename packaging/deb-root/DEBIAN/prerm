@@ -9,20 +9,22 @@ function removePycache {
 
 
 function stopServices {
-    systemctl stop rfcomm.service
-    systemctl stop universal-chess-web.service
-    systemctl stop universal-chess.service
-    systemctl stop var-run-sdp.path
-    systemctl stop var-run-sdp.service
-    systemctl stop universal-chess-stop-controller.service
-    systemctl stop var-run-sdp.path
+    # Stop services in reverse dependency order
+    # Use || true to prevent failures from aborting the upgrade
+    systemctl stop universal-chess.service || true
+    systemctl stop universal-chess-web.service || true
+    systemctl stop universal-chess-stop-controller.service || true
+    systemctl stop var-run-sdp.path || true
+    systemctl stop var-run-sdp.service || true
+    systemctl stop rfcomm.service || true
 }
 
 
 case $1 in
-    remove* )
+    remove* | upgrade )
+        echo "::: Stopping services before $1..."
+        stopServices || true
         removePycache
-        stopServices
         exit 0
         ;;
 esac

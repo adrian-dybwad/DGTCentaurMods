@@ -1,15 +1,16 @@
 [Unit]
 Description=Universal Chess shutdown hook (power off controller)
 DefaultDependencies=no
-Conflicts=reboot.target
+# Run before shutdown completes to ensure controller sleeps
 Before=poweroff.target halt.target shutdown.target
-Requires=poweroff.target
 
 [Service]
 ExecStart=/opt/universalchess/.venv/bin/python -m universalchess.board.shutdown
 Environment="PYTHONPATH=/opt"
 WorkingDirectory=/opt/universalchess
 Type=oneshot
+# Don't fail the shutdown if this service fails
+SuccessExitStatus=0 1
 
 [Install]
 WantedBy=shutdown.target
