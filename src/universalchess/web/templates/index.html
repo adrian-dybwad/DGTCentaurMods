@@ -3,6 +3,7 @@
 {% block mainpage %}
 
 <script type="text/javascript" src="{{ url_for('static', filename='stockfish/stockfish.js') }}"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@2.9.4/dist/Chart.min.js"></script>
 
 <div class="columns">
   <div class="column is-8">
@@ -22,6 +23,9 @@
         <p class="has-text-grey">Waiting for position...</p>
       </div>
       <progress id="live-eval-bar" class="progress" value="50" max="100" style="margin-top: 0.5rem; height: 0.5rem;"></progress>
+      <div style="height: 120px; margin-top: 0.5rem;">
+        <canvas id="eval-history-chart"></canvas>
+      </div>
       <a href="/pgn" class="button is-primary is-small" style="margin-top: 1rem;">View All Games</a>
     </div>
     
@@ -38,6 +42,97 @@
   let currentAnalysisFen = null;
   let lastEvalScore = 0;
   let bestMoveUci = '';
+  let lastMoveNumber = 0;
+  
+  // Evaluation history chart
+  let evalHistoryChart = null;
+  let evalHistory = [];  // Array of {moveNum, eval} for chart
+  
+  function initEvalHistoryChart() {
+    const ctx = document.getElementById('eval-history-chart');
+    if (!ctx) return;
+    
+    evalHistoryChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          label: 'Eval',
+          data: [],
+          fill: true,
+          borderColor: 'rgb(150, 150, 150)',
+          borderWidth: 1,
+          lineTension: 0.4,
+          backgroundColor: 'rgba(150, 150, 150, 0.3)',
+          pointRadius: 3,
+          pointBackgroundColor: 'rgba(255, 255, 255, 1)'
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        title: { display: false },
+        legend: { display: false },
+        layout: { padding: { bottom: 0 } },
+        scales: {
+          yAxes: [{
+            display: true,
+            ticks: {
+              min: -500,
+              max: 500,
+              stepSize: 250,
+              callback: function(value) {
+                return (value / 100).toFixed(0);
+              }
+            },
+            gridLines: { display: true, color: 'rgba(200,200,200,0.3)' }
+          }],
+          xAxes: [{
+            display: false,
+            gridLines: { display: false }
+          }]
+        },
+        tooltips: {
+          callbacks: {
+            label: function(tooltipItem) {
+              return (tooltipItem.yLabel / 100).toFixed(2);
+            }
+          }
+        }
+      }
+    });
+  }
+  
+  function resetEvalHistory() {
+    evalHistory = [];
+    if (evalHistoryChart) {
+      evalHistoryChart.data.labels = [];
+      evalHistoryChart.data.datasets[0].data = [];
+      evalHistoryChart.update();
+    }
+  }
+  
+  function addEvalToHistory(moveNum, evalCp) {
+    // Clamp eval for display
+    const clampedEval = Math.max(-500, Math.min(500, evalCp));
+    
+    // Check if we already have this move number (update it)
+    const existingIndex = evalHistory.findIndex(e => e.moveNum === moveNum);
+    if (existingIndex >= 0) {
+      evalHistory[existingIndex].eval = clampedEval;
+    } else {
+      evalHistory.push({ moveNum, eval: clampedEval });
+      // Sort by move number
+      evalHistory.sort((a, b) => a.moveNum - b.moveNum);
+    }
+    
+    // Update chart
+    if (evalHistoryChart) {
+      evalHistoryChart.data.labels = evalHistory.map(e => e.moveNum);
+      evalHistoryChart.data.datasets[0].data = evalHistory.map(e => e.eval);
+      evalHistoryChart.update();
+    }
+  }
   
   function initLiveStockfish() {
     if (liveStockfish) return;
@@ -76,10 +171,14 @@
           }
         }
         
-        // Parse best move
+        // Parse best move - this means analysis is complete for this position
         if (line.indexOf("bestmove ") === 0) {
           bestMoveUci = line.split(' ')[1];
           updateAnalysisDisplay(bestMoveUci, null);
+          // Add final eval to history
+          if (lastMoveNumber > 0) {
+            addEvalToHistory(lastMoveNumber, lastEvalScore);
+          }
         }
       };
       
@@ -90,10 +189,11 @@
     }
   }
   
-  function analyzePosition(fen) {
+  function analyzePosition(fen, moveNumber) {
     if (!liveStockfish || !fen) return;
     
     currentAnalysisFen = fen;
+    lastMoveNumber = moveNumber || 0;
     bestMoveUci = '';
     
     // Send position and start analysis
@@ -157,6 +257,11 @@
     const result = state.result || '';
     const gameOver = state.game_over || false;
     
+    // Detect new game (move number reset to 1 and we had moves before)
+    if (moveNum === 1 && lastMoveNumber > 1) {
+      resetEvalHistory();
+    }
+    
     let statusText = '';
     if (gameOver && result) {
       statusText = `<span class="tag is-info">${result}</span>`;
@@ -177,7 +282,7 @@
     
     // Trigger analysis on new position
     if (state.fen && state.fen !== currentAnalysisFen && !gameOver) {
-      analyzePosition(state.fen);
+      analyzePosition(state.fen, moveNum);
     }
   }
   
@@ -186,8 +291,9 @@
     updateCurrentGameInfo(event.detail);
   });
   
-  // Initialize Stockfish when page loads
+  // Initialize Stockfish and chart when page loads
   window.addEventListener('load', function() {
+    initEvalHistoryChart();
     initLiveStockfish();
   });
   
