@@ -1471,3 +1471,273 @@ def getgif(gameid):
         return "", 404
     finally:
         session.close()
+
+
+# ==============================================================================
+# Settings API
+# ==============================================================================
+
+def get_all_settings():
+    """Read all settings from centaur.ini as a nested dictionary."""
+    from universalchess.board.settings import Settings
+    import configparser
+    
+    config = configparser.ConfigParser()
+    config.read(Settings.configfile)
+    
+    result = {}
+    for section in config.sections():
+        result[section] = dict(config.items(section))
+    
+    # Also read from defaults for any missing sections
+    defconfig = configparser.ConfigParser()
+    defconfig.read(Settings.defconfigfile)
+    for section in defconfig.sections():
+        if section not in result:
+            result[section] = dict(defconfig.items(section))
+        else:
+            # Merge defaults for missing keys
+            for key, value in defconfig.items(section):
+                if key not in result[section]:
+                    result[section][key] = value
+    
+    return result
+
+
+def save_all_settings(settings_dict):
+    """Save all settings to centaur.ini from a nested dictionary."""
+    from universalchess.board.settings import Settings
+    import configparser
+    
+    config = configparser.ConfigParser()
+    config.read(Settings.configfile)
+    
+    for section, values in settings_dict.items():
+        if not config.has_section(section):
+            config.add_section(section)
+        for key, value in values.items():
+            # Handle booleans
+            if isinstance(value, bool):
+                value = 'True' if value else 'False'
+            config.set(section, key, str(value))
+    
+    Settings.write_config(config)
+
+
+@app.route("/api/settings", methods=["GET"])
+def api_get_settings():
+    """Get all settings from centaur.ini as JSON."""
+    try:
+        settings = get_all_settings()
+        return json.dumps(settings)
+    except Exception as e:
+        return json.dumps({"error": str(e)}), 500
+
+
+@app.route("/api/settings", methods=["POST"])
+def api_save_settings():
+    """Save settings to centaur.ini from JSON body."""
+    try:
+        settings = request.get_json()
+        if not settings:
+            return json.dumps({"success": False, "error": "No settings provided"}), 400
+        
+        save_all_settings(settings)
+        return json.dumps({"success": True})
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/settings/apply", methods=["POST"])
+def api_apply_settings():
+    """
+    Apply settings to the running chess board.
+    
+    This sends a signal to the main process to reload settings.
+    For now, it just restarts the service.
+    """
+    try:
+        # Reload settings in the running application
+        # For now, we signal by touching a reload file or restarting service
+        # A future improvement could use IPC to signal the main process
+        import subprocess
+        
+        # Gentle restart - signal the main process to reload config
+        # For now, full restart
+        subprocess.run(["sudo", "systemctl", "restart", "universal-chess.service"], 
+                       capture_output=True, timeout=10)
+        
+        return json.dumps({"success": True, "message": "Settings applied"})
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/engines", methods=["GET"])
+def api_get_engines():
+    """Get list of installed engines for dropdowns."""
+    try:
+        from universalchess.managers.engine_manager import EngineManager, ENGINES
+        
+        engine_manager = EngineManager()
+        engines_list = []
+        
+        for name, engine_def in ENGINES.items():
+            is_installed = engine_def.is_system_package or engine_manager.is_installed(name)
+            engines_list.append({
+                "name": name,
+                "display_name": engine_def.display_name,
+                "installed": is_installed
+            })
+        
+        return json.dumps(engines_list)
+    except Exception as e:
+        # Fallback if engine manager not available
+        return json.dumps([{"name": "stockfish", "display_name": "Stockfish", "installed": True}])
+
+
+@app.route("/api/engines/all", methods=["GET"])
+def api_get_all_engines():
+    """Get full details of all engines for management UI."""
+    try:
+        from universalchess.managers.engine_manager import EngineManager, ENGINES
+        
+        engine_manager = EngineManager()
+        engines_list = []
+        
+        for name, engine_def in ENGINES.items():
+            is_installed = engine_def.is_system_package or engine_manager.is_installed(name)
+            engines_list.append({
+                "name": name,
+                "display_name": engine_def.display_name,
+                "summary": engine_def.summary,
+                "description": engine_def.description,
+                "installed": is_installed,
+                "is_system_package": engine_def.is_system_package,
+                "can_uninstall": engine_def.can_uninstall,
+                "estimated_install_minutes": engine_def.estimated_install_minutes,
+                "has_prebuilt": engine_def.has_prebuilt,
+            })
+        
+        return json.dumps(engines_list)
+    except Exception as e:
+        return json.dumps({"error": str(e)}), 500
+
+
+# Engine installation state (singleton)
+_engine_install_state = {
+    "installing": False,
+    "engine": None,
+    "progress": "",
+    "last_result": None
+}
+
+
+def _engine_progress_callback(progress: str):
+    """Callback to update install progress."""
+    global _engine_install_state
+    _engine_install_state["progress"] = progress
+
+
+def _run_engine_install(engine_name: str):
+    """Background thread to install an engine."""
+    global _engine_install_state
+    from universalchess.managers.engine_manager import EngineManager
+    
+    try:
+        engine_manager = EngineManager()
+        success = engine_manager.install_engine(engine_name, _engine_progress_callback)
+        
+        _engine_install_state["last_result"] = {
+            "engine": engine_name,
+            "success": success,
+            "error": None if success else "Installation failed"
+        }
+    except Exception as e:
+        _engine_install_state["last_result"] = {
+            "engine": engine_name,
+            "success": False,
+            "error": str(e)
+        }
+    finally:
+        _engine_install_state["installing"] = False
+        _engine_install_state["engine"] = None
+        _engine_install_state["progress"] = ""
+
+
+@app.route("/api/engines/install", methods=["POST"])
+def api_install_engine():
+    """Start installing an engine."""
+    global _engine_install_state
+    
+    try:
+        data = request.get_json()
+        engine_name = data.get("engine")
+        
+        if not engine_name:
+            return json.dumps({"success": False, "error": "No engine specified"}), 400
+        
+        from universalchess.managers.engine_manager import ENGINES
+        if engine_name not in ENGINES:
+            return json.dumps({"success": False, "error": f"Unknown engine: {engine_name}"}), 400
+        
+        if _engine_install_state["installing"]:
+            return json.dumps({
+                "success": False, 
+                "error": f"Already installing {_engine_install_state['engine']}"
+            }), 409
+        
+        # Start installation in background thread
+        _engine_install_state["installing"] = True
+        _engine_install_state["engine"] = engine_name
+        _engine_install_state["progress"] = "Starting..."
+        _engine_install_state["last_result"] = None
+        
+        import threading
+        thread = threading.Thread(target=_run_engine_install, args=(engine_name,), daemon=True)
+        thread.start()
+        
+        return json.dumps({"success": True, "message": f"Installing {engine_name}"})
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/engines/uninstall", methods=["POST"])
+def api_uninstall_engine():
+    """Uninstall an engine."""
+    try:
+        data = request.get_json()
+        engine_name = data.get("engine")
+        
+        if not engine_name:
+            return json.dumps({"success": False, "error": "No engine specified"}), 400
+        
+        from universalchess.managers.engine_manager import EngineManager, ENGINES
+        
+        if engine_name not in ENGINES:
+            return json.dumps({"success": False, "error": f"Unknown engine: {engine_name}"}), 400
+        
+        engine_def = ENGINES[engine_name]
+        if not engine_def.can_uninstall:
+            return json.dumps({"success": False, "error": "This engine cannot be uninstalled"}), 400
+        
+        engine_manager = EngineManager()
+        success = engine_manager.uninstall_engine(engine_name)
+        
+        if success:
+            return json.dumps({"success": True})
+        else:
+            return json.dumps({"success": False, "error": "Uninstall failed"})
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/engines/status", methods=["GET"])
+def api_engine_status():
+    """Get current engine installation status."""
+    global _engine_install_state
+    return json.dumps({
+        "installing": _engine_install_state["installing"],
+        "engine": _engine_install_state["engine"],
+        "progress": _engine_install_state["progress"],
+        "last_result": _engine_install_state["last_result"]
+    })

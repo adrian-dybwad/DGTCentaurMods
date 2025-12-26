@@ -1,43 +1,40 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#1a1a2e"/>
-      <stop offset="100%" style="stop-color:#16213e"/>
+    <linearGradient id="woodGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#d4a574"/>
+      <stop offset="100%" style="stop-color:#8b6b4a"/>
+    </linearGradient>
+    <linearGradient id="boardLight" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f0d9b5"/>
+      <stop offset="100%" style="stop-color:#e8d0a8"/>
     </linearGradient>
   </defs>
   
-  <!-- Background -->
-  <rect width="512" height="512" rx="64" fill="url(#bg)"/>
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="240" fill="url(#woodGradient)"/>
   
-  <!-- Chess board pattern (simplified 4x4) -->
-  <g transform="translate(96, 96)">
-    <!-- Light squares -->
-    <rect x="0" y="0" width="80" height="80" fill="#e8dcc8"/>
-    <rect x="160" y="0" width="80" height="80" fill="#e8dcc8"/>
-    <rect x="80" y="80" width="80" height="80" fill="#e8dcc8"/>
-    <rect x="240" y="80" width="80" height="80" fill="#e8dcc8"/>
-    <rect x="0" y="160" width="80" height="80" fill="#e8dcc8"/>
-    <rect x="160" y="160" width="80" height="80" fill="#e8dcc8"/>
-    <rect x="80" y="240" width="80" height="80" fill="#e8dcc8"/>
-    <rect x="240" y="240" width="80" height="80" fill="#e8dcc8"/>
-    
-    <!-- Dark squares -->
-    <rect x="80" y="0" width="80" height="80" fill="#8b7355"/>
-    <rect x="240" y="0" width="80" height="80" fill="#8b7355"/>
-    <rect x="0" y="80" width="80" height="80" fill="#8b7355"/>
-    <rect x="160" y="80" width="80" height="80" fill="#8b7355"/>
-    <rect x="80" y="160" width="80" height="80" fill="#8b7355"/>
-    <rect x="240" y="160" width="80" height="80" fill="#8b7355"/>
-    <rect x="0" y="240" width="80" height="80" fill="#8b7355"/>
-    <rect x="160" y="240" width="80" height="80" fill="#8b7355"/>
+  <!-- Inner light square -->
+  <rect x="100" y="100" width="312" height="312" rx="20" fill="url(#boardLight)"/>
+  
+  <!-- Chess knight silhouette -->
+  <g transform="translate(130, 120) scale(1.8)">
+    <path d="M 45,115 C 45,115 36.8,108 32,107 C 32,107 28,105 22,105 
+             C 22,105 16.5,102 15,97 C 15,97 15,96.5 15.5,95 
+             C 15.5,95 17,91 21,89 C 21,89 24,85.5 24,83 
+             C 24,83 24,78 18,75 C 18,75 15,73 15,68 
+             C 15,68 15,58 26,45 C 26,45 36,33 38,30 
+             C 38,30 42,26 45,26 C 45,26 52,26 58,30 
+             L 58,30 L 62,32 L 64,34 L 67,35 
+             C 67,35 85,38 94,52 C 94,52 102,65 102,85 
+             C 102,85 101,105 85,115 L 45,115 Z" 
+          fill="#4a3728" stroke="#3d2817" stroke-width="2"/>
+    <!-- Eye -->
+    <circle cx="42" cy="55" r="4" fill="#f0d9b5"/>
+    <!-- Mane detail -->
+    <path d="M 55,30 C 60,35 58,45 55,50 M 60,33 C 65,40 62,52 58,58" 
+          stroke="#3d2817" stroke-width="2" fill="none"/>
   </g>
   
-  <!-- Knight piece silhouette (centered) -->
-  <g transform="translate(176, 136)" fill="#e94560">
-    <path d="M80 0c-8 0-16 8-16 16v24c0 8-8 16-16 16h-8c-8 0-16 8-16 16v16c0 8 8 16 16 16h8l-32 96h-8c-8 0-16 8-16 16v8c0 8 8 16 16 16h144c8 0 16-8 16-16v-8c0-8-8-16-16-16h-8l-32-96h8c8 0 16-8 16-16v-16c0-8-8-16-16-16h-8c-8 0-16-8-16-16v-24c0-8-8-16-16-16z"/>
-  </g>
-  
-  <!-- Accent ring -->
-  <circle cx="256" cy="256" r="220" fill="none" stroke="#e94560" stroke-width="4" opacity="0.5"/>
+  <!-- Decorative border -->
+  <circle cx="256" cy="256" r="235" fill="none" stroke="#8b6b4a" stroke-width="3"/>
 </svg>
-

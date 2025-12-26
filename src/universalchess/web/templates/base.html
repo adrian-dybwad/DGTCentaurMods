@@ -4,13 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="Universal Chess - Connect, play, and analyze chess on your smart chess board">
-    <meta name="theme-color" content="#16213e">
+    <meta name="theme-color" content="#b58863">
     
     <!-- PWA Support -->
     <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon.svg') }}">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     
     <title>Universal Chess</title>
     
@@ -22,7 +22,7 @@
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='icons/icon.svg') }}">
   </head>
-  <body class="main">
+  <body>
   <!--
     This file is part of the Universal Chess open source software
     https://github.com/adrian-dybwad/Universal-Chess
@@ -46,27 +46,14 @@
     distribution, modification, variant, or derivative of this software.
   -->
   
-  <script>
-    document.addEventListener('DOMContentLoaded', () => {
-      // Mobile navbar toggle
-      const $navbarBurgers = Array.prototype.slice.call(document.querySelectorAll('.navbar-burger'), 0);
-      if ($navbarBurgers.length > 0) {
-        $navbarBurgers.forEach(el => {
-          el.addEventListener('click', () => {
-            const target = el.dataset.target;
-            const $target = document.getElementById(target);
-            el.classList.toggle('is-active');
-            $target.classList.toggle('is-active');
-          });
-        });
-      }
-    });
-  </script>
-  
-  <nav class="navbar is-info" role="navigation" aria-label="main navigation">
+  <nav class="navbar" role="navigation" aria-label="main navigation">
     <div class="navbar-brand">
-      <a class="navbar-item" href="/">
-        <img src="{{ url_for('static', filename='icons/icon.svg') }}" alt="Universal Chess" style="max-height: 2.5rem;">
+      <a class="navbar-item" href="/" style="padding: 0.5rem 1rem;">
+        <img src="{{ url_for('static', filename='icons/icon.svg') }}" alt="" style="max-height: 40px; margin-right: 0.75rem;">
+        <div class="brand-text">
+          <span class="brand-title">Universal Chess</span>
+          <span class="brand-tagline">Your smart chess companion</span>
+        </div>
       </a>
       <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navbarMain">
         <span aria-hidden="true"></span>
@@ -76,30 +63,20 @@
     </div>
     <div id="navbarMain" class="navbar-menu">
       <div class="navbar-start">
-        <a class="navbar-item" href="/">
-          Live Board
-        </a>
-        <a class="navbar-item" href="/pgn">
-          Games
-        </a>
-        <a class="navbar-item" href="/configure">
-          Settings
-        </a>
+        <a class="navbar-item" href="/">Live Board</a>
+        <a class="navbar-item" href="/pgn">Games</a>
+        <a class="navbar-item" href="/configure">Settings</a>
         {% if rodentiv_installed %}
-        <a class="navbar-item" href="/rodentivtuner">
-          Rodent IV
-        </a>
+        <a class="navbar-item" href="/rodentivtuner">Rodent IV</a>
         {% endif %}
-        <a class="navbar-item" href="/support">
-          Support
-        </a>
-        <a class="navbar-item" href="/license">
-          Licenses
-        </a>
       </div>
       <div class="navbar-end">
+        <a class="navbar-item" href="/support">Support</a>
+        <a class="navbar-item" href="/license">Licenses</a>
         <div class="navbar-item">
-          <span class="tag is-success" id="connection-status">Connected</span>
+          <span class="tag is-success" id="connection-status">
+            <span class="status-dot connected"></span> Connected
+          </span>
         </div>
       </div>
     </div>
@@ -107,42 +84,14 @@
 
   <section class="section">
     <div class="container">
-      <div class="columns">
-        <div class="column is-half" id="maincolumn">{% block mainpage %}{% endblock %}</div>
-        <div class="column is-offset-1">
-          <div class="tile is-ancestor">
-            <div class="tile is-vertical is-parent" id="dgtcmods">
-              <div class="tile is-child box">
-                <p class="title">Universal Chess</p>
-                <p>Connect, play, and analyze chess on your smart chess board. View live positions, review games, and customize your experience.</p>
-              </div>
-              <div id="moveholder"></div>
-              <div class="tile is-child" id="latestgamesdiv" style="display:none;">
-                <article class="panel is-info">
-                  <p class="panel-heading">Recent Games</p>
-                  <a class="panel-block" id="latest1">&nbsp;</a>
-                  <a class="panel-block" id="latest2">&nbsp;</a>
-                  <a class="panel-block" id="latest3">&nbsp;</a>
-                  <a class="panel-block" id="latest4">&nbsp;</a>
-                  <a class="panel-block" id="latest5">&nbsp;</a>
-                </article>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div id="lastpgndiv" style="display:none;">
-        <p><strong>Last PGN</strong></p>
-        <textarea id="lastpgn" class="textarea" placeholder="" rows="12"></textarea>
-      </div>
+      {% block mainpage %}{% endblock %}
     </div>
   </section>
   
   <footer class="footer">
     <div class="content has-text-centered">
       <p>
-        <strong>Universal Chess</strong> &mdash; Open source software for smart chess boards.
+        <strong>Universal Chess</strong> &mdash; Open source software for smart chess boards
         <br>
         <a href="https://github.com/adrian-dybwad/Universal-Chess" target="_blank" rel="noopener">GitHub</a>
         &bull;
@@ -156,241 +105,42 @@
   <!-- PWA Install Prompt -->
   <div class="pwa-install-prompt" id="pwaInstallPrompt">
     <span>Install Universal Chess for quick access</span>
-    <button class="button is-info is-small" id="pwaInstallBtn">Install</button>
-    <button class="button is-small" id="pwaInstallDismiss">Not now</button>
+    <button class="button is-primary is-small" id="pwaInstallBtn">Install</button>
+    <button class="button is-light is-small" id="pwaInstallDismiss">Not now</button>
   </div>
   
   <script>
-    // Utility functions
-    Object.size = function(obj) {
-      var size = 0, key;
-      for (key in obj) {
-        if (obj.hasOwnProperty(key)) size++;
-      }
-      return size;
-    };
-    
-    function hideLastPGN() {
-      document.getElementById("lastpgndiv").style.display = "none";
-    }
-    
-    function showLastPGN() {
-      document.getElementById("lastpgndiv").style.display = "block";
-    }
-    
-    function hideLastGames() {
-      var el = document.getElementById("latestgamesdiv");
-      if (el) el.style.display = "none";
-      if (typeof timer !== 'undefined') clearInterval(timer);
-    }
-    
-    function showLastGames() {
-      var el = document.getElementById("latestgamesdiv");
-      if (el) el.style.display = "block";
-    }
-    
-    // Game listing functions
-    var page = 1;
-    
-    function getGamesPGNList() {
-      var xmlhttp = new XMLHttpRequest();
-      xmlhttp.onreadystatechange = function() {
-        if (xmlhttp.readyState == 4 && xmlhttp.status == 200) {
-          const obj = JSON.parse(xmlhttp.responseText);
-          var gl = document.getElementById('gameslisting');
-          if (!gl) return;
-          gl.innerHTML = '';
-          
-          for (var x = 0; x < Object.size(obj); x++) {
-            var game = obj[x];
-            
-            // Create game card
-            var card = document.createElement("div");
-            card.id = "gamecard" + game.id;
-            card.className = "game-card";
-            
-            // Header with players and result
-            var header = document.createElement("div");
-            header.className = "game-card-header";
-            
-            var players = document.createElement("div");
-            players.className = "game-players";
-            var whiteName = game.white || "White";
-            var blackName = game.black || "Black";
-            players.innerHTML = '<span class="white-player">' + whiteName + '</span>' +
-                              '<span class="vs">vs</span>' +
-                              '<span class="black-player">' + blackName + '</span>';
-            header.appendChild(players);
-            
-            if (game.result && game.result !== "None" && game.result !== "*") {
-              var result = document.createElement("span");
-              result.className = "game-result";
-              if (game.result === "1-0") {
-                result.classList.add("white-wins");
-                result.textContent = "White wins";
-              } else if (game.result === "0-1") {
-                result.classList.add("black-wins");
-                result.textContent = "Black wins";
-              } else if (game.result === "1/2-1/2") {
-                result.classList.add("draw");
-                result.textContent = "Draw";
-              } else {
-                result.textContent = game.result;
-              }
-              header.appendChild(result);
-            }
-            card.appendChild(header);
-            
-            // Meta information
-            var meta = document.createElement("div");
-            meta.className = "game-meta";
-            
-            if (game.created_at && game.created_at !== "None") {
-              var dateItem = document.createElement("span");
-              dateItem.className = "game-meta-item";
-              dateItem.innerHTML = '📅 ' + new Date(game.created_at).toLocaleDateString();
-              meta.appendChild(dateItem);
-            }
-            
-            if (game.source && game.source !== "None") {
-              var sourceItem = document.createElement("span");
-              sourceItem.className = "game-meta-item";
-              sourceItem.innerHTML = '🎮 ' + game.source;
-              meta.appendChild(sourceItem);
-            }
-            
-            if (game.event && game.event !== "None") {
-              var eventItem = document.createElement("span");
-              eventItem.className = "game-meta-item";
-              eventItem.innerHTML = '🏆 ' + game.event;
-              meta.appendChild(eventItem);
-            }
-            
-            card.appendChild(meta);
-            
-            // PGN display area
-            var pgn = document.createElement("div");
-            pgn.id = "gamepgn-" + game.id;
-            pgn.className = "gamepgn";
-            card.appendChild(pgn);
-            
-            // Actions
-            var actions = document.createElement("div");
-            actions.className = "card-footer";
-            actions.style.marginTop = "1rem";
-            actions.style.paddingTop = "1rem";
-            actions.style.borderTop = "1px solid rgba(255,255,255,0.1)";
-            actions.innerHTML = 
-              '<a class="card-footer-item" href="#" onclick="showPGN(' + game.id + '); return false;">Show PGN</a>' +
-              '<a class="card-footer-item" href="/analyse/' + game.id + '">Analyze</a>' +
-              '<a class="card-footer-item" href="/getgif/' + game.id + '" target="_blank">GIF</a>' +
-              '<a class="card-footer-item" href="#" onclick="deletePGN(' + game.id + '); return false;" style="color: var(--color-error);">Delete</a>';
-            card.appendChild(actions);
-            
-            gl.appendChild(card);
-          }
-        }
-      };
-      xmlhttp.open("GET", "/getgames/" + page, true);
-      xmlhttp.send();
-    }
-
-    function deletePGN(delid) {
-      if (!confirm("Delete this game? This cannot be undone.")) return;
-      
-      var xmlhttp = new XMLHttpRequest();
-      xmlhttp.onreadystatechange = function() {
-        if (xmlhttp.readyState == 4 && xmlhttp.status == 200) {
-          var element = document.getElementById("gamecard" + delid);
-          if (element) element.remove();
-        }
-      };
-      xmlhttp.open("GET", "/deletegame/" + delid, true);
-      xmlhttp.send();
-    }
-
-    var gamepgntime = 0;
-    var timer;
-
-    function fillLatestGames() {
-      var xmlhttp = new XMLHttpRequest();
-      xmlhttp.onreadystatechange = function() {
-        if (xmlhttp.readyState == 4 && xmlhttp.status == 200) {
-          var obj = JSON.parse(xmlhttp.responseText);
-          var counter = 1;
-          var ro = [];
-          var pgntime = gamepgntime;
-          var results = {};
-          
-          for (var x = 0; x < Object.size(obj) && x < 50; x++) {
-            ro[x] = new XMLHttpRequest();
-            ro[x].m = x;
-            ro[x].onreadystatechange = function() {
-              if (this.readyState == 4 && this.status == 200) {
-                if (this.responseText.indexOf("1. ") > 0) {
-                  if (obj[this.m]["created_at"] != "None" && Date.parse(obj[this.m]["created_at"]) >= pgntime) {
-                    document.getElementById("lastpgn").value = this.responseText;
-                    pgntime = Date.parse(obj[this.m]["created_at"]);
-                    gamepgntime = pgntime;
-                  }
-                  if (obj[this.m]["created_at"] == "None") obj[this.m]["created_at"] = "";
-                  if (obj[this.m]["source"] == "None") obj[this.m]["source"] = "";
-                  
-                  var displayText = obj[this.m]["created_at"] ? new Date(obj[this.m]["created_at"]).toLocaleDateString() : "";
-                  if (obj[this.m]["source"]) displayText += " - " + obj[this.m]["source"];
-                  
-                  results[obj[this.m]["created_at"]] = obj[this.m]["id"] + "@_@_@" + displayText;
-                  
-                  var keys = Object.keys(results);
-                  var incount = 1;
-                  keys.sort(function(a, b) {
-                    return Date.parse(b) - Date.parse(a);
-                  }).forEach(function(k) {
-                    if (incount <= 5) {
-                      var d = results[k].split("@_@_@");
-                      var el = document.getElementById('latest' + incount);
-                      if (el) {
-                        el.innerHTML = d[1];
-                        el.href = "/analyse/" + d[0];
-                      }
-                      incount++;
-                    }
-                  });
-                  
-                  counter++;
-                  if (counter > 5) return;
-                }
-              }
-            };
-            ro[x].open("GET", "/getpgn/" + obj[x]["id"], true);
-            ro[x].send();
-          }
-        }
-      };
-      xmlhttp.open("GET", "/getgames/1", true);
-      xmlhttp.send();
-    }
-    
-    // Initialize on page load
-    fillLatestGames();
-    timer = setInterval(fillLatestGames, 15000);
+    // Mobile navbar toggle
+    document.addEventListener('DOMContentLoaded', () => {
+      const $navbarBurgers = Array.prototype.slice.call(document.querySelectorAll('.navbar-burger'), 0);
+      $navbarBurgers.forEach(el => {
+        el.addEventListener('click', () => {
+          const target = el.dataset.target;
+          const $target = document.getElementById(target);
+          el.classList.toggle('is-active');
+          $target.classList.toggle('is-active');
+        });
+      });
+    });
     
     // Connection status monitoring
     function checkConnection() {
       var status = document.getElementById('connection-status');
+      if (!status) return;
+      
       fetch('/fen', { method: 'GET', cache: 'no-cache' })
         .then(function(response) {
           if (response.ok) {
             status.className = 'tag is-success';
-            status.textContent = 'Connected';
+            status.innerHTML = '<span class="status-dot connected"></span> Connected';
           } else {
             status.className = 'tag is-warning';
-            status.textContent = 'Reconnecting...';
+            status.innerHTML = '<span class="status-dot pending"></span> Reconnecting';
           }
         })
         .catch(function() {
           status.className = 'tag is-danger';
-          status.textContent = 'Offline';
+          status.innerHTML = '<span class="status-dot disconnected"></span> Offline';
         });
     }
     setInterval(checkConnection, 10000);
@@ -401,32 +151,33 @@
     const pwaInstallBtn = document.getElementById('pwaInstallBtn');
     const pwaDismissBtn = document.getElementById('pwaInstallDismiss');
     
-    window.addEventListener('beforeinstallprompt', (e) => {
-      e.preventDefault();
-      deferredPrompt = e;
-      pwaPrompt.classList.add('show');
-    });
-    
-    pwaInstallBtn.addEventListener('click', async () => {
-      if (deferredPrompt) {
-        deferredPrompt.prompt();
-        const { outcome } = await deferredPrompt.userChoice;
-        deferredPrompt = null;
+    if (pwaPrompt && pwaInstallBtn && pwaDismissBtn) {
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        pwaPrompt.classList.add('show');
+      });
+      
+      pwaInstallBtn.addEventListener('click', async () => {
+        if (deferredPrompt) {
+          deferredPrompt.prompt();
+          await deferredPrompt.userChoice;
+          deferredPrompt = null;
+          pwaPrompt.classList.remove('show');
+        }
+      });
+      
+      pwaDismissBtn.addEventListener('click', () => {
         pwaPrompt.classList.remove('show');
-      }
-    });
-    
-    pwaDismissBtn.addEventListener('click', () => {
-      pwaPrompt.classList.remove('show');
-      localStorage.setItem('pwaPromptDismissed', 'true');
-    });
+      });
+    }
     
     // Service Worker Registration
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('/static/sw.js')
           .then(reg => console.log('Service Worker registered'))
-          .catch(err => console.log('Service Worker registration failed:', err));
+          .catch(err => console.log('SW registration failed:', err));
       });
     }
   </script>
