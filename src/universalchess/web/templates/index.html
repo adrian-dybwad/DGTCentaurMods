@@ -38,8 +38,8 @@
         for (let key in games) {
           if (count >= 5) break;
           const game = games[key];
-          const white = game.white || 'White';
-          const black = game.black || 'Black';
+          const white = game.white && game.white !== 'None' ? game.white : 'Player';
+          const black = game.black && game.black !== 'None' ? game.black : 'Player';
           const result = game.result && game.result !== 'None' ? game.result : '';
           const date = game.created_at && game.created_at !== 'None' 
             ? new Date(game.created_at).toLocaleDateString() 
@@ -48,7 +48,7 @@
           html += `
             <a href="/analyse/${game.id}" class="panel-block" style="padding: 0.5rem 0; border: none;">
               <span style="flex: 1;">
-                <strong>${white}</strong> vs <strong>${black}</strong>
+                <strong>${white}</strong> <span style="color: var(--color-text-muted);">(W)</span> vs <strong>${black}</strong> <span style="color: var(--color-text-muted);">(B)</span>
                 ${result ? '<span class="tag is-small" style="margin-left: 0.5rem;">' + result + '</span>' : ''}
               </span>
               <span class="has-text-grey is-size-7">${date}</span>

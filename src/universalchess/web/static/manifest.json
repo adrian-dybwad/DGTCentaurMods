@@ -5,9 +5,14 @@
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f8f6f3",
-  "theme_color": "#b58863",
+  "theme_color": "#6b4c9a",
   "orientation": "any",
   "icons": [
+    {
+      "src": "/logo",
+      "sizes": "80x80",
+      "type": "image/bmp"
+    },
     {
       "src": "/static/icons/icon.svg",
       "sizes": "any",

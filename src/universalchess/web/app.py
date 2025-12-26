@@ -1354,6 +1354,16 @@ def makePGN(gameid):
     return pgn_string
 
 
+@app.route("/logo")
+def logo_image():
+    """Serve the knight logo from resources."""
+    logo_path = get_resource_path("knight_logo.bmp")
+    if os.path.exists(logo_path):
+        return send_file(logo_path, mimetype='image/bmp')
+    # Fallback to icon
+    return redirect(url_for('static', filename='icons/icon.svg'))
+
+
 @app.route("/pieces/<piece_code>.svg")
 def piece_svg(piece_code: str):
     """Serve an on-the-fly SVG for chessboard.js piece rendering."""

@@ -179,7 +179,7 @@
                     if (obj[x]["event"] != "") { desc.innerHTML = desc.innerHTML + obj[x]["event"] + ",   "; }
                     if (obj[x]["site"] != "") { desc.innerHTML = desc.innerHTML + obj[x]["site"] + ",   "; }
                     if (obj[x]["round"] != "") { desc.innerHTML = desc.innerHTML + obj[x]["round"] + ",   "; }
-                    if (obj[x]["white"] != "" || obj[x]["black"] != "") { desc.innerHTML = desc.innerHTML + obj[x]["white"] + " vs. " + obj[x]["black"] + ",   "; }
+                    if (obj[x]["white"] != "" || obj[x]["black"] != "") { desc.innerHTML = desc.innerHTML + obj[x]["white"] + " (W) vs " + obj[x]["black"] + " (B),   "; }
                     if (obj[x]["result"] != "") { desc.innerHTML = desc.innerHTML + obj[x]["result"] + ""; }
                     content.appendChild(desc);
                     var gpgn = document.createElement("div");
