@@ -154,24 +154,49 @@
     </style>
 </head>
 <body>
-    <nav class="navbar">
-        <div class="navbar-container">
-            <a href="/" class="navbar-brand">
-                <img src="/logo" alt="Universal Chess" class="navbar-logo">
-                <div class="navbar-brand-text">
-                    <span class="navbar-title">Universal Chess</span>
-                    <span class="navbar-slogan">Connect, play, and analyze chess on your smart chess board</span>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const $navbarBurgers = Array.prototype.slice.call(document.querySelectorAll('.navbar-burger'), 0);
+            if ($navbarBurgers.length > 0) {
+                $navbarBurgers.forEach(el => {
+                    el.addEventListener('click', () => {
+                        const target = el.dataset.target;
+                        const $target = document.getElementById(target);
+                        el.classList.toggle('is-active');
+                        $target.classList.toggle('is-active');
+                    });
+                });
+            }
+        });
+    </script>
+    
+    <nav class="navbar" role="navigation" aria-label="main navigation">
+        <div class="navbar-brand">
+            <a class="navbar-item" href="/" style="padding: 0.5rem 1rem;">
+                <img src="/logo" alt="" style="max-height: 40px; margin-right: 0.75rem; border-radius: 4px;">
+                <div class="brand-text">
+                    <span class="brand-title">Universal Chess</span>
+                    <span class="brand-tagline">Your smart chess companion</span>
                 </div>
             </a>
-            <div class="navbar-menu">
-                <a href="/" class="navbar-item">Home</a>
-                <a href="/pgn" class="navbar-item">Games</a>
-                <a href="/configure" class="navbar-item">Configure</a>
+            <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navbarMain">
+                <span aria-hidden="true"></span>
+                <span aria-hidden="true"></span>
+                <span aria-hidden="true"></span>
+            </a>
+        </div>
+        <div id="navbarMain" class="navbar-menu">
+            <div class="navbar-start">
+                <a class="navbar-item" href="/">Live Board</a>
+                <a class="navbar-item" href="/pgn">Games</a>
+                <a class="navbar-item" href="/configure">Settings</a>
                 {% if rodentiv_installed %}
-                <a href="/rodentivtuner" class="navbar-item">RodentIV Config</a>
+                <a class="navbar-item" href="/rodentivtuner">Rodent IV</a>
                 {% endif %}
-                <a href="/support" class="navbar-item">Support</a>
-                <a href="/license" class="navbar-item">Licenses</a>
+            </div>
+            <div class="navbar-end">
+                <a class="navbar-item" href="/support">Support</a>
+                <a class="navbar-item" href="/license">Licenses</a>
             </div>
         </div>
     </nav>
@@ -200,9 +225,15 @@
     <div id="moveholder"></div>
     
     <footer class="footer">
-        <div class="footer-content">
-            <p><strong>Universal Chess</strong> &copy; {{ current_year }} - 
-                <a href="{{ repo_url }}">View on GitHub</a>
+        <div class="content has-text-centered">
+            <p>
+                <strong>Universal Chess</strong> &mdash; Open source software for smart chess boards
+                <br>
+                <a href="https://github.com/adrian-dybwad/Universal-Chess" target="_blank" rel="noopener">GitHub</a>
+                &bull;
+                <a href="/license">License</a>
+                &bull;
+                <a href="/support">Support</a>
             </p>
         </div>
     </footer>
