@@ -3,12 +3,15 @@ Chess game service.
 
 Manages game lifecycle, coordinates with ChessGameState, and broadcasts
 game state to web clients via Unix socket.
+
+PGN is maintained incrementally in memory to avoid rebuilding the entire
+game tree on every move. Takebacks are handled by navigating back in the
+game tree.
 """
 
 from typing import Optional
 import chess
 import chess.pgn
-import io
 
 try:
     from universalchess.board.logging import log
@@ -23,11 +26,21 @@ from universalchess.services.game_broadcast import broadcast_game_state
 
 
 class ChessGameService:
-    """Service managing chess game lifecycle and FEN log."""
+    """Service managing chess game lifecycle and FEN log.
+    
+    Maintains a chess.pgn.Game in memory for efficient PGN generation.
+    The game tree is updated incrementally on moves and takebacks rather
+    than rebuilding on every position change.
+    """
     
     def __init__(self):
         """Initialize the chess game service."""
         self._state = get_game_state()
+        
+        # PGN game tree - updated incrementally
+        self._pgn_game: chess.pgn.Game = chess.pgn.Game()
+        self._pgn_node: chess.pgn.GameNode = self._pgn_game  # Current position in tree
+        self._last_move_count: int = 0  # Track move count to detect takebacks
         
         # Register for position changes to write FEN log
         self._state.on_position_change(self._on_position_change)
@@ -63,11 +76,22 @@ class ChessGameService:
     def new_game(self, fen: Optional[str] = None) -> None:
         """Start a new game.
         
+        Creates a fresh PGN game tree. If a custom FEN is provided, it's set
+        as the starting position in the PGN headers.
+        
         Args:
             fen: Starting position FEN, or None for standard starting position.
         """
+        # Reset PGN game tree
+        self._pgn_game = chess.pgn.Game()
+        self._pgn_node = self._pgn_game
+        self._last_move_count = 0
+        
         if fen:
             self._state.set_position(fen)
+            # Set FEN in PGN headers for non-standard starting positions
+            self._pgn_game.headers["FEN"] = fen
+            self._pgn_game.headers["SetUp"] = "1"
         else:
             self._state.reset()
         
@@ -129,33 +153,30 @@ class ChessGameService:
     def get_pgn(self) -> str:
         """Generate PGN string for the current game.
         
+        The PGN is generated from the in-memory game tree which is updated
+        incrementally on each move/takeback. This is O(n) where n is the
+        number of moves, but the game tree itself is already built.
+        
         Returns:
             PGN formatted string of the current game.
         """
         try:
-            game = chess.pgn.Game()
-            
-            # Get player names from state
+            # Update headers before export (they may have changed)
             players = get_players_state()
-            game.headers["White"] = players.white_name
-            game.headers["Black"] = players.black_name
+            self._pgn_game.headers["White"] = players.white_name
+            self._pgn_game.headers["Black"] = players.black_name
             
             # Set result if game is over
             if self._state.is_game_over:
                 result = self._state.result
                 if result:
-                    game.headers["Result"] = result
-            
-            # Replay moves from the board's move stack
-            node = game
-            board = chess.Board()
-            for move in self._state.move_stack:
-                node = node.add_variation(move)
-                board.push(move)
+                    self._pgn_game.headers["Result"] = result
+            else:
+                self._pgn_game.headers["Result"] = "*"
             
             # Export to string
             exporter = chess.pgn.StringExporter(headers=True, variations=False, comments=False)
-            return game.accept(exporter)
+            return self._pgn_game.accept(exporter)
         except Exception as e:
             log.debug(f"[ChessGameService] Error generating PGN: {e}")
             return ""
@@ -164,8 +185,65 @@ class ChessGameService:
     # Internal
     # -------------------------------------------------------------------------
     
+    def _sync_pgn_tree(self) -> None:
+        """Synchronize PGN game tree with current board state.
+        
+        Detects whether a move was added or taken back by comparing move counts,
+        then updates the PGN tree accordingly:
+        - Move added: Add variation to current node
+        - Takeback: Navigate to parent node
+        - Position reset: Handled by new_game() which resets tree
+        """
+        move_stack = self._state.move_stack
+        current_move_count = len(move_stack)
+        
+        if current_move_count > self._last_move_count:
+            # Move(s) added - add to PGN tree
+            # Handle case where multiple moves were added (shouldn't happen normally)
+            for i in range(self._last_move_count, current_move_count):
+                move = move_stack[i]
+                self._pgn_node = self._pgn_node.add_variation(move)
+        
+        elif current_move_count < self._last_move_count:
+            # Takeback - navigate back in tree
+            moves_to_pop = self._last_move_count - current_move_count
+            for _ in range(moves_to_pop):
+                parent = self._pgn_node.parent
+                if parent is not None:
+                    self._pgn_node = parent
+                else:
+                    # Already at root, can't go further back
+                    break
+        
+        # If move count is same but position changed, this is likely a set_position
+        # which should be handled by new_game(). Log a warning.
+        elif current_move_count == self._last_move_count and current_move_count > 0:
+            # Position changed without move count change - could be set_position
+            # without calling new_game(). Rebuild tree from scratch as fallback.
+            log.debug("[ChessGameService] Position changed without move count change, rebuilding PGN tree")
+            self._rebuild_pgn_tree()
+        
+        self._last_move_count = current_move_count
+    
+    def _rebuild_pgn_tree(self) -> None:
+        """Rebuild PGN tree from scratch based on current move stack.
+        
+        Fallback for cases where incremental update isn't possible
+        (e.g., set_position called mid-game without new_game).
+        """
+        self._pgn_game = chess.pgn.Game()
+        self._pgn_node = self._pgn_game
+        
+        for move in self._state.move_stack:
+            self._pgn_node = self._pgn_node.add_variation(move)
+        
+        self._last_move_count = len(self._state.move_stack)
+    
     def _on_position_change(self) -> None:
-        """Called when position changes. Writes FEN log and broadcasts to web."""
+        """Called when position changes. Updates PGN tree and broadcasts to web."""
+        # Sync PGN tree with board state
+        self._sync_pgn_tree()
+        
         fen = self._state.fen
         
         # Write FEN log for backwards compatibility (Chromecast, etc)
