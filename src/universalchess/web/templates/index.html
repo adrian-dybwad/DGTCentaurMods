@@ -2,6 +2,8 @@
 
 {% block mainpage %}
 
+<script type="text/javascript" src="{{ url_for('static', filename='stockfish/stockfish.js') }}"></script>
+
 <div class="columns">
   <div class="column is-8">
     {% include "liveboard.html" %}
@@ -12,6 +14,14 @@
       <div id="current-game-info">
         <p class="has-text-grey">Waiting for game...</p>
       </div>
+    </div>
+    
+    <div class="box" style="margin-top: 1rem;">
+      <h3 class="title is-5" style="color: var(--color-accent-secondary);">Analysis</h3>
+      <div id="live-analysis">
+        <p class="has-text-grey">Waiting for position...</p>
+      </div>
+      <progress id="live-eval-bar" class="progress" value="50" max="100" style="margin-top: 0.5rem; height: 0.5rem;"></progress>
       <a href="/pgn" class="button is-primary is-small" style="margin-top: 1rem;">View All Games</a>
     </div>
     
@@ -23,6 +33,115 @@
 </div>
 
 <script>
+  // Stockfish analysis for live game
+  let liveStockfish = null;
+  let currentAnalysisFen = null;
+  let lastEvalScore = 0;
+  let bestMoveUci = '';
+  
+  function initLiveStockfish() {
+    if (liveStockfish) return;
+    
+    try {
+      liveStockfish = new Worker("{{ url_for('static', filename='stockfish/stockfish.js') }}");
+      
+      liveStockfish.onmessage = function(event) {
+        const line = event.data;
+        
+        // Parse evaluation from "info" lines
+        if (line.indexOf("score cp") > 0) {
+          const cpMatch = line.match(/score cp (-?\d+)/);
+          if (cpMatch) {
+            let cp = parseInt(cpMatch[1]);
+            // Negate if it's black's turn (we want score from white's perspective)
+            if (currentAnalysisFen && currentAnalysisFen.includes(' b ')) {
+              cp = -cp;
+            }
+            lastEvalScore = cp;
+            updateEvalBar(cp);
+          }
+        }
+        
+        // Parse mate score
+        if (line.indexOf("score mate") > 0) {
+          const mateMatch = line.match(/score mate (-?\d+)/);
+          if (mateMatch) {
+            let mateIn = parseInt(mateMatch[1]);
+            if (currentAnalysisFen && currentAnalysisFen.includes(' b ')) {
+              mateIn = -mateIn;
+            }
+            lastEvalScore = mateIn > 0 ? 10000 : -10000;
+            updateEvalBar(lastEvalScore);
+            updateAnalysisDisplay(null, mateIn);
+          }
+        }
+        
+        // Parse best move
+        if (line.indexOf("bestmove ") === 0) {
+          bestMoveUci = line.split(' ')[1];
+          updateAnalysisDisplay(bestMoveUci, null);
+        }
+      };
+      
+      // Initialize engine
+      liveStockfish.postMessage('uci');
+    } catch (e) {
+      console.error('Failed to initialize Stockfish:', e);
+    }
+  }
+  
+  function analyzePosition(fen) {
+    if (!liveStockfish || !fen) return;
+    
+    currentAnalysisFen = fen;
+    bestMoveUci = '';
+    
+    // Send position and start analysis
+    liveStockfish.postMessage('position fen ' + fen);
+    liveStockfish.postMessage('go depth 15');
+  }
+  
+  function updateEvalBar(cp) {
+    const bar = document.getElementById('live-eval-bar');
+    if (!bar) return;
+    
+    // Clamp to +/- 10 pawns, then map to 0-100
+    let clampedCp = Math.max(-1000, Math.min(1000, cp));
+    let barValue = 50 - (clampedCp / 20); // +10 pawns = 0%, -10 pawns = 100%
+    bar.value = barValue;
+    
+    // Color based on who's winning
+    if (cp > 100) {
+      bar.className = 'progress is-success';
+    } else if (cp < -100) {
+      bar.className = 'progress is-danger';
+    } else {
+      bar.className = 'progress is-warning';
+    }
+  }
+  
+  function updateAnalysisDisplay(bestMove, mateIn) {
+    const container = document.getElementById('live-analysis');
+    if (!container) return;
+    
+    let evalText = '';
+    if (mateIn !== null) {
+      evalText = mateIn > 0 ? `Mate in ${mateIn}` : `Mate in ${-mateIn} (for Black)`;
+    } else {
+      const pawns = (lastEvalScore / 100).toFixed(1);
+      evalText = lastEvalScore >= 0 ? `+${pawns}` : `${pawns}`;
+    }
+    
+    let moveText = bestMove ? `Best: <strong>${bestMove}</strong>` : 'Analyzing...';
+    
+    container.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <span style="font-size: 1.5rem; font-weight: bold;">${evalText}</span>
+        <span>${moveText}</span>
+      </div>
+    `;
+  }
+  
   // Update current game info from SSE game state updates
   function updateCurrentGameInfo(state) {
     const container = document.getElementById('current-game-info');
@@ -55,11 +174,21 @@
         ${statusText}
       </div>
     `;
+    
+    // Trigger analysis on new position
+    if (state.fen && state.fen !== currentAnalysisFen && !gameOver) {
+      analyzePosition(state.fen);
+    }
   }
   
   // Listen for game state updates from SSE (dispatched by liveboard.html)
   window.addEventListener('gameStateUpdate', function(event) {
     updateCurrentGameInfo(event.detail);
+  });
+  
+  // Initialize Stockfish when page loads
+  window.addEventListener('load', function() {
+    initLiveStockfish();
   });
   
   // Initial state - will be updated when SSE connects
