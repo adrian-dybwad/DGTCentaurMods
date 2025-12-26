@@ -765,20 +765,25 @@ def build_chess_game_from_id(session, game_id):
         if g.headers[key] == "None":
             g.headers[key] = ""
     
-    # Get moves
+    # Get moves ordered by time
     moves = session.execute(
         select(models.GameMove.move_at, models.GameMove.move, models.GameMove.fen).
-        where(models.GameMove.gameid == game_id)
+        where(models.GameMove.gameid == game_id).
+        order_by(models.GameMove.id)
     ).all()
     
     # Add moves to game
-    node = None
-    for i, move_data in enumerate(moves):
-        if move_data[1]:  # If move is not empty
-            if i == 0:
-                node = g.add_variation(chess.Move.from_uci(move_data[1]))
-            else:
-                node = node.add_variation(chess.Move.from_uci(move_data[1]))
+    # First record is initial position (empty move), subsequent records are actual moves
+    node = g
+    for move_data in moves:
+        move_str = move_data[1]
+        if move_str:  # Skip empty moves (initial position record)
+            try:
+                move = chess.Move.from_uci(move_str)
+                node = node.add_variation(move)
+            except ValueError:
+                # Invalid move, skip
+                pass
     
     return g
 
