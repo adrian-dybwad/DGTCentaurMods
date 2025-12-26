@@ -176,29 +176,31 @@ class IconMenuWidget(Widget):
         """Calculate how many entries can fit on screen.
         
         Uses min_button_height to determine if scrolling is needed.
+        Each entry's minimum height is min_button_height * height_ratio.
         """
         if not self.entries:
             self._visible_count = 0
             return
         
-        # Calculate total height ratio if all entries were shown
-        total_ratio = sum(entry.height_ratio for entry in self.entries)
-        avg_ratio = total_ratio / len(self.entries)
+        # Calculate minimum required height for each entry based on its height_ratio
+        # An entry with height_ratio=2.0 needs 2x the min_button_height
+        min_total_height = sum(self.min_button_height * entry.height_ratio for entry in self.entries)
         
-        # Estimate height per unit ratio
-        height_per_ratio = self.height / total_ratio if total_ratio > 0 else self.height
-        
-        # Check if buttons would be too small
-        min_height_per_entry = self.min_button_height / avg_ratio if avg_ratio > 0 else self.min_button_height
-        
-        if height_per_ratio >= min_height_per_entry:
+        if min_total_height <= self.height:
             # All entries fit without scrolling
             self._visible_count = len(self.entries)
         else:
-            # Calculate how many entries fit with minimum height
-            # For simplicity with variable ratios, estimate based on average
-            entries_that_fit = int(self.height / self.min_button_height)
-            self._visible_count = max(1, min(entries_that_fit, len(self.entries)))
+            # Calculate how many entries fit by accumulating minimum heights
+            accumulated_height = 0
+            visible = 0
+            for entry in self.entries:
+                entry_min_height = self.min_button_height * entry.height_ratio
+                if accumulated_height + entry_min_height <= self.height:
+                    accumulated_height += entry_min_height
+                    visible += 1
+                else:
+                    break
+            self._visible_count = max(1, visible)
     
     def _create_buttons(self) -> None:
         """Create IconButtonWidget instances for visible entries.
