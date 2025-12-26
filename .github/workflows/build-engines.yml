@@ -42,7 +42,7 @@ jobs:
             bash -c '
               set -e
               apt-get update
-              apt-get install -y build-essential git clang make meson ninja-build libopenblas-dev wget
+              apt-get install -y build-essential git clang make meson ninja-build libopenblas-dev wget bc gawk golang
               
               mkdir -p /workspace/engine-binaries/arm64
               mkdir -p /workspace/engine-binaries/arm64/maia/maia_weights
@@ -94,6 +94,18 @@ jobs:
               git clone --depth 1 https://github.com/Disservin/Smallbrain.git /tmp/smallbrain
               cd /tmp/smallbrain/src && make -j2 EXE=smallbrain
               cp smallbrain /workspace/engine-binaries/arm64/
+              
+              # Arasan
+              echo "=== Building Arasan ==="
+              git clone --depth 1 https://github.com/jdart1/arasan-chess.git /tmp/arasan
+              cd /tmp/arasan/src && make -j2
+              cp arasan /workspace/engine-binaries/arm64/
+              
+              # Zahak
+              echo "=== Building Zahak ==="
+              git clone --depth 1 https://github.com/amanjpro/zahak.git /tmp/zahak
+              cd /tmp/zahak && go build -o zahak
+              cp zahak /workspace/engine-binaries/arm64/
               
               # Maia (lc0 with BLAS backend)
               echo "=== Building Maia (lc0) ==="
@@ -156,7 +168,7 @@ jobs:
             bash -c '
               set -e
               apt-get update
-              apt-get install -y build-essential git clang make meson ninja-build libopenblas-dev wget
+              apt-get install -y build-essential git clang make meson ninja-build libopenblas-dev wget bc gawk golang
               
               mkdir -p /workspace/engine-binaries/armhf
               mkdir -p /workspace/engine-binaries/armhf/maia/maia_weights
@@ -208,6 +220,18 @@ jobs:
               git clone --depth 1 https://github.com/Disservin/Smallbrain.git /tmp/smallbrain
               cd /tmp/smallbrain/src && make -j2 EXE=smallbrain
               cp smallbrain /workspace/engine-binaries/armhf/
+              
+              # Arasan
+              echo "=== Building Arasan ==="
+              git clone --depth 1 https://github.com/jdart1/arasan-chess.git /tmp/arasan
+              cd /tmp/arasan/src && make -j2
+              cp arasan /workspace/engine-binaries/armhf/
+              
+              # Zahak
+              echo "=== Building Zahak ==="
+              git clone --depth 1 https://github.com/amanjpro/zahak.git /tmp/zahak
+              cd /tmp/zahak && go build -o zahak
+              cp zahak /workspace/engine-binaries/armhf/
               
               # Maia (lc0 with BLAS backend)
               echo "=== Building Maia (lc0) ==="

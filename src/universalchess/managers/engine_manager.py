@@ -243,6 +243,7 @@ ENGINES = {
         dependencies=["build-essential", "git", "bc", "gawk"],
         build_timeout=1800,
         estimated_install_minutes=25,  # NNUE engine, single-threaded build
+        has_prebuilt=True,
     ),
     
     # === SPECIALTY ENGINES ===
@@ -332,6 +333,7 @@ ENGINES = {
         # golang package name varies: 'golang' on older Debian, 'golang-go' on newer
         dependencies=["golang", "git"],
         estimated_install_minutes=5,  # Go compiles quickly
+        has_prebuilt=True,
     ),
     "smallbrain": EngineDefinition(
         name="smallbrain",
