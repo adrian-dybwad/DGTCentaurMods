@@ -94,8 +94,11 @@
     </nav>
 </div>
 
-<div id="pgndiv" style="margin-top:10px;">
-  <textarea id="gamepgn" class="textarea" placeholder="" rows="12"></textarea>
+<div style="display: flex; gap: 1rem; margin-top: 10px;">
+  <div id="moveholder" style="flex: 1; max-height: 300px; overflow-y: auto;"></div>
+  <div id="pgndiv" style="flex: 1;">
+    <textarea id="gamepgn" class="textarea" placeholder="" rows="12"></textarea>
+  </div>
 </div>
 
 <script>
