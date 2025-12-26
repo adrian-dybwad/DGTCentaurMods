@@ -256,7 +256,7 @@ def handle_engine_manager_menu(
                     icon_name=icon,
                     enabled=True,
                     selectable=True,
-                    height_ratio=1.2,
+                    height_ratio=1.6,
                     layout="horizontal",
                     font_size=12,
                     description=summary,
