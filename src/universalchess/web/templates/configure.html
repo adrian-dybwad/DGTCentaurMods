@@ -469,12 +469,64 @@
         <div class="settings-group">
           <div class="settings-row">
             <div class="settings-row-info">
-              <div class="settings-row-label">Sound Effects</div>
-              <div class="settings-row-help">Enable beeps and audio feedback</div>
+              <div class="settings-row-label">Sound Enabled</div>
+              <div class="settings-row-help">Master switch for all sound effects</div>
             </div>
             <div class="settings-row-control">
               <label class="toggle-switch">
                 <input type="checkbox" id="sound-enabled" onchange="markChanged()">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+          
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <div class="settings-row-label">Key Press</div>
+              <div class="settings-row-help">Beep when buttons are pressed</div>
+            </div>
+            <div class="settings-row-control">
+              <label class="toggle-switch">
+                <input type="checkbox" id="sound-key-press" onchange="markChanged()">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+          
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <div class="settings-row-label">Game Events</div>
+              <div class="settings-row-help">Beep for check, checkmate, and other game events</div>
+            </div>
+            <div class="settings-row-control">
+              <label class="toggle-switch">
+                <input type="checkbox" id="sound-game-event" onchange="markChanged()">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+          
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <div class="settings-row-label">Piece Events</div>
+              <div class="settings-row-help">Beep when pieces are lifted or placed</div>
+            </div>
+            <div class="settings-row-control">
+              <label class="toggle-switch">
+                <input type="checkbox" id="sound-piece-event" onchange="markChanged()">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+          
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <div class="settings-row-label">Errors</div>
+              <div class="settings-row-help">Beep on error conditions</div>
+            </div>
+            <div class="settings-row-control">
+              <label class="toggle-switch">
+                <input type="checkbox" id="sound-error" onchange="markChanged()">
                 <span class="toggle-slider"></span>
               </label>
             </div>
@@ -681,6 +733,10 @@
     // Sound
     if (data.sound) {
       document.getElementById('sound-enabled').checked = data.sound.sound === 'on';
+      document.getElementById('sound-key-press').checked = data.sound.key_press === 'on';
+      document.getElementById('sound-game-event').checked = data.sound.game_event === 'on';
+      document.getElementById('sound-piece-event').checked = data.sound.piece_event === 'on';
+      document.getElementById('sound-error').checked = data.sound.error === 'on';
     }
     
     // System
@@ -737,7 +793,11 @@
         range: document.getElementById('lichess-range').value
       },
       sound: {
-        sound: document.getElementById('sound-enabled').checked ? 'on' : 'off'
+        sound: document.getElementById('sound-enabled').checked ? 'on' : 'off',
+        key_press: document.getElementById('sound-key-press').checked ? 'on' : 'off',
+        game_event: document.getElementById('sound-game-event').checked ? 'on' : 'off',
+        piece_event: document.getElementById('sound-piece-event').checked ? 'on' : 'off',
+        error: document.getElementById('sound-error').checked ? 'on' : 'off'
       },
       system: {
         developer: document.getElementById('system-developer').checked

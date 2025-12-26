@@ -956,9 +956,27 @@ class GameManager:
         # Wire pending move callback - for LED display when engine/lichess has a move
         player_manager.set_pending_move_callback(self._on_pending_move)
         
-        log.info(f"[GameManager] Player manager set: White={player_manager.white_player.name} "
+        # Set initial game_info with player names
+        # This ensures games are recorded with proper player names (engine names, etc.)
+        # Lichess games will update this later with actual player usernames
+        white_name = player_manager.white_player.name
+        black_name = player_manager.black_player.name
+        self.game_info = {
+            'event': '',
+            'site': '',
+            'round': '',
+            'white': white_name,
+            'black': black_name
+        }
+        
+        # Update PlayersState for UI
+        from universalchess.state.players import get_players_state
+        players_state = get_players_state()
+        players_state.set_player_names(white_name, black_name)
+        
+        log.info(f"[GameManager] Player manager set: White={white_name} "
                  f"({player_manager.white_player.player_type.name}), "
-                 f"Black={player_manager.black_player.name} "
+                 f"Black={black_name} "
                  f"({player_manager.black_player.player_type.name})")
     
     @property
