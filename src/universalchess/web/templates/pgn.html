@@ -2,73 +2,77 @@
 
 {% block mainpage %}
 
-<style>
-    .gameitem {
-        border: 1px solid #c3c3c3;
-        width: 100%;
-        -webkit-border-radius: 3px;
-        -moz-border-radius: 3px;
-        border-radius: 3px;
-        margin: 10px;
-    }
-    .gamemaindetails {
-        background-color: #d2cfcf;
-        padding: 5px;
-    }
-    .gamecr {
-        float: left;
-        padding-right: 20px;
-    }
-    .gamesr {
-    }
-    .gameld {
-        clear: both;
-        padding: 5px;
-    }
-    .gamelditem {
-        float:left;
-        padding-right: 20px;
-    }
-    .gamegd {
-        clear: both;
-        padding: 5px;
-    }
-    .gamegditem {
-        float:left;
-        padding-right: 20px;
-    }
-    .gamepgn {
-        clear:both;
-        padding: 5px;
-    }
-</style>
-
 <div style="width:100%">
+    <div class="level">
+        <div class="level-left">
+            <h2 class="title" style="color: var(--color-accent-primary);">Game History</h2>
+        </div>
+        <div class="level-right">
+            <div class="buttons">
+                <button class="button is-small" id="prevPage" onclick="prevPage()" disabled>Previous</button>
+                <span id="pageIndicator" style="padding: 0 1rem; color: var(--color-text-secondary);">Page 1</span>
+                <button class="button is-small" id="nextPage" onclick="nextPage()">Next</button>
+            </div>
+        </div>
+    </div>
+    
     <div id="gameslisting">
-
+        <div class="has-text-centered" style="padding: 3rem;">
+            <p style="color: var(--color-text-muted);">Loading games...</p>
+        </div>
     </div>
 </div>
 
-
 <script>
-
     var page = 1;
-
+    var totalGames = 0;
+    
     function showPGN(gameid) {
-        var xmlhttp;
-        xmlhttp = new XMLHttpRequest();
-        xmlhttp.onreadystatechange = function(){
-            if (xmlhttp.readyState == 4 && xmlhttp.status == 200){
-                document.getElementById("gamepgn-" + gameid).innerText = xmlhttp.responseText;
-            }
+        var pgnDiv = document.getElementById("gamepgn-" + gameid);
+        if (pgnDiv.innerHTML.trim() !== '') {
+            // Toggle visibility
+            pgnDiv.style.display = pgnDiv.style.display === 'none' ? 'block' : 'none';
+            return;
         }
+        
+        pgnDiv.innerHTML = '<span style="color: var(--color-text-muted);">Loading...</span>';
+        
+        var xmlhttp = new XMLHttpRequest();
+        xmlhttp.onreadystatechange = function() {
+            if (xmlhttp.readyState == 4 && xmlhttp.status == 200) {
+                var pre = document.createElement('pre');
+                pre.style.cssText = 'background: var(--color-bg-primary); padding: 1rem; border-radius: 0.5rem; overflow-x: auto; font-family: var(--font-family-mono); font-size: 0.85rem; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word;';
+                pre.textContent = xmlhttp.responseText;
+                pgnDiv.innerHTML = '';
+                pgnDiv.appendChild(pre);
+            }
+        };
         xmlhttp.open("GET", "/getpgn/" + gameid, true);
         xmlhttp.send();
+    }
+    
+    function prevPage() {
+        if (page > 1) {
+            page--;
+            getGamesPGNList();
+            updatePageControls();
+        }
+    }
+    
+    function nextPage() {
+        page++;
+        getGamesPGNList();
+        updatePageControls();
+    }
+    
+    function updatePageControls() {
+        document.getElementById('pageIndicator').textContent = 'Page ' + page;
+        document.getElementById('prevPage').disabled = page <= 1;
     }
 
     window.onload = function () {
         hideLastPGN();
-        hideLastGames();
+        showLastGames();
         getGamesPGNList();
     }
 </script>

@@ -2,289 +2,327 @@
 
 {% block mainpage %}
 
-<style>
-    .gameitem {
-        border: 1px solid #c3c3c3;
-        width: 100%;
-        -webkit-border-radius: 3px;
-        -moz-border-radius: 3px;
-        border-radius: 3px;
-        margin: 10px;
-    }
-    .gamemaindetails {
-        background-color: #d2cfcf;
-        padding: 5px;
-    }
-    .gamecr {
-        float: left;
-        padding-right: 20px;
-    }
-    .gamesr {
-    }
-    .gameld {
-        clear: both;
-        padding: 5px;
-    }
-    .gamelditem {
-        float:left;
-        padding-right: 20px;
-    }
-    .gamegd {
-        clear: both;
-        padding: 5px;
-    }
-    .gamegditem {
-        float:left;
-        padding-right: 20px;
-    }
-    .gamepgn {
-        clear:both;
-        padding: 5px;
-    }
-</style>
-
 <div style="width:100%">
     <div id="settings">
-      <article class="panel is-info">
-        <p class="panel-heading">
-          Shutdown/Restart DGTCentaurMods
-        </p>
-          <div class="panel-block">
-              <p>
-              Here you can return to DGTCentaurMods when playing the original Centaur
-              by pressing "Quit orig Centaur" 
-              </p>
-          </div>
- 
-          <div class="panel-block">
-            <div class="is-pulled-right" style="width:100%">
-              <button class="button is-success is-pulled-right" id="return2DGTMods" style="margin-left:10px;" onClick="returnToDGTCentaurMods()">Quit orig Centaur</button>
-            </div>
-            </div>
-
-      </article>
+        
+        {% if centaur_software_installed %}
+        <!-- Original Centaur Software Section - Only shown if installed -->
         <article class="panel is-info">
-          <p class="panel-heading">
-            Lichess
-          </p>
-            <div class="panel-block">
-                <p>
-                We use this range to ask Lichess to provide opponents within a capability range. You can also leave this blank
-              </p>
-            </div>
-            <div class="panel-block">
-            <p class="control has-icons-left">
-              <input class="input is-primary" id="lichessrange" type="text" placeholder="Enter Range e.g. 1000-1400" value="{{ lichessrange }}" onkeydown="document.getElementById('lichesssavebutton').className='button is-info is-pulled-right';">
-              <span class="icon is-left">
-                <i class="fas fa-search" aria-hidden="true"></i>
-              </span>
+            <p class="panel-heading">
+                Original Centaur Software
             </p>
-          </div>
             <div class="panel-block">
-                <p>
-                We use a <a href="https://lichess.org/account/oauth/token" target="_new">Lichess API token</a> to create and play games directly from the board. Be sure to create a key with challenge:write and board:play permissions
-              </p>
-            </div>
-          <div class="panel-block">
-            <p class="control has-icons-left">
-              <input class="input is-primary" id="lichesskey" type="text" placeholder="Enter Lichess API token" value="{{ lichesskey }}" onkeydown="document.getElementById('lichesssavebutton').className='button is-info is-pulled-right';">
-              <span class="icon is-left">
-                <i class="fas fa-search" aria-hidden="true"></i>
-              </span>
-            </p>
-          </div>
-            <div class="panel-block">
-            <div class="is-pulled-right" style="width:100%">
-              <button class="button is-pulled-right" id="lichesssavebutton" style="margin-left:10px;" onClick="saveLichess()">Save</button>
-            </div>
-            </div>
-        </article>
-        <article class="panel is-info">
-          <p class="panel-heading">
-            Engines
-          </p>
-            <div class="panel-block">
-                <p>
-                Here you can manage any engines for the engines mode. Upload the engines and any (picochess style) uci file (please keep in mind here you don't really want more than 12/13 options). Engines should be compiled for armv6
-              </p>
-            </div>
-          <div id="filelisting">
-
-          </div>
-            <div class="panel-block">
-              <form method="POST" action="/uploadengine" enctype="multipart/form-data">
-                <div id="file-js-example" class="file has-name">
-                  <label class="file-label">
-                    <input class="file-input" type="file" name="file">
-                    <span class="file-cta">
-                      <span class="file-icon">
-                        <i class="fas fa-upload"></i>
-                      </span>
-                      <span class="file-label">
-                        Choose a engine or uci file…
-                      </span>
-                    </span>
-                    <span class="file-name">
-                      No file uploaded
-                    </span>
-                  </label>
+                <div class="content" style="width: 100%;">
+                    <p>The original DGT Centaur software is installed on this device. You can switch back to it if needed.</p>
+                    <button class="button is-warning" id="return2DGTMods" onclick="returnToOriginalCentaur()">
+                        Switch to Original Centaur
+                    </button>
                 </div>
-            
-            
-                <p><input class="button" type="submit" value="Upload"></p>
-              </form>
-              <script>
-                const fileInput = document.querySelector('#file-js-example input[type=file]');
-                fileInput.onchange = () => {
-                  if (fileInput.files.length > 0) {
-                    const fileName = document.querySelector('#file-js-example .file-name');
-                    fileName.textContent = fileInput.files[0].name;
-                  }
-                }
-              </script>
             </div>
         </article>
+        {% endif %}
+        
+        <!-- Lichess Integration -->
         <article class="panel is-info">
-          <p class="panel-heading">
-            Main Menu
-          </p>
+            <p class="panel-heading">
+                Lichess Integration
+            </p>
             <div class="panel-block">
-                <p>
-                Enable/Disable options on the main menu. Note: 'Centaur' shows if the original centaur software is installed. 'Lichess' shows if you enter a Lichess API key. 
-                After saving, reboot the board either by the menu or by holding down the play button until it beeps, release, and press again - to make this active.
-              </p>
+                <div class="content">
+                    <p>Connect to <a href="https://lichess.org" target="_blank" rel="noopener">Lichess</a> to play online games directly from your board.</p>
+                </div>
             </div>
             <div class="panel-block">
-                <div>
-                  <label><input type=checkbox name='Engines' id='Engines' {{ menuEngines }}> Engines</label><br/>
-                  <label><input type=checkbox name='HandBrain' id='HandBrain' {{ menuHandBrain }}> Hand + Brain</label><br/>
-                  <label><input type=checkbox name='1v1Analysis' id='1v1Analysis' {{ menu1v1Analysis }}> 1v1 Analysis</label><br/>
-                  <label><input type=checkbox name='EmulateEB' id='EmulateEB' {{ menuEmulateEB }}> e-Board</label><br/>
-                  <label><input type=checkbox name='Cast' id='Cast' {{ menuCast }}> Chromecast</label><br/>
-                  <label><input type=checkbox name='msettings' id='msettings' {{ menuSettings }}> Settings</label><br/>
-                  <label><input type=checkbox name='About' id='About' {{ menuAbout }}> About</label><br/>                      
-                </div>                  
+                <div class="field" style="width: 100%;">
+                    <label class="label">API Token</label>
+                    <div class="control">
+                        <input class="input" id="lichesskey" type="password" 
+                               placeholder="Enter Lichess API token" 
+                               value="{{ lichesskey }}" 
+                               onkeydown="markLichessChanged()">
+                    </div>
+                    <p class="help">
+                        <a href="https://lichess.org/account/oauth/token" target="_blank" rel="noopener">Get a token</a> 
+                        with <code>challenge:write</code> and <code>board:play</code> permissions.
+                    </p>
+                </div>
             </div>
-            <div class="is-pulled-right" style="width:100%">
-              <button class="button is-pulled-right" id="menusavebutton" style="margin-left:10px;" onClick="saveMenu()">Save</button>
-            </div>   
-        </article>        
+            <div class="panel-block">
+                <div class="field" style="width: 100%;">
+                    <label class="label">Rating Range (optional)</label>
+                    <div class="control">
+                        <input class="input" id="lichessrange" type="text" 
+                               placeholder="e.g., 1000-1400" 
+                               value="{{ lichessrange }}"
+                               onkeydown="markLichessChanged()">
+                    </div>
+                    <p class="help">Preferred opponent rating range for matchmaking.</p>
+                </div>
+            </div>
+            <div class="panel-block">
+                <div class="is-pulled-right" style="width:100%">
+                    <button class="button is-info is-pulled-right" id="lichesssavebutton" onclick="saveLichess()">
+                        Save Lichess Settings
+                    </button>
+                </div>
+            </div>
+        </article>
+        
+        <!-- Engine Management -->
+        <article class="panel is-info">
+            <p class="panel-heading">
+                Custom Engines
+            </p>
+            <div class="panel-block">
+                <div class="content">
+                    <p>Upload custom UCI chess engines and configuration files. Engines must be compiled for ARM architecture.</p>
+                </div>
+            </div>
+            <div id="filelisting"></div>
+            <div class="panel-block">
+                <form method="POST" action="/uploadengine" enctype="multipart/form-data" style="width: 100%;">
+                    <div class="file has-name is-fullwidth" id="file-upload-wrapper">
+                        <label class="file-label" style="width: 100%;">
+                            <input class="file-input" type="file" name="file" id="engine-file-input">
+                            <span class="file-cta">
+                                <span class="file-icon">&#128193;</span>
+                                <span class="file-label">Choose file...</span>
+                            </span>
+                            <span class="file-name" id="engine-file-name">No file selected</span>
+                        </label>
+                    </div>
+                    <div style="margin-top: 1rem;">
+                        <button class="button is-info" type="submit">Upload Engine</button>
+                    </div>
+                </form>
+            </div>
+        </article>
+        
+        <!-- Menu Options -->
+        <article class="panel is-info">
+            <p class="panel-heading">
+                Main Menu Options
+            </p>
+            <div class="panel-block">
+                <div class="content">
+                    <p>Enable or disable options in the board's main menu. Changes take effect after restart.</p>
+                </div>
+            </div>
+            <div class="panel-block">
+                <div class="settings-group" style="width: 100%;">
+                    <div class="settings-row">
+                        <label class="settings-label">
+                            <input type="checkbox" name="Engines" id="Engines" {{ menuEngines }}>
+                            Engines
+                        </label>
+                        <span class="settings-description">Play against installed chess engines</span>
+                    </div>
+                    <div class="settings-row">
+                        <label class="settings-label">
+                            <input type="checkbox" name="HandBrain" id="HandBrain" {{ menuHandBrain }}>
+                            Hand + Brain
+                        </label>
+                        <span class="settings-description">Engine suggests piece type, you choose the move</span>
+                    </div>
+                    <div class="settings-row">
+                        <label class="settings-label">
+                            <input type="checkbox" name="1v1Analysis" id="1v1Analysis" {{ menu1v1Analysis }}>
+                            1v1 Analysis
+                        </label>
+                        <span class="settings-description">Play with real-time position analysis</span>
+                    </div>
+                    <div class="settings-row">
+                        <label class="settings-label">
+                            <input type="checkbox" name="EmulateEB" id="EmulateEB" {{ menuEmulateEB }}>
+                            e-Board Mode
+                        </label>
+                        <span class="settings-description">Use as an input device for chess software</span>
+                    </div>
+                    <div class="settings-row">
+                        <label class="settings-label">
+                            <input type="checkbox" name="Cast" id="Cast" {{ menuCast }}>
+                            Chromecast
+                        </label>
+                        <span class="settings-description">Stream the board display to a TV</span>
+                    </div>
+                    <div class="settings-row">
+                        <label class="settings-label">
+                            <input type="checkbox" name="msettings" id="msettings" {{ menuSettings }}>
+                            Settings
+                        </label>
+                        <span class="settings-description">Access display and system settings</span>
+                    </div>
+                    <div class="settings-row">
+                        <label class="settings-label">
+                            <input type="checkbox" name="About" id="About" {{ menuAbout }}>
+                            About
+                        </label>
+                        <span class="settings-description">Version info and support links</span>
+                    </div>
+                </div>
+            </div>
+            <div class="panel-block">
+                <div class="is-pulled-right" style="width:100%">
+                    <button class="button is-info is-pulled-right" id="menusavebutton" onclick="saveMenu()">
+                        Save Menu Options
+                    </button>
+                </div>
+            </div>
+        </article>
+        
     </div>
 </div>
 
-
 <script>
-
-    var page = 1;
-    function shutDownBoard() {
-        var xmlhttp;
-        xmlhttp = new XMLHttpRequest();
-
-        xmlhttp.open("GET", "/shutdownboard", true);
-        xmlhttp.send();
+    window.onload = function () {
+        hideLastPGN();
+        hideLastGames();
+        getEngineFiles();
+        
+        // File input display
+        var fileInput = document.getElementById('engine-file-input');
+        if (fileInput) {
+            fileInput.onchange = function() {
+                var fileName = document.getElementById('engine-file-name');
+                if (fileInput.files.length > 0) {
+                    fileName.textContent = fileInput.files[0].name;
+                } else {
+                    fileName.textContent = 'No file selected';
+                }
+            };
+        }
+    };
+    
+    function markLichessChanged() {
+        document.getElementById('lichesssavebutton').classList.add('is-warning');
+        document.getElementById('lichesssavebutton').classList.remove('is-info');
     }
-
-
-    function returnToDGTCentaurMods() {
-        var xmlhttp;
-        xmlhttp = new XMLHttpRequest();
-
+    
+    {% if centaur_software_installed %}
+    function returnToOriginalCentaur() {
+        if (!confirm('Switch to the original Centaur software? Universal Chess will stop running.')) {
+            return;
+        }
+        var xmlhttp = new XMLHttpRequest();
         xmlhttp.open("GET", "/return2dgtcentaurmods", true);
         xmlhttp.send();
     }
+    {% endif %}
 
     function saveLichess() {
         var newkey = document.getElementById("lichesskey").value;
-        var xmlhttp;
-        xmlhttp = new XMLHttpRequest();
-        xmlhttp.onreadystatechange = function(){
-            if (xmlhttp.readyState == 4 && xmlhttp.status == 200){
+        var xmlhttp = new XMLHttpRequest();
+        xmlhttp.onreadystatechange = function() {
+            if (xmlhttp.readyState == 4 && xmlhttp.status == 200) {
                 if (xmlhttp.responseText == "ok") {
                     var newrange = document.getElementById("lichessrange").value;
-                    var xmlhttp2;
-                    xmlhttp2 = new XMLHttpRequest();
-                    xmlhttp2.onreadystatechange = function(){
-                        if (xmlhttp2.readyState == 4 && xmlhttp2.status == 200){
+                    var xmlhttp2 = new XMLHttpRequest();
+                    xmlhttp2.onreadystatechange = function() {
+                        if (xmlhttp2.readyState == 4 && xmlhttp2.status == 200) {
                             if (xmlhttp2.responseText == "ok") {
-                                document.getElementById('lichesssavebutton').className='button is-pulled-right';
+                                var btn = document.getElementById('lichesssavebutton');
+                                btn.classList.remove('is-warning');
+                                btn.classList.add('is-success');
+                                btn.textContent = 'Saved!';
+                                setTimeout(function() {
+                                    btn.classList.remove('is-success');
+                                    btn.classList.add('is-info');
+                                    btn.textContent = 'Save Lichess Settings';
+                                }, 2000);
                             }
                         }
-                    }
-                    xmlhttp2.open("GET", "/lichessrange/" + newrange, true);
+                    };
+                    xmlhttp2.open("GET", "/lichessrange/" + encodeURIComponent(newrange), true);
                     xmlhttp2.send();
                 }
             }
-        }
-        xmlhttp.open("GET", "/lichesskey/" + newkey, true);
+        };
+        xmlhttp.open("GET", "/lichesskey/" + encodeURIComponent(newkey), true);
         xmlhttp.send();
     }
 
     function saveMenu() {
-      var menuEngines = document.getElementById('Engines').checked;
-      var menuHandBrain = document.getElementById('HandBrain').checked;
-      var menu1v1Analysis = document.getElementById('1v1Analysis').checked;
-      var menuEmulateEB = document.getElementById('EmulateEB').checked;
-      var menuCast = document.getElementById('Cast').checked;
-      var menuSettings = document.getElementById('msettings').checked;
-      var menuAbout = document.getElementById('About').checked;
-      var xmlhttp;      
-      xmlhttp = new XMLHttpRequest();
-      xmlhttp.onreadystatechange = function(){
-          if (xmlhttp.readyState == 4 && xmlhttp.status == 200){
-              if (xmlhttp.responseText == "ok") {
-                document.getElementById('menusavebutton').className='button is-pulled-right';
-              }
-          }
-      }
-      xmlhttp.open("GET", "/menuoptions/" + menuEngines + "/" + menuHandBrain + "/" + menu1v1Analysis + "/" + menuEmulateEB + "/" + menuCast + "/" + menuSettings + "/" + menuAbout, true);
-      xmlhttp.send();
-      return false;
+        var menuEngines = document.getElementById('Engines').checked;
+        var menuHandBrain = document.getElementById('HandBrain').checked;
+        var menu1v1Analysis = document.getElementById('1v1Analysis').checked;
+        var menuEmulateEB = document.getElementById('EmulateEB').checked;
+        var menuCast = document.getElementById('Cast').checked;
+        var menuSettings = document.getElementById('msettings').checked;
+        var menuAbout = document.getElementById('About').checked;
+        
+        var xmlhttp = new XMLHttpRequest();
+        xmlhttp.onreadystatechange = function() {
+            if (xmlhttp.readyState == 4 && xmlhttp.status == 200) {
+                if (xmlhttp.responseText == "ok") {
+                    var btn = document.getElementById('menusavebutton');
+                    btn.classList.add('is-success');
+                    btn.textContent = 'Saved! Restart to apply.';
+                    setTimeout(function() {
+                        btn.classList.remove('is-success');
+                        btn.textContent = 'Save Menu Options';
+                    }, 3000);
+                }
+            }
+        };
+        var url = "/menuoptions/" + menuEngines + "/" + menuHandBrain + "/" + menu1v1Analysis + "/" + 
+                  menuEmulateEB + "/" + menuCast + "/" + menuSettings + "/" + menuAbout;
+        xmlhttp.open("GET", url, true);
+        xmlhttp.send();
+        return false;
     }
 
     function getEngineFiles() {
-        var xmlhttp;
-        xmlhttp = new XMLHttpRequest();
-        xmlhttp.onreadystatechange = function(){
-            if (xmlhttp.readyState == 4 && xmlhttp.status == 200){
-              const obj = JSON.parse(xmlhttp.responseText);
-              var fl = document.getElementById('filelisting');
-              fl.innerHTML = '';
-              for (x = 0; x < Object.size(obj); x++) {
-                console.log(obj[x])
-                var pb = document.createElement("div");
-                pb.className = "panel-block";
-                var is = document.createElement("span");
-                is.className = "panel-icon";
-                pb.appendChild(is);
-                var ic = document.createElement("i");
-                ic.innerHTML = "<a href='#' onClick='delengine(\"" + obj[x] + "\");'><span style='color:red;display:inline-block;'>X</span></a>"
-                is.appendChild(ic);
-                var ts = document.createElement("span");
-                ts.innerHTML = obj[x];
-                pb.appendChild(ts);
-                fl.appendChild(pb);
-              }
+        var xmlhttp = new XMLHttpRequest();
+        xmlhttp.onreadystatechange = function() {
+            if (xmlhttp.readyState == 4 && xmlhttp.status == 200) {
+                var obj = JSON.parse(xmlhttp.responseText);
+                var fl = document.getElementById('filelisting');
+                fl.innerHTML = '';
+                
+                if (obj.length === 0) {
+                    var emptyMsg = document.createElement("div");
+                    emptyMsg.className = "panel-block";
+                    emptyMsg.innerHTML = '<span style="color: var(--color-text-muted);">No custom engines installed</span>';
+                    fl.appendChild(emptyMsg);
+                    return;
+                }
+                
+                for (var x = 0; x < obj.length; x++) {
+                    var pb = document.createElement("div");
+                    pb.className = "panel-block";
+                    pb.style.justifyContent = "space-between";
+                    
+                    var nameSpan = document.createElement("span");
+                    nameSpan.textContent = obj[x];
+                    pb.appendChild(nameSpan);
+                    
+                    var deleteBtn = document.createElement("button");
+                    deleteBtn.className = "button is-small is-danger is-outlined";
+                    deleteBtn.textContent = "Remove";
+                    deleteBtn.onclick = (function(name) {
+                        return function() { delengine(name); };
+                    })(obj[x]);
+                    pb.appendChild(deleteBtn);
+                    
+                    fl.appendChild(pb);
+                }
             }
-        }
+        };
         xmlhttp.open("GET", "/engines", true);
         xmlhttp.send();
     }
 
     function delengine(name) {
-        xmlhttp = new XMLHttpRequest();
-        xmlhttp.onreadystatechange = function(){
-            if (xmlhttp.readyState == 4 && xmlhttp.status == 200){
-                getEngineFiles()
+        if (!confirm('Remove engine "' + name + '"?')) return;
+        
+        var xmlhttp = new XMLHttpRequest();
+        xmlhttp.onreadystatechange = function() {
+            if (xmlhttp.readyState == 4 && xmlhttp.status == 200) {
+                getEngineFiles();
             }
-        }
-        xmlhttp.open("GET", "/delengine/" + name, true);
+        };
+        xmlhttp.open("GET", "/delengine/" + encodeURIComponent(name), true);
         xmlhttp.send();
-    }
-
-    window.onload = function () {
-        hideLastPGN();
-        hideLastGames();
-        getEngineFiles();
     }
 </script>
 

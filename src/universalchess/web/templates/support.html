@@ -2,101 +2,116 @@
 
 {% block mainpage %}
 
-<style>
-    .gameitem {
-        border: 1px solid #c3c3c3;
-        width: 100%;
-        -webkit-border-radius: 3px;
-        -moz-border-radius: 3px;
-        border-radius: 3px;
-        margin: 10px;
-    }
-    .gamemaindetails {
-        background-color: #d2cfcf;
-        padding: 5px;
-    }
-    .gamecr {
-        float: left;
-        padding-right: 20px;
-    }
-    .gamesr {
-    }
-    .gameld {
-        clear: both;
-        padding: 5px;
-    }
-    .gamelditem {
-        float:left;
-        padding-right: 20px;
-    }
-    .gamegd {
-        clear: both;
-        padding: 5px;
-    }
-    .gamegditem {
-        float:left;
-        padding-right: 20px;
-    }
-    .gamepgn {
-        clear:both;
-        padding: 5px;
-    }
-	.github-widget {
-		min-width: 100%;
-	}
-</style>
-
 <div style="width:100%">
-    <div id="settings">
+    <div id="support-content">
         <article class="panel is-info">
-          <p class="panel-heading">
-            Key Contributors
-          </p>
-            <div class="panel-block" style="padding-bottom:20px;">
-                <p>
-                <div class="github-widget" data-username="ednekebno" style="width:100% !important;background-color:#f0f0f0"></div>
-              </p>
+            <p class="panel-heading">
+                Get Help
+            </p>
+            <div class="panel-block">
+                <div class="content">
+                    <p>Universal Chess is an open source project. There are several ways to get help and contribute:</p>
+                </div>
             </div>
             <div class="panel-block">
-                <p>
-                <div class="github-widget" data-username="wormstein" style="width:100% !important;background-color:#f0f0f0"></div>
-                <script src="https://unpkg.com/github-card@1.2.1/dist/widget.js"></script>
-              </p>
+                <div class="content" style="width: 100%;">
+                    <h4>GitHub Repository</h4>
+                    <p>The source code, documentation, and issue tracker are all on GitHub:</p>
+                    <a href="https://github.com/adrian-dybwad/Universal-Chess" target="_blank" rel="noopener" class="button is-info">
+                        View on GitHub
+                    </a>
+                </div>
             </div>
         </article>
+        
         <article class="panel is-info">
-          <p class="panel-heading">
-            Github Issues
-          </p>
-            <div class="panel-block" style="padding-bottom:20px;">
-                    <iframe src="https://azu.github.io/github-issue-widget/?owner=ednekebno&repo=DGTCentaur&limit=30&state=open" allowtransparency="true" frameborder="0" scrolling="0" width="100%"></iframe>
+            <p class="panel-heading">
+                Report Issues
+            </p>
+            <div class="panel-block">
+                <div class="content" style="width: 100%;">
+                    <p>Found a bug or have a feature request? Open an issue on GitHub:</p>
+                    <a href="https://github.com/adrian-dybwad/Universal-Chess/issues/new" target="_blank" rel="noopener" class="button is-warning">
+                        Report an Issue
+                    </a>
+                </div>
             </div>
-            <div class="panel-block" style="padding-bottom:20px;">
-                    <p><a href="https://github.com/EdNekebno/DGTCentaur/issues" target="_new">Report an issue on github</a></p>
+            <div class="panel-block">
+                <div class="content" style="width: 100%;">
+                    <h4>Open Issues</h4>
+                    <p>Check existing issues to see if your problem is already being addressed:</p>
+                    <a href="https://github.com/adrian-dybwad/Universal-Chess/issues" target="_blank" rel="noopener" class="button">
+                        View All Issues
+                    </a>
+                </div>
+            </div>
+        </article>
+        
+        <article class="panel is-info">
+            <p class="panel-heading">
+                Contributing
+            </p>
+            <div class="panel-block">
+                <div class="content" style="width: 100%;">
+                    <p>Contributions are welcome! Whether it's code, documentation, or testing:</p>
+                    <ul>
+                        <li>Fork the repository</li>
+                        <li>Create a feature branch</li>
+                        <li>Submit a pull request</li>
+                    </ul>
+                    <a href="https://github.com/adrian-dybwad/Universal-Chess/pulls" target="_blank" rel="noopener" class="button is-success">
+                        View Pull Requests
+                    </a>
+                </div>
+            </div>
+        </article>
+        
+        <article class="panel is-info">
+            <p class="panel-heading">
+                Documentation
+            </p>
+            <div class="panel-block">
+                <div class="content" style="width: 100%;">
+                    <p>Looking for setup instructions, configuration guides, or API documentation?</p>
+                    <a href="https://github.com/adrian-dybwad/Universal-Chess#readme" target="_blank" rel="noopener" class="button">
+                        Read the Docs
+                    </a>
+                </div>
+            </div>
+        </article>
+        
+        <article class="panel is-info">
+            <p class="panel-heading">
+                Version Information
+            </p>
+            <div class="panel-block">
+                <div class="content" style="width: 100%;">
+                    <table class="table" style="background: transparent; color: inherit;">
+                        <tbody>
+                            <tr>
+                                <td><strong>Project</strong></td>
+                                <td>Universal Chess</td>
+                            </tr>
+                            <tr>
+                                <td><strong>License</strong></td>
+                                <td>GNU General Public License v3.0</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Repository</strong></td>
+                                <td><a href="https://github.com/adrian-dybwad/Universal-Chess" target="_blank">github.com/adrian-dybwad/Universal-Chess</a></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </article>
     </div>
 </div>
 
-
 <script>
-
-    var page = 1;
-
     window.onload = function () {
         hideLastPGN();
         hideLastGames();
-        // Build discord widget
-        // 	 <iframe src="https://discord.com/widget?id=897479776950972506&theme=dark" width="350" height="500" allowtransparency="true" frameborder="0" sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"></iframe>
-        var t = document.getElementById("dgtcmods");
-        var i = document.createElement("iframe");
-        i.width = "100%";
-        i.height = "500";
-        i.allowtransparency="true";
-        i.frameborder="0";
-        i.sandbox = "allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts";
-        i.src = "https://discord.com/widget?id=897479776950972506&theme=light";
-        t.appendChild(i);
     }
 </script>
 

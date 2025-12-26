@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e"/>
+      <stop offset="100%" style="stop-color:#16213e"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="512" height="512" rx="64" fill="url(#bg)"/>
+  
+  <!-- Chess board pattern (simplified 4x4) -->
+  <g transform="translate(96, 96)">
+    <!-- Light squares -->
+    <rect x="0" y="0" width="80" height="80" fill="#e8dcc8"/>
+    <rect x="160" y="0" width="80" height="80" fill="#e8dcc8"/>
+    <rect x="80" y="80" width="80" height="80" fill="#e8dcc8"/>
+    <rect x="240" y="80" width="80" height="80" fill="#e8dcc8"/>
+    <rect x="0" y="160" width="80" height="80" fill="#e8dcc8"/>
+    <rect x="160" y="160" width="80" height="80" fill="#e8dcc8"/>
+    <rect x="80" y="240" width="80" height="80" fill="#e8dcc8"/>
+    <rect x="240" y="240" width="80" height="80" fill="#e8dcc8"/>
+    
+    <!-- Dark squares -->
+    <rect x="80" y="0" width="80" height="80" fill="#8b7355"/>
+    <rect x="240" y="0" width="80" height="80" fill="#8b7355"/>
+    <rect x="0" y="80" width="80" height="80" fill="#8b7355"/>
+    <rect x="160" y="80" width="80" height="80" fill="#8b7355"/>
+    <rect x="80" y="160" width="80" height="80" fill="#8b7355"/>
+    <rect x="240" y="160" width="80" height="80" fill="#8b7355"/>
+    <rect x="0" y="240" width="80" height="80" fill="#8b7355"/>
+    <rect x="160" y="240" width="80" height="80" fill="#8b7355"/>
+  </g>
+  
+  <!-- Knight piece silhouette (centered) -->
+  <g transform="translate(176, 136)" fill="#e94560">
+    <path d="M80 0c-8 0-16 8-16 16v24c0 8-8 16-16 16h-8c-8 0-16 8-16 16v16c0 8 8 16 16 16h8l-32 96h-8c-8 0-16 8-16 16v8c0 8 8 16 16 16h144c8 0 16-8 16-16v-8c0-8-8-16-16-16h-8l-32-96h8c8 0 16-8 16-16v-16c0-8-8-16-16-16h-8c-8 0-16-8-16-16v-24c0-8-8-16-16-16z"/>
+  </g>
+  
+  <!-- Accent ring -->
+  <circle cx="256" cy="256" r="220" fill="none" stroke="#e94560" stroke-width="4" opacity="0.5"/>
+</svg>
+

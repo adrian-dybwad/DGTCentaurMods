@@ -84,8 +84,32 @@ app = Flask(__name__)
 app.config['UCI_UPLOAD_EXTENSIONS'] = ['.txt']
 app.config['UCI_UPLOAD_PATH'] = str(pathlib.Path(__file__).parent.resolve()) + "/../engines/"
 
+# System paths for conditional features
+ENGINES_DIR = "/opt/universalchess/engines"
+RODENTIV_PATH = os.path.join(ENGINES_DIR, "rodentIV")
+CENTAUR_SOFTWARE_PATH = "/home/pi/centaur/centaur"
+
 # WebDAV security constants
 WEBDAV_BASE_PATH = "/home/pi"
+
+
+def is_rodentiv_installed() -> bool:
+    """Check if Rodent IV engine is installed."""
+    return os.path.isfile(RODENTIV_PATH) and os.access(RODENTIV_PATH, os.X_OK)
+
+
+def is_centaur_software_installed() -> bool:
+    """Check if original DGT Centaur software is installed."""
+    return os.path.isfile(CENTAUR_SOFTWARE_PATH) and os.access(CENTAUR_SOFTWARE_PATH, os.X_OK)
+
+
+@app.context_processor
+def inject_template_globals():
+    """Inject global variables into all templates."""
+    return {
+        'rodentiv_installed': is_rodentiv_installed(),
+        'centaur_software_installed': is_centaur_software_installed(),
+    }
 
 def verify_webdav_authentication():
     """
@@ -1191,7 +1215,31 @@ def support():
 
 @app.route("/license")
 def license():
-    return render_template('license.html')
+    # Load license texts
+    gpl3_text = ""
+    apache2_text = ""
+    
+    # Try to load GPL-3.0 text
+    gpl3_path = pathlib.Path(__file__).parent.parent.parent.parent / "LICENSE"
+    if gpl3_path.exists():
+        try:
+            gpl3_text = gpl3_path.read_text()
+        except Exception:
+            gpl3_text = "See https://www.gnu.org/licenses/gpl-3.0.txt"
+    else:
+        gpl3_text = "See https://www.gnu.org/licenses/gpl-3.0.txt"
+    
+    # Try to load Apache-2.0 text for Font.ttc
+    apache2_path = pathlib.Path(__file__).parent.parent.parent.parent / "licenses" / "Apache-2.0.txt"
+    if apache2_path.exists():
+        try:
+            apache2_text = apache2_path.read_text()
+        except Exception:
+            apache2_text = "See https://www.apache.org/licenses/LICENSE-2.0"
+    else:
+        apache2_text = "See https://www.apache.org/licenses/LICENSE-2.0"
+    
+    return render_template('license.html', gpl3_text=gpl3_text, apache2_text=apache2_text)
 
 @app.route("/return2dgtcentaurmods")
 def return2dgtcentaurmods():
