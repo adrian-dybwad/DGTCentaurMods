@@ -42,9 +42,10 @@ jobs:
             bash -c '
               set -e
               apt-get update
-              apt-get install -y build-essential git clang make
+              apt-get install -y build-essential git clang make meson ninja-build libopenblas-dev wget
               
               mkdir -p /workspace/engine-binaries/arm64
+              mkdir -p /workspace/engine-binaries/arm64/maia/maia_weights
               
               # Berserk
               echo "=== Building Berserk ==="
@@ -94,8 +95,29 @@ jobs:
               cd /tmp/smallbrain/src && make -j2 EXE=smallbrain
               cp smallbrain /workspace/engine-binaries/arm64/
               
+              # Maia (lc0 with BLAS backend)
+              echo "=== Building Maia (lc0) ==="
+              git clone --depth 1 --branch v0.32.1 --recurse-submodules https://github.com/LeelaChessZero/lc0.git /tmp/lc0
+              cd /tmp/lc0
+              rm -rf build/release
+              CC=clang CXX=clang++ meson setup build/release --buildtype=release \
+                -Dplain_cuda=false -Dcudnn=false -Dopencl=false -Ddx=false \
+                -Donednn=false -Dmetal=disabled -Dispc=false -Dgtest=false \
+                -Donnx=false -Dnvcc=false -Dpython_bindings=false \
+                -Dpopcnt=false -Df16c=false -Dpext=false
+              ninja -C build/release -j2
+              cp build/release/lc0 /workspace/engine-binaries/arm64/maia/lc0
+              
+              # Download Maia weights
+              echo "=== Downloading Maia weights ==="
+              cd /workspace/engine-binaries/arm64/maia/maia_weights
+              for elo in 1100 1200 1300 1400 1500 1600 1700 1800 1900; do
+                wget -q "https://github.com/CSSLab/maia-chess/releases/download/v1.0/maia-${elo}.pb.gz"
+              done
+              
               echo "=== ARM64 builds complete ==="
               ls -la /workspace/engine-binaries/arm64/
+              ls -la /workspace/engine-binaries/arm64/maia/
             '
       
       - name: Package ARM64 binaries
@@ -134,9 +156,10 @@ jobs:
             bash -c '
               set -e
               apt-get update
-              apt-get install -y build-essential git clang make
+              apt-get install -y build-essential git clang make meson ninja-build libopenblas-dev wget
               
               mkdir -p /workspace/engine-binaries/armhf
+              mkdir -p /workspace/engine-binaries/armhf/maia/maia_weights
               
               # Berserk
               echo "=== Building Berserk ==="
@@ -186,8 +209,29 @@ jobs:
               cd /tmp/smallbrain/src && make -j2 EXE=smallbrain
               cp smallbrain /workspace/engine-binaries/armhf/
               
+              # Maia (lc0 with BLAS backend)
+              echo "=== Building Maia (lc0) ==="
+              git clone --depth 1 --branch v0.32.1 --recurse-submodules https://github.com/LeelaChessZero/lc0.git /tmp/lc0
+              cd /tmp/lc0
+              rm -rf build/release
+              CC=clang CXX=clang++ meson setup build/release --buildtype=release \
+                -Dplain_cuda=false -Dcudnn=false -Dopencl=false -Ddx=false \
+                -Donednn=false -Dmetal=disabled -Dispc=false -Dgtest=false \
+                -Donnx=false -Dnvcc=false -Dpython_bindings=false \
+                -Dpopcnt=false -Df16c=false -Dpext=false
+              ninja -C build/release -j2
+              cp build/release/lc0 /workspace/engine-binaries/armhf/maia/lc0
+              
+              # Download Maia weights
+              echo "=== Downloading Maia weights ==="
+              cd /workspace/engine-binaries/armhf/maia/maia_weights
+              for elo in 1100 1200 1300 1400 1500 1600 1700 1800 1900; do
+                wget -q "https://github.com/CSSLab/maia-chess/releases/download/v1.0/maia-${elo}.pb.gz"
+              done
+              
               echo "=== ARM32 builds complete ==="
               ls -la /workspace/engine-binaries/armhf/
+              ls -la /workspace/engine-binaries/armhf/maia/
             '
       
       - name: Package ARM32 binaries

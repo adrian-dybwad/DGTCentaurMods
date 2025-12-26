@@ -294,7 +294,7 @@ ENGINES = {
         name="maia",
         display_name="Maia",
         summary="Human-like play",
-        description="Neural network trained on human games to play like humans at various ELO levels (1100-1900). Uses lc0 backend with Maia weights. Makes realistic human moves and mistakes. Build takes 45-60 minutes on Pi (memory-intensive).",
+        description="Neural network trained on human games to play like humans at various ELO levels (1100-1900). Uses lc0 backend with Maia weights. Makes realistic human moves and mistakes. Pre-built binary available, or build takes 45-60 minutes on Pi.",
         repo_url=None,  # Using custom build script instead of git clone
         build_commands=[
             # Use the standalone build script that handles:
@@ -312,6 +312,7 @@ ENGINES = {
         clone_with_submodules=False,  # Build script handles cloning
         build_timeout=7200,  # 2 hours - may need swap which is slow
         estimated_install_minutes=60,
+        has_prebuilt=True,  # Pre-built includes lc0 binary + all Maia weights
     ),
     
     # === LIGHTWEIGHT/FAST COMPILE ===
@@ -697,18 +698,39 @@ class EngineManager:
                 tar.extractall(extract_dir)
             
             # Find and copy the engine binary
-            binary_path = extract_dir / arch / engine.name
-            if not binary_path.exists():
-                log.warning(f"[EngineManager] _try_install_prebuilt: Binary not found at {binary_path}")
+            # For most engines: arch/engine_name (single binary)
+            # For maia: arch/maia/ (directory with lc0 + maia_weights/)
+            source_path = extract_dir / arch / engine.name
+            
+            if source_path.is_dir():
+                # Engine is a directory (e.g., maia with lc0 + weights)
+                dest_path = Path(self.engines_dir) / engine.name
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                
+                update_progress(f"Installing {engine.display_name}...")
+                
+                # Copy entire directory
+                if dest_path.exists():
+                    shutil.rmtree(dest_path)
+                shutil.copytree(source_path, dest_path)
+                
+                # Make binaries executable
+                for binary in dest_path.glob('*'):
+                    if binary.is_file() and not binary.suffix:
+                        os.chmod(binary, 0o755)
+                
+                log.info(f"[EngineManager] _try_install_prebuilt: Installed directory '{engine.name}'")
+            elif source_path.exists():
+                # Single binary file
+                dest_path = Path(self.engines_dir) / engine.name
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                
+                update_progress(f"Installing {engine.display_name}...")
+                shutil.copy2(source_path, dest_path)
+                os.chmod(dest_path, 0o755)
+            else:
+                log.warning(f"[EngineManager] _try_install_prebuilt: Binary not found at {source_path}")
                 return False
-            
-            # Install the binary
-            dest_path = Path(self.engines_dir) / engine.name
-            dest_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            update_progress(f"Installing {engine.display_name}...")
-            shutil.copy2(binary_path, dest_path)
-            os.chmod(dest_path, 0o755)
             
             # Cleanup
             shutil.rmtree(extract_dir, ignore_errors=True)
