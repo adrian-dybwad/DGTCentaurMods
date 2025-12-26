@@ -33,12 +33,20 @@ import os
 import subprocess
 import shutil
 import threading
+import platform
+import tarfile
 from dataclasses import dataclass, field
 from typing import Optional, Callable, List, Dict
 from pathlib import Path
 from queue import Queue
 from enum import Enum
 import time
+
+try:
+    import requests
+    HAS_REQUESTS = True
+except ImportError:
+    HAS_REQUESTS = False
 
 try:
     from universalchess.board.logging import log
@@ -53,6 +61,11 @@ BUILD_TMP = "/opt/universalchess/tmp/engine_build"
 # Repository root (for build scripts)
 # Detect from this file's location: src/universalchess/managers/engine_manager.py -> repo root
 REPO_ROOT = str(Path(__file__).resolve().parent.parent.parent.parent)
+
+# GitHub release URL for pre-built engine binaries
+GITHUB_REPO = "adrian-dybwad/Universal-Chess"
+GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+PREBUILT_ARCHIVE_NAME_TEMPLATE = "engines-{arch}.tar.gz"  # arm64 or armhf
 
 
 @dataclass
@@ -73,6 +86,7 @@ class EngineDefinition:
     clone_with_submodules: bool = False  # Use --recurse-submodules when cloning
     build_timeout: int = 600     # Timeout for build commands in seconds (default 10 min)
     estimated_install_minutes: int = 5  # Estimated install time in minutes for UI
+    has_prebuilt: bool = False   # True if pre-built binary available from releases
 
 
 class InstallStatus(Enum):
@@ -131,6 +145,7 @@ ENGINES = {
         dependencies=["build-essential", "git"],
         build_timeout=1200,
         estimated_install_minutes=15,  # NNUE engine with limited parallelism
+        has_prebuilt=True,
     ),
     "koivisto": EngineDefinition(
         name="koivisto",
@@ -149,6 +164,7 @@ ENGINES = {
         dependencies=["build-essential", "git"],
         build_timeout=1200,
         estimated_install_minutes=15,  # NNUE engine with limited parallelism
+        has_prebuilt=True,
     ),
     "ethereal": EngineDefinition(
         name="ethereal",
@@ -167,6 +183,7 @@ ENGINES = {
         dependencies=["build-essential", "git"],
         build_timeout=1200,
         estimated_install_minutes=15,  # NNUE engine with limited parallelism
+        has_prebuilt=True,
     ),
     
     # === STRONG TIER - Tournament-level engines ===
@@ -189,6 +206,7 @@ ENGINES = {
         extra_files=[],
         dependencies=["build-essential", "git", "clang"],  # Makefile uses clang
         estimated_install_minutes=3,  # Simple C engine
+        has_prebuilt=True,
     ),
     "weiss": EngineDefinition(
         name="weiss",
@@ -206,6 +224,7 @@ ENGINES = {
         extra_files=[],
         dependencies=["build-essential", "git"],
         estimated_install_minutes=5,  # Clean C engine
+        has_prebuilt=True,
     ),
     "arasan": EngineDefinition(
         name="arasan",
@@ -243,6 +262,7 @@ ENGINES = {
         extra_files=["personalities", "books"],
         dependencies=["build-essential", "git"],
         estimated_install_minutes=8,  # Medium complexity with extra files
+        has_prebuilt=True,
     ),
     "ct800": EngineDefinition(
         name="ct800",
@@ -261,6 +281,7 @@ ENGINES = {
         extra_files=[],
         dependencies=["build-essential", "git"],
         estimated_install_minutes=3,  # Simple C engine
+        has_prebuilt=True,
     ),
     
     # === NEURAL NETWORK - HUMAN-LIKE ===
@@ -328,6 +349,7 @@ ENGINES = {
         dependencies=["build-essential", "git"],
         build_timeout=1200,
         estimated_install_minutes=12,  # Compact NNUE, faster than full NNUE engines
+        has_prebuilt=True,
     ),
 }
 
@@ -467,6 +489,10 @@ class EngineManager:
             if engine.is_system_package:
                 log.info(f"[EngineManager] install_engine: Using system package installation for '{engine_name}'")
                 success = self._install_system_package(engine, update_progress)
+            elif engine.has_prebuilt and self._try_install_prebuilt(engine, update_progress):
+                # Pre-built binary downloaded and installed successfully
+                log.info(f"[EngineManager] install_engine: Installed pre-built binary for '{engine_name}'")
+                success = True
             else:
                 log.info(f"[EngineManager] install_engine: Using source build installation for '{engine_name}'")
                 success = self._install_from_source(engine, update_progress)
@@ -569,6 +595,138 @@ class EngineManager:
         update_progress(f"{engine.display_name} installed successfully")
         log.info(f"[EngineManager] _install_system_package: Successfully installed '{engine.name}'")
         return True
+    
+    def _get_arch(self) -> str:
+        """Get the current architecture for pre-built binary selection.
+        
+        Returns:
+            'arm64' for 64-bit ARM, 'armhf' for 32-bit ARM
+        """
+        machine = platform.machine().lower()
+        if machine in ('aarch64', 'arm64'):
+            return 'arm64'
+        elif machine in ('armv7l', 'armv6l', 'arm'):
+            return 'armhf'
+        else:
+            # Fallback - try to detect from uname
+            return 'arm64' if '64' in machine else 'armhf'
+    
+    def _try_install_prebuilt(
+        self,
+        engine: EngineDefinition,
+        update_progress: Callable[[str], None]
+    ) -> bool:
+        """Try to install engine from pre-built binary.
+        
+        Downloads the engine binary from the latest GitHub release if available.
+        Falls back to building from source if download fails.
+        
+        Args:
+            engine: Engine definition
+            update_progress: Callback for progress messages
+            
+        Returns:
+            True if pre-built binary was installed successfully
+        """
+        if not engine.has_prebuilt:
+            log.debug(f"[EngineManager] _try_install_prebuilt: Engine '{engine.name}' has no pre-built binary")
+            return False
+        
+        if not HAS_REQUESTS:
+            log.warning("[EngineManager] _try_install_prebuilt: 'requests' module not available, cannot download pre-built")
+            return False
+        
+        arch = self._get_arch()
+        archive_name = PREBUILT_ARCHIVE_NAME_TEMPLATE.format(arch=arch)
+        
+        log.info(f"[EngineManager] _try_install_prebuilt: Attempting to download pre-built '{engine.name}' for {arch}")
+        update_progress(f"Checking for pre-built {engine.display_name}...")
+        
+        try:
+            # Get latest release info
+            response = requests.get(GITHUB_API_URL, timeout=30)
+            if response.status_code != 200:
+                log.warning(f"[EngineManager] _try_install_prebuilt: GitHub API returned {response.status_code}")
+                return False
+            
+            release_info = response.json()
+            
+            # Find the engine archive asset
+            download_url = None
+            for asset in release_info.get('assets', []):
+                if asset['name'] == archive_name:
+                    download_url = asset['browser_download_url']
+                    break
+            
+            if not download_url:
+                log.info(f"[EngineManager] _try_install_prebuilt: No pre-built archive '{archive_name}' in latest release")
+                return False
+            
+            # Download the archive
+            update_progress(f"Downloading {engine.display_name}...")
+            log.info(f"[EngineManager] _try_install_prebuilt: Downloading from {download_url}")
+            
+            download_response = requests.get(download_url, stream=True, timeout=300)
+            if download_response.status_code != 200:
+                log.warning(f"[EngineManager] _try_install_prebuilt: Download returned {download_response.status_code}")
+                return False
+            
+            # Save to temp file
+            tmp_archive = Path(BUILD_TMP) / archive_name
+            tmp_archive.parent.mkdir(parents=True, exist_ok=True)
+            
+            total_size = int(download_response.headers.get('content-length', 0))
+            downloaded = 0
+            
+            with open(tmp_archive, 'wb') as f:
+                for chunk in download_response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total_size > 0:
+                        pct = (downloaded * 100) // total_size
+                        update_progress(f"Downloading {engine.display_name}... {pct}%")
+            
+            # Extract the archive
+            update_progress(f"Extracting {engine.display_name}...")
+            log.info(f"[EngineManager] _try_install_prebuilt: Extracting {tmp_archive}")
+            
+            extract_dir = Path(BUILD_TMP) / "prebuilt"
+            extract_dir.mkdir(parents=True, exist_ok=True)
+            
+            with tarfile.open(tmp_archive, 'r:gz') as tar:
+                tar.extractall(extract_dir)
+            
+            # Find and copy the engine binary
+            binary_path = extract_dir / arch / engine.name
+            if not binary_path.exists():
+                log.warning(f"[EngineManager] _try_install_prebuilt: Binary not found at {binary_path}")
+                return False
+            
+            # Install the binary
+            dest_path = Path(self.engines_dir) / engine.name
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            update_progress(f"Installing {engine.display_name}...")
+            shutil.copy2(binary_path, dest_path)
+            os.chmod(dest_path, 0o755)
+            
+            # Cleanup
+            shutil.rmtree(extract_dir, ignore_errors=True)
+            tmp_archive.unlink(missing_ok=True)
+            
+            log.info(f"[EngineManager] _try_install_prebuilt: Successfully installed pre-built '{engine.name}'")
+            update_progress(f"{engine.display_name} installed successfully (pre-built)")
+            return True
+            
+        except requests.RequestException as e:
+            log.warning(f"[EngineManager] _try_install_prebuilt: Network error: {e}")
+            return False
+        except (tarfile.TarError, OSError) as e:
+            log.warning(f"[EngineManager] _try_install_prebuilt: Extract/install error: {e}")
+            return False
+        except Exception as e:
+            log.warning(f"[EngineManager] _try_install_prebuilt: Unexpected error: {e}")
+            return False
     
     def _install_from_source(
         self,
