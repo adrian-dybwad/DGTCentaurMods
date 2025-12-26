@@ -44,7 +44,11 @@ import pwd
 import subprocess
 from xml.sax.saxutils import escape
 
-from universalchess.web.piece_svg import generate_piece_svg, PieceSvgOptions
+from universalchess.web.piece_svg import (
+    generate_piece_svg,
+    PieceSvgOptions,
+    get_piece_images,
+)
 
 # Conditionally import crypt (removed in Python 3.13+, may not be available)
 try:
@@ -1312,18 +1316,23 @@ def piece_svg(piece_code: str):
 
     return Response(svg, mimetype="image/svg+xml")
 
-pb = Image.open(get_resource_path("pb.png")).convert("RGBA")
-pw = Image.open(get_resource_path("pw.png")).convert("RGBA")
-rb = Image.open(get_resource_path("rb.png")).convert("RGBA")
-bb = Image.open(get_resource_path("bb.png")).convert("RGBA")
-nb = Image.open(get_resource_path("nb.png")).convert("RGBA")
-qb = Image.open(get_resource_path("qb.png")).convert("RGBA")
-kb = Image.open(get_resource_path("kb.png")).convert("RGBA")
-rw = Image.open(get_resource_path("rw.png")).convert("RGBA")
-bw = Image.open(get_resource_path("bw.png")).convert("RGBA")
-nw = Image.open(get_resource_path("nw.png")).convert("RGBA")
-qw = Image.open(get_resource_path("qw.png")).convert("RGBA")
-kw = Image.open(get_resource_path("kw.png")).convert("RGBA")
+# Piece images are generated from SVGs on-demand (lazy-loaded and cached)
+# The size matches the original PNG pieces for video frame generation
+_piece_images: dict[str, Image.Image] | None = None
+
+
+def _get_piece_images() -> dict[str, Image.Image]:
+    """Lazy-load piece images from SVG generation.
+    
+    Returns:
+        Dictionary mapping FEN piece characters to PIL Images.
+    """
+    global _piece_images
+    if _piece_images is None:
+        _piece_images = get_piece_images(size=120)
+    return _piece_images
+
+
 logo = Image.open(str(pathlib.Path(__file__).parent.resolve()) + "/../web/static/logo_mods_web.png")
 moddate = -1
 sc = None
@@ -1333,11 +1342,8 @@ if os.path.isfile(epaper_path):
     moddate = os.stat(epaper_path)[8]
 
 def generateVideoFrame():
-    global pb, pw, rb, bb, nb, qb, kb, rw, bw, nw, qw, kw, logo, sc, moddate
-    piece_images = {
-        'r': rb, 'b': bb, 'n': nb, 'q': qb, 'k': kb, 'p': pb,
-        'R': rw, 'B': bw, 'N': nw, 'Q': qw, 'K': kw, 'P': pw
-    }
+    global logo, sc, moddate
+    piece_images = _get_piece_images()
     x_offset = 345
     y_offset = 16
     sqsize = 130.9
@@ -1373,11 +1379,8 @@ def video_feed():
     return Response(generateVideoFrame(),mimetype='multipart/x-mixed-replace; boundary=frame')
 
 def fenToImage(fen):
-    global pb, pw, rb, bb, nb, qb, kb, rw, bw, nw, qw, kw, logo
-    piece_images = {
-        'r': rb, 'b': bb, 'n': nb, 'q': qb, 'k': kb, 'p': pb,
-        'R': rw, 'B': bw, 'N': nw, 'Q': qw, 'K': kw, 'P': pw
-    }
+    global logo
+    piece_images = _get_piece_images()
     curfen = parse_fen_to_board_string(fen)
     image = Image.new(mode="RGBA", size=(1200, 1080), color=(255, 255, 255))
     draw = ImageDraw.Draw(image)

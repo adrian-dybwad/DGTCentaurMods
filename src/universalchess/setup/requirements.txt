@@ -1,6 +1,7 @@
 # pip-installed, inside the app's private venv
 berserk
 bleak
+cairosvg
 casttube
 ndjson
 pyserial
