@@ -36,6 +36,7 @@
   </div>
 </div>
 
+<script src="{{ url_for('static', filename='js/chess.js') }}"></script>
 <script>
   // Stockfish analysis for live game
   let liveStockfish = null;
@@ -47,6 +48,12 @@
   // Evaluation history chart
   let evalHistoryChart = null;
   let evalHistory = [];  // Array of {moveNum, eval} for chart
+  
+  // Queue for batch analysis of existing game
+  let analysisQueue = [];  // Array of {fen, moveNum}
+  let isProcessingQueue = false;
+  let hasReplayedCurrentGame = false;
+  let lastSeenPgn = '';
   
   function initEvalHistoryChart() {
     const ctx = document.getElementById('eval-history-chart');
@@ -134,6 +141,62 @@
     }
   }
   
+  // Parse PGN and queue all positions for analysis
+  function replayPgnForAnalysis(pgn) {
+    if (!pgn || pgn === lastSeenPgn) return;
+    lastSeenPgn = pgn;
+    
+    try {
+      const chess = new Chess();
+      const loaded = chess.load_pgn(pgn);
+      if (!loaded) {
+        console.log('Could not parse PGN for replay');
+        return;
+      }
+      
+      const moves = chess.history();
+      if (moves.length === 0) return;
+      
+      // Reset and replay to get FEN at each position
+      chess.reset();
+      analysisQueue = [];
+      
+      for (let i = 0; i < moves.length; i++) {
+        chess.move(moves[i]);
+        const fen = chess.fen();
+        const moveNum = i + 1;
+        
+        // Only queue if we don't already have this eval
+        const existing = evalHistory.find(e => e.moveNum === moveNum);
+        if (!existing) {
+          analysisQueue.push({ fen, moveNum });
+        }
+      }
+      
+      // Start processing queue if not already
+      if (analysisQueue.length > 0 && !isProcessingQueue) {
+        processNextInQueue();
+      }
+    } catch (e) {
+      console.error('Error replaying PGN:', e);
+    }
+  }
+  
+  function processNextInQueue() {
+    if (analysisQueue.length === 0) {
+      isProcessingQueue = false;
+      return;
+    }
+    
+    isProcessingQueue = true;
+    const next = analysisQueue.shift();
+    analyzePositionQueued(next.fen, next.moveNum);
+  }
+  
+  // Track whether current analysis is from queue or live
+  let isQueuedAnalysis = false;
+  let queuedMoveNumber = 0;
+  
   function initLiveStockfish() {
     if (liveStockfish) return;
     
@@ -153,7 +216,9 @@
               cp = -cp;
             }
             lastEvalScore = cp;
-            updateEvalBar(cp);
+            if (!isQueuedAnalysis) {
+              updateEvalBar(cp);
+            }
           }
         }
         
@@ -166,18 +231,30 @@
               mateIn = -mateIn;
             }
             lastEvalScore = mateIn > 0 ? 10000 : -10000;
-            updateEvalBar(lastEvalScore);
-            updateAnalysisDisplay(null, mateIn);
+            if (!isQueuedAnalysis) {
+              updateEvalBar(lastEvalScore);
+              updateAnalysisDisplay(null, mateIn);
+            }
           }
         }
         
         // Parse best move - this means analysis is complete for this position
         if (line.indexOf("bestmove ") === 0) {
           bestMoveUci = line.split(' ')[1];
-          updateAnalysisDisplay(bestMoveUci, null);
-          // Add final eval to history
-          if (lastMoveNumber > 0) {
-            addEvalToHistory(lastMoveNumber, lastEvalScore);
+          
+          if (isQueuedAnalysis) {
+            // Add to history and process next in queue
+            if (queuedMoveNumber > 0) {
+              addEvalToHistory(queuedMoveNumber, lastEvalScore);
+            }
+            // Process next queued position
+            processNextInQueue();
+          } else {
+            // Live analysis
+            updateAnalysisDisplay(bestMoveUci, null);
+            if (lastMoveNumber > 0) {
+              addEvalToHistory(lastMoveNumber, lastEvalScore);
+            }
           }
         }
       };
@@ -189,14 +266,33 @@
     }
   }
   
+  // Analyze position for queued (background) analysis - uses lower depth for speed
+  function analyzePositionQueued(fen, moveNumber) {
+    if (!liveStockfish || !fen) {
+      processNextInQueue();
+      return;
+    }
+    
+    isQueuedAnalysis = true;
+    queuedMoveNumber = moveNumber;
+    currentAnalysisFen = fen;
+    
+    liveStockfish.postMessage('position fen ' + fen);
+    liveStockfish.postMessage('go depth 10');  // Lower depth for faster replay
+  }
+  
+  // Analyze position for live (current) analysis
   function analyzePosition(fen, moveNumber) {
     if (!liveStockfish || !fen) return;
     
+    // Cancel any queued analysis - live takes priority
+    isQueuedAnalysis = false;
     currentAnalysisFen = fen;
     lastMoveNumber = moveNumber || 0;
     bestMoveUci = '';
     
     // Send position and start analysis
+    liveStockfish.postMessage('stop');  // Stop any ongoing analysis
     liveStockfish.postMessage('position fen ' + fen);
     liveStockfish.postMessage('go depth 15');
   }
@@ -260,6 +356,8 @@
     // Detect new game (move number reset to 1 and we had moves before)
     if (moveNum === 1 && lastMoveNumber > 1) {
       resetEvalHistory();
+      hasReplayedCurrentGame = false;
+      lastSeenPgn = '';
     }
     
     let statusText = '';
@@ -280,7 +378,13 @@
       </div>
     `;
     
-    // Trigger analysis on new position
+    // On first connect with an existing game, replay the PGN to populate history
+    if (state.pgn && !hasReplayedCurrentGame && moveNum > 1) {
+      hasReplayedCurrentGame = true;
+      replayPgnForAnalysis(state.pgn);
+    }
+    
+    // Trigger analysis on new position (live move)
     if (state.fen && state.fen !== currentAnalysisFen && !gameOver) {
       analyzePosition(state.fen, moveNum);
     }
