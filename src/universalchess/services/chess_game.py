@@ -192,10 +192,18 @@ class ChessGameService:
         then updates the PGN tree accordingly:
         - Move added: Add variation to current node
         - Takeback: Navigate to parent node
-        - Position reset: Handled by new_game() which resets tree
+        - Reset to 0 moves: Create fresh PGN tree (new game)
         """
         move_stack = self._state.move_stack
         current_move_count = len(move_stack)
+        
+        # New game detection: went from having moves to having none
+        if current_move_count == 0 and self._last_move_count > 0:
+            log.debug("[ChessGameService] Move count went to 0, starting fresh PGN")
+            self._pgn_game = chess.pgn.Game()
+            self._pgn_node = self._pgn_game
+            self._last_move_count = 0
+            return
         
         if current_move_count > self._last_move_count:
             # Move(s) added - add to PGN tree
