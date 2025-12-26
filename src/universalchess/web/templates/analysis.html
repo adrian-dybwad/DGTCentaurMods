@@ -76,29 +76,67 @@
 
       background-color: black;
     }
+    
+    /* Responsive analysis layout */
+    .analysis-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+    
+    .analysis-board {
+        flex: 1 1 400px;
+        min-width: 300px;
+    }
+    
+    .analysis-sidebar {
+        flex: 1 1 300px;
+        min-width: 280px;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+    
+    .analysis-moves {
+        max-height: 300px;
+        overflow-y: auto;
+    }
+    
+    .analysis-pgn textarea {
+        width: 100%;
+        min-height: 200px;
+    }
+    
+    @media (max-width: 768px) {
+        .analysis-board, .analysis-sidebar {
+            flex: 1 1 100%;
+        }
+    }
 </style>
 
-<div style="width:100%">
-    {% include 'chessboard_component.html' %}
-    <script type=text/javascript src="{{ url_for('static', filename='js/chess.js') }}"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@2.9.4/dist/Chart.min.js"></script>
-    <div style="padding-top:10px;margin-left:12px; margin-bottom: -25px;">
-        <canvas id="chart-game"></canvas>
+<div class="analysis-container">
+    <div class="analysis-board">
+        {% include 'chessboard_component.html' %}
+        <script type=text/javascript src="{{ url_for('static', filename='js/chess.js') }}"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js@2.9.4/dist/Chart.min.js"></script>
+        <div style="padding-top:10px; margin-bottom: -25px;">
+            <canvas id="chart-game"></canvas>
+        </div>
+        <nav class="pagination" role="navigation" aria-label="pagination" style="margin-top:10px;display:none;" id="pgnnav">
+            <progress id="analysisbar" class="progress is-large" value="15" max="100">15%</progress>
+            <a class="pagination-link" onClick="showPGNFirstMove()">&lt;&lt;</a>
+            <a class="pagination-link" onClick="showPGNPreviousMove()">&lt;</a>
+            <a class="pagination-link" onClick="showPGNNextMove()">&gt;</a>
+            <a class="pagination-link" onClick="showPGNLastMove()">&gt;&gt;</a>
+        </nav>
     </div>
-    <nav class="pagination" role="navigation" aria-label="pagination" style="margin-top:10px;display:none;" id="pgnnav">
-        <progress id="analysisbar" class="progress is-large" value="15" max="100" style="margin-left:13px;">15%</progress>
-          <a class="pagination-link" onClick="showPGNFirstMove()">&lt;&lt;</a>
-          <a class="pagination-link" onClick="showPGNPreviousMove()">&lt;</a>
-          <a class="pagination-link" onClick="showPGNNextMove()">&gt;</a>
-          <a class="pagination-link" onClick="showPGNLastMove()">&gt;&gt;</a>
-    </nav>
-</div>
-
-<div style="display: flex; gap: 1rem; margin-top: 10px;">
-  <div id="moveholder" style="flex: 1; max-height: 300px; overflow-y: auto;"></div>
-  <div id="pgndiv" style="flex: 1;">
-    <textarea id="gamepgn" class="textarea" placeholder="" rows="12"></textarea>
-  </div>
+    
+    <div class="analysis-sidebar">
+        <div id="moveholder" class="analysis-moves"></div>
+        <div class="analysis-pgn">
+            <textarea id="gamepgn" class="textarea" placeholder="" rows="12"></textarea>
+        </div>
+    </div>
 </div>
 
 <script>
