@@ -248,11 +248,11 @@ def handle_engine_manager_menu(
             # Create a short teaser from the full description (first ~60 chars)
             teaser = description[:60] + "..." if len(description) > 60 else description
 
-            # Label includes name, summary, and install time
+            # Label: name (+ install time) on first line, summary on second line
             if installed:
-                label = f"{engine['display_name']} - {summary}"
+                label = f"{engine['display_name']}\n{summary}"
             else:
-                label = f"{engine['display_name']} (~{est_minutes}m) - {summary}"
+                label = f"{engine['display_name']} (~{est_minutes}m)\n{summary}"
 
             entries.append(
                 IconMenuEntry(
