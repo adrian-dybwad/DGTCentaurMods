@@ -379,37 +379,45 @@
 
     function loadAnalysisPGN() {
         $('connection').remove();
-        var xmlhttp;
-        xmlhttp = new XMLHttpRequest();
+        var xmlhttp = new XMLHttpRequest();
         xmlhttp.onreadystatechange = function(){
-            if (xmlhttp.readyState == 4 && xmlhttp.status == 200){
-                gamepgn.value = xmlhttp.responseText;
-                chess.load_pgn(xmlhttp.responseText);
-                console.log(chess.ascii());
-                moves = chess.history();
-                movescores = [];
-                for (p = 0; p < moves.length; p++) {
-                    movescores.push(-1);
+            if (xmlhttp.readyState == 4) {
+                if (xmlhttp.status == 200 && xmlhttp.responseText) {
+                    var pgnTextarea = document.getElementById("gamepgn");
+                    pgnTextarea.value = xmlhttp.responseText;
+                    
+                    // Try to load PGN into chess.js
+                    var loaded = chess.load_pgn(xmlhttp.responseText);
+                    if (!loaded) {
+                        console.error("Failed to parse PGN:", xmlhttp.responseText);
+                        pgnTextarea.value = "Error: Could not parse PGN\n\n" + xmlhttp.responseText;
+                        return;
+                    }
+                    
+                    console.log(chess.ascii());
+                    moves = chess.history();
+                    movescores = [];
+                    for (var p = 0; p < moves.length; p++) {
+                        movescores.push(-1);
+                    }
+                    movepos = 0;
+                    chess.reset();
+                    document.getElementById("pgnnav").style.display = 'block';
+                    buildMovesTable();
+                    queryStockfish();
+                } else {
+                    console.error("Failed to load PGN, status:", xmlhttp.status);
+                    document.getElementById("gamepgn").value = "Error: Could not load game (status " + xmlhttp.status + ")";
                 }
-                movepos = 0;
-                chess.reset();
-                document.getElementById("pgnnav").style.display='block';
-                buildMovesTable();
-                queryStockfish()
             }
-        }
+        };
         xmlhttp.open("GET", "/getpgn/" + gameid, true);
         xmlhttp.send();
     }
 
     window.onload = function () {
-        hideLastPGN();
-        hideLastGames();
-        if (document.getElementById("maincolumn").offsetWidth < 660) {
-            sizeBoard(document.getElementById("maincolumn").offsetWidth - 80);
-        }
         loadAnalysisPGN();
-        queryStockfishDeep()
+        queryStockfishDeep();
     }
 </script>
 

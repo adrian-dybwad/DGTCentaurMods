@@ -29,17 +29,22 @@
     
     function showPGN(gameid) {
         var pgnDiv = document.getElementById("gamepgn-" + gameid);
-        if (pgnDiv.innerHTML.trim() !== '') {
+        
+        // If already loaded, toggle visibility
+        if (pgnDiv.dataset.loaded === 'true') {
             pgnDiv.style.display = pgnDiv.style.display === 'none' ? 'block' : 'none';
             return;
         }
         
+        // First time - load and show
         pgnDiv.innerHTML = '<span style="color: var(--color-text-muted);">Loading...</span>';
+        pgnDiv.style.display = 'block';
         
         fetch('/getpgn/' + gameid)
             .then(response => response.text())
             .then(pgn => {
                 pgnDiv.innerHTML = '<pre style="background: var(--color-bg-secondary); padding: 1rem; border-radius: 0.5rem; font-size: 0.85rem; max-height: 300px; overflow: auto; white-space: pre-wrap;">' + pgn + '</pre>';
+                pgnDiv.dataset.loaded = 'true';
             });
     }
     
