@@ -865,7 +865,6 @@
     document.getElementById('applySettingsBar').classList.remove('show');
   }
   
-  {% if centaur_software_installed %}
   function switchToOriginalCentaur() {
     if (!confirm('Switch to the original Centaur software? Universal Chess will stop running.')) {
       return;
@@ -874,7 +873,6 @@
       showNotification('Switching to original Centaur...', 'info');
     });
   }
-  {% endif %}
   
   function showNotification(message, type) {
     // Simple notification - could be enhanced with toast library

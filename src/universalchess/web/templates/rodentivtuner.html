@@ -1,1265 +1,816 @@
-﻿{% extends "base-three-column.html" %}
-
+﻿{% extends "base.html" %}
 
 {% block mainpage %}
-<script>
 
-  function setAttacker() {
-
-    var add = 25;
-
-    document.getElementById("OwnAttack").value = 100 + add;
-    document.getElementById("OppAttack").value = 100;
-    document.getElementById("OwnMobility").value = 50 + add;
-    document.getElementById("OppMobility").value = 50;
-  }
-
-  function setDefender() {
-
-    var add = 25;
-
-    document.getElementById("OwnAttack").value = 100;
-    document.getElementById("OppAttack").value = 100 + add;
-    document.getElementById("OwnMobility").value = 50;
-    document.getElementById("OppMobility").value = 50 + add;
-  }
-
-  function setConstrictor() {
-
-    var add = 25;
-
-    document.getElementById("OwnAttack").value = 100 + add;
-    document.getElementById("OppAttack").value = 100;
-    document.getElementById("OwnMobility").value = 50;
-    document.getElementById("OppMobility").value = 50 + add;
-  }
-
-  function setEscapist() {
-
-    var add = 25;
-
-    document.getElementById("OwnAttack").value = 100;
-    document.getElementById("OppAttack").value = 100 + add;
-    document.getElementById("OwnMobility").value = 50 + add;
-    document.getElementById("OppMobility").value = 50;
-  }
-
-  function setDefault() {
-    document.getElementById("CharacterName").value = "RodenIVTuner";
-    document.getElementById("Author").value = "RodenIVTuner";
-    document.getElementById("Converter").value = "RodenIVTuner";
-    document.getElementById("Description").value = "agressive Pawn mover";
-    document.getElementById("UCI_LimitStrength").value = "false";
-    document.getElementById("UCI_Elo").value = 2800;
-    document.getElementById("PawnValueMg").value = 90;
-    document.getElementById("PawnValueEg").value = 110;
-    document.getElementById("KnightValueMg").value = 380;
-    document.getElementById("KnightValueEg").value = 360;
-    document.getElementById("BishopValueMg").value = 390;
-    document.getElementById("BishopValueEg").value = 370;
-    document.getElementById("RookValueMg").value = 530;
-    document.getElementById("RookValueEg").value = 650;
-    document.getElementById("QueenValueMg").value = 1160;
-    document.getElementById("QueenValueEg").value = 1190;
-    document.getElementById("BishopPairMg").value = 51;
-    document.getElementById("BishopPairEg").value = 51;
-    document.getElementById("KnightPair").value = -1;
-    document.getElementById("RookPair").value = -11;
-    document.getElementById("KnightLikesClosed").value = 6;
-    document.getElementById("RookLikesOpen").value = 0;
-    document.getElementById("ExchangeImbalance").value = 10;
-    document.getElementById("MinorVsQueen").value = 10;
-    document.getElementById("KeepPawn").value = 0;
-    document.getElementById("KeepKnight").value = 0;
-    document.getElementById("KeepBishop").value = 0;
-    document.getElementById("KeepRook").value = 0;
-    document.getElementById("KeepQueen").value = 0;
-    document.getElementById("OwnAttack").value = 100;
-    document.getElementById("OppAttack").value = 100;
-    document.getElementById("KingTropism").value = 20;
-    document.getElementById("PawnShield").value = 119;
-    document.getElementById("PawnStorm").value = 99;
-    document.getElementById("Material").value = 100;
-    document.getElementById("OwnMobility").value = 50;
-    document.getElementById("OppMobility").value = 50;
-    document.getElementById("FlatMobility").value = 50;
-    document.getElementById("PrimaryPstWeight").value = 58;
-    document.getElementById("SecondaryPstWeight").value = 40;
-    document.getElementById("PiecePressure").value = 109;
-    document.getElementById("Lines").value = 100;
-    document.getElementById("Outposts").value = 78;
-    document.getElementById("Space").value = 0;
-    document.getElementById("PassedPawns").value = 100;
-    document.getElementById("PawnStructure").value = 100;
-    document.getElementById("PawnMass").value = 100;
-    document.getElementById("PawnChains").value = 100;
-    document.getElementById("DoubledPawnMg").value = -8;
-    document.getElementById("DoubledPawnEg").value = -21;
-    document.getElementById("IsolatedPawnMg").value = -7;
-    document.getElementById("IsolatedPawnEg").value = -7;
-    document.getElementById("IsolatedOnOpenMg").value = -13;
-    document.getElementById("BackwardPawnMg").value = -2;
-    document.getElementById("BackwardPawnEg").value = -1;
-    document.getElementById("BackwardOnOpenMg").value = -10;
-    document.getElementById("FianchBase").value = 13;
-    document.getElementById("FianchKing").value = 20;
-    document.getElementById("ReturningB").value = 10;
-    document.getElementById("PrimaryPstStyle").value = "quirky";
-    document.getElementById("SecondaryPstStyle").value = "classic";
-    document.getElementById("Contempt").value = 0;
-    document.getElementById("SlowMover").value = 100;
-    document.getElementById("Selectivity").value = 175;
-    document.getElementById("SearchSkill").value = 10;
-    document.getElementById("BookFilter").value = 20;
-
-  }
-
-  function setAmpere() {
-    document.getElementById("CharacterName").value = "AmpereRT";
-    document.getElementById("Author").value = "RodenIVTuner";
-    document.getElementById("Converter").value = "RodenIVTuner";
-    document.getElementById("Description").value = "attacker that cares for pawn structure";
-    document.getElementById("UCI_LimitStrength").value = "false";
-    document.getElementById("UCI_Elo").value = 2800;
-    document.getElementById("PawnValueMg").value = 90;
-    document.getElementById("PawnValueEg").value = 110;
-    document.getElementById("KnightValueMg").value = 380;
-    document.getElementById("KnightValueEg").value = 360;
-    document.getElementById("BishopValueMg").value = 390;
-    document.getElementById("BishopValueEg").value = 370;
-    document.getElementById("RookValueMg").value = 530;
-    document.getElementById("RookValueEg").value = 650;
-    document.getElementById("QueenValueMg").value = 1160;
-    document.getElementById("QueenValueEg").value = 1190;
-    document.getElementById("BishopPairMg").value = 51;
-    document.getElementById("BishopPairEg").value = 51;
-    document.getElementById("KnightPair").value = -1;
-    document.getElementById("RookPair").value = -11;
-    document.getElementById("KnightLikesClosed").value = 6;
-    document.getElementById("RookLikesOpen").value = 0;
-    document.getElementById("ExchangeImbalance").value = 10;
-    document.getElementById("MinorVsQueen").value = 10;
-    document.getElementById("KeepPawn").value = 0;
-    document.getElementById("KeepKnight").value = 0;
-    document.getElementById("KeepBishop").value = 0;
-    document.getElementById("KeepRook").value = 0;
-    document.getElementById("KeepQueen").value = 0;
-    document.getElementById("OwnAttack").value = 160;
-    document.getElementById("OppAttack").value = 100;
-    document.getElementById("KingTropism").value = 20;
-    document.getElementById("PawnShield").value = 119;
-    document.getElementById("PawnStorm").value = 99;
-
-    document.getElementById("Material").value = 100;
-    document.getElementById("OwnMobility").value = 100;
-    document.getElementById("OppMobility").value = 70;
-    document.getElementById("FlatMobility").value = 25;
-    document.getElementById("PrimaryPstWeight").value = 58;
-    document.getElementById("SecondaryPstWeight").value = 40;
-    document.getElementById("PiecePressure").value = 109;
-    document.getElementById("Lines").value = 100;
-    document.getElementById("Outposts").value = 78;
-    document.getElementById("Space").value = 100;
-    document.getElementById("PassedPawns").value = 125;
-    document.getElementById("PawnStructure").value = 150;
-    document.getElementById("PawnMass").value = 100;
-    document.getElementById("PawnChains").value = 100;
-    document.getElementById("blockedcpawn").value = -17;
-    document.getElementById("DoubledPawnMg").value = -10;
-    document.getElementById("DoubledPawnEg").value = -21;
-    document.getElementById("IsolatedPawnMg").value = -7;
-    document.getElementById("IsolatedPawnEg").value = -7;
-    document.getElementById("IsolatedOnOpenMg").value = -13;
-    document.getElementById("BackwardPawnMg").value = -4;
-    document.getElementById("BackwardPawnEg").value = -3;
-    document.getElementById("BackwardOnOpenMg").value = -9;
-    document.getElementById("FianchBase").value = 13;
-    document.getElementById("FianchKing").value = 20;
-    document.getElementById("ReturningB").value = 10;
-    document.getElementById("PrimaryPstStyle").value = "normal";
-    document.getElementById("SecondaryPstStyle").value = "normal";
-    document.getElementById("Contempt").value = 0;
-    document.getElementById("SlowMover").value = 100;
-    document.getElementById("Selectivity").value = 175;
-    document.getElementById("SearchSkill").value = 10;
-    document.getElementById("BookFilter").value = 20;
-    document.getElementById("GuideBookFile").value = "guide/active.bin"
-    document.getElementById("MainBookFile").value = "rodent.bin"
-  }
-
-  function setCloe() {
-    document.getElementById("CharacterName").value = "CloeRT";
-    document.getElementById("Author").value = "RodenIVTuner";
-    document.getElementById("Converter").value = "RodenIVTuner";
-    document.getElementById("Description").value = "Cloe likes closed positions";
-    document.getElementById("UCI_LimitStrength").value = "false";
-    document.getElementById("UCI_Elo").value = 2800;
-    document.getElementById("PawnValueMg").value = 90;
-    document.getElementById("PawnValueEg").value = 110;
-    document.getElementById("KnightValueMg").value = 380;
-    document.getElementById("KnightValueEg").value = 360;
-    document.getElementById("BishopValueMg").value = 390;
-    document.getElementById("BishopValueEg").value = 370;
-    document.getElementById("RookValueMg").value = 530;
-    document.getElementById("RookValueEg").value = 650;
-    document.getElementById("QueenValueMg").value = 1160;
-    document.getElementById("QueenValueEg").value = 1190;
-    document.getElementById("BishopPairMg").value = 51;
-    document.getElementById("BishopPairEg").value = 51;
-    document.getElementById("KnightPair").value = -1;
-    document.getElementById("RookPair").value = -11;
-    document.getElementById("KnightLikesClosed").value = 7;
-    document.getElementById("RookLikesOpen").value = 0;
-    document.getElementById("ExchangeImbalance").value = 10;
-    document.getElementById("MinorVsQueen").value = 10;
-    document.getElementById("KeepPawn").value = 1;
-    document.getElementById("KeepKnight").value = 0;
-    document.getElementById("KeepBishop").value = 0;
-    document.getElementById("KeepRook").value = 0;
-    document.getElementById("KeepQueen").value = 0;
-    document.getElementById("OwnAttack").value = 100;
-    document.getElementById("OppAttack").value = 100;
-    document.getElementById("KingTropism").value = 20;
-    document.getElementById("PawnShield").value = 150;
-    document.getElementById("PawnStorm").value = 120;
-    document.getElementById("Material").value = 100;
-    document.getElementById("OwnMobility").value = 50;
-    document.getElementById("OppMobility").value = 60;
-    document.getElementById("FlatMobility").value = 50;
-    document.getElementById("PrimaryPstWeight").value = 58;
-    document.getElementById("SecondaryPstWeight").value = 40;
-    document.getElementById("PiecePressure").value = 109;
-    document.getElementById("Lines").value = 120;
-    document.getElementById("Outposts").value = 90;
-    document.getElementById("Space").value = 100;
-    document.getElementById("PassedPawns").value = 100;
-    document.getElementById("PawnStructure").value = 100;
-    document.getElementById("PawnMass").value = 150;
-    document.getElementById("PawnChains").value = 150;
-    document.getElementById("blockedcpawn").value = -17;
-    document.getElementById("DoubledPawnMg").value = -8;
-    document.getElementById("DoubledPawnEg").value = -21;
-    document.getElementById("IsolatedPawnMg").value = -7;
-    document.getElementById("IsolatedPawnEg").value = -7;
-    document.getElementById("IsolatedOnOpenMg").value = -13;
-    document.getElementById("BackwardPawnMg").value = -2;
-    document.getElementById("BackwardPawnEg").value = -1;
-    document.getElementById("BackwardOnOpenMg").value = -10;
-    document.getElementById("FianchBase").value = 13;
-    document.getElementById("FianchKing").value = 20;
-    document.getElementById("ReturningB").value = 10;
-    document.getElementById("PrimaryPstStyle").value = "normal";
-    document.getElementById("SecondaryPstStyle").value = "classic";
-    document.getElementById("Contempt").value = 0;
-    document.getElementById("SlowMover").value = 100;
-    document.getElementById("Selectivity").value = 175;
-    document.getElementById("SearchSkill").value = 10;
-    document.getElementById("BookFilter").value = 20;
-    document.getElementById("GuideBookFile").value = "guide/closed.bin";
-    document.getElementById("MainBookFile").value = "rodent.bin";
-  }
-
-  function setDeborah() {
-    document.getElementById("CharacterName").value = "DeborahRT";
-    document.getElementById("Author").value = "RodenIVTuner";
-    document.getElementById("Converter").value = "RodenIVTuner";
-    document.getElementById("Description").value = "defensive player who likes bishops";
-    document.getElementById("UCI_LimitStrength").value = "false";
-    document.getElementById("UCI_Elo").value = 2800;
-    document.getElementById("PawnValueMg").value = 90;
-    document.getElementById("PawnValueEg").value = 110;
-    document.getElementById("KnightValueMg").value = 380;
-    document.getElementById("KnightValueEg").value = 360;
-    document.getElementById("BishopValueMg").value = 400;
-    document.getElementById("BishopValueEg").value = 380;
-    document.getElementById("RookValueMg").value = 530;
-    document.getElementById("RookValueEg").value = 650;
-    document.getElementById("QueenValueMg").value = 1160;
-    document.getElementById("QueenValueEg").value = 1190;
-    document.getElementById("BishopPairMg").value = 51;
-    document.getElementById("BishopPairEg").value = 51;
-    document.getElementById("KnightPair").value = -1;
-    document.getElementById("RookPair").value = -11;
-    document.getElementById("KnightLikesClosed").value = 5;
-    document.getElementById("RookLikesOpen").value = 3;
-    document.getElementById("ExchangeImbalance").value = 10;
-    document.getElementById("MinorVsQueen").value = 10;
-
-    document.getElementById("KeepPawn").value = 0;
-    document.getElementById("KeepKnight").value = 0;
-    document.getElementById("KeepBishop").value = 0;
-    document.getElementById("KeepRook").value = 0;
-    document.getElementById("KeepQueen").value = 0;
-    document.getElementById("OwnAttack").value = 85;
-    document.getElementById("OppAttack").value = 115;
-    document.getElementById("KingTropism").value = 20;
-    document.getElementById("PawnShield").value = 119;
-    document.getElementById("PawnStorm").value = 99;
-
-    document.getElementById("Material").value = 100;
-    document.getElementById("OwnMobility").value = 50;
-    document.getElementById("OppMobility").value = 50;
-    document.getElementById("FlatMobility").value = 50;
-    document.getElementById("PrimaryPstWeight").value = 58;
-    document.getElementById("SecondaryPstWeight").value = 40;
-    document.getElementById("PiecePressure").value = 125;
-    document.getElementById("Lines").value = 100;
-    document.getElementById("Outposts").value = 78;
-    document.getElementById("Space").value = 0;
-    document.getElementById("PassedPawns").value = 100;
-    document.getElementById("PawnStructure").value = 100;
-    document.getElementById("PawnMass").value = 100;
-    document.getElementById("PawnChains").value = 100;
-    document.getElementById("blockedcpawn").value = -17;
-    document.getElementById("DoubledPawnMg").value = -8;
-    document.getElementById("DoubledPawnEg").value = -21;
-    document.getElementById("IsolatedPawnMg").value = -7;
-    document.getElementById("IsolatedPawnEg").value = -7;
-    document.getElementById("IsolatedOnOpenMg").value = -13;
-    document.getElementById("BackwardPawnMg").value = -2;
-    document.getElementById("BackwardPawnEg").value = -1;
-    document.getElementById("BackwardOnOpenMg").value = -10;
-    document.getElementById("FianchBase").value = 13;
-    document.getElementById("FianchKing").value = 20;
-    document.getElementById("ReturningB").value = 10;
-    document.getElementById("PrimaryPstStyle").value = "classic";
-    document.getElementById("SecondaryPstStyle").value = "quirky";
-    document.getElementById("Contempt").value = 0;
-    document.getElementById("SlowMover").value = 100;
-    document.getElementById("Selectivity").value = 175;
-    document.getElementById("SearchSkill").value = 10;
-    document.getElementById("BookFilter").value = 20;
-    document.getElementById("GuideBookFile").value = "guide.bin";
-    document.getElementById("MainBookFile").value = "rodent.bin";
-  }
-
-  function setGrumpy() {
-    document.getElementById("CharacterName").value = "GrumpyRT";
-    document.getElementById("Author").value = "by Pawel Koziol";
-    document.getElementById("Converter").value = "RodenIVTuner";
-    document.getElementById("Description").value = "attack, restraint, contempt, likes blocked positions";
-    document.getElementById("UCI_LimitStrength").value = "false";
-    document.getElementById("UCI_Elo").value = 2800;
-    document.getElementById("PawnValueMg").value = 90;
-    document.getElementById("PawnValueEg").value = 110;
-    document.getElementById("KnightValueMg").value = 385;
-    document.getElementById("KnightValueEg").value = 365;
-    document.getElementById("BishopValueMg").value = 390;
-    document.getElementById("BishopValueEg").value = 370;
-    document.getElementById("RookValueMg").value = 530;
-    document.getElementById("RookValueEg").value = 650;
-    document.getElementById("QueenValueMg").value = 1160;
-    document.getElementById("QueenValueEg").value = 1190;
-    document.getElementById("BishopPairMg").value = 41;
-    document.getElementById("BishopPairEg").value = 51;
-    document.getElementById("KnightPair").value = -1;
-    document.getElementById("RookPair").value = -11;
-    document.getElementById("KnightLikesClosed").value = 8;
-    document.getElementById("RookLikesOpen").value = 0;
-    document.getElementById("ExchangeImbalance").value = 10;
-    document.getElementById("MinorVsQueen").value = 10;
-    document.getElementById("KeepPawn").value = 1;
-    document.getElementById("KeepKnight").value = 0;
-    document.getElementById("KeepBishop").value = 0;
-    document.getElementById("KeepRook").value = 0;
-    document.getElementById("KeepQueen").value = 0;
-    document.getElementById("OwnAttack").value = 120;
-    document.getElementById("OppAttack").value = 100;
-    document.getElementById("KingTropism").value = 20;
-    document.getElementById("PawnShield").value = 119;
-    document.getElementById("PawnStorm").value = 99;
-    document.getElementById("Material").value = 100;
-    document.getElementById("OwnMobility").value = 50;
-    document.getElementById("OppMobility").value = 70;
-    document.getElementById("FlatMobility").value = 50;
-    document.getElementById("PrimaryPstWeight").value = 58;
-    document.getElementById("SecondaryPstWeight").value = 40;
-    document.getElementById("PiecePressure").value = 109;
-    document.getElementById("Lines").value = 100;
-    document.getElementById("Outposts").value = 78;
-    document.getElementById("Space").value = 100;
-    document.getElementById("PassedPawns").value = 100;
-    document.getElementById("PawnStructure").value = 100;
-    document.getElementById("PawnMass").value = 100;
-    document.getElementById("PawnChains").value = 100;
-    document.getElementById("blockedcpawn").value = -17;
-    document.getElementById("DoubledPawnMg").value = -8;
-    document.getElementById("DoubledPawnEg").value = -21;
-    document.getElementById("IsolatedPawnMg").value = -7;
-    document.getElementById("IsolatedPawnEg").value = -7;
-    document.getElementById("IsolatedOnOpenMg").value = -13;
-    document.getElementById("BackwardPawnMg").value = -2;
-    document.getElementById("BackwardPawnEg").value = -1;
-    document.getElementById("BackwardOnOpenMg").value = -10;
-    document.getElementById("FianchBase").value = 13;
-    document.getElementById("FianchKing").value = 20;
-    document.getElementById("ReturningB").value = 10;
-    document.getElementById("PrimaryPstStyle").value = "quirky";
-    document.getElementById("SecondaryPstStyle").value = "classic";
-    document.getElementById("Contempt").value = 0;
-    document.getElementById("SlowMover").value = 100;
-    document.getElementById("Selectivity").value = 175;
-    document.getElementById("SearchSkill").value = 10;
-    document.getElementById("BookFilter").value = 20;
-    document.getElementById("GuideBookFile").value = "guide/grandpa.bin";
-    document.getElementById("MainBookFile").value = "rodent.bin";
-  }
-
-  function setStrangler() {
-    document.getElementById("CharacterName").value = "StranglerRT";
-    document.getElementById("Author").value = "adapted from Brendan J. Norman personality for Rodent III";
-    document.getElementById("Converter").value = "";
-    document.getElementById("Description").value = "";
-    document.getElementById("UCI_LimitStrength").value = "false";
-    document.getElementById("UCI_Elo").value = 2800;
-    document.getElementById("PawnValueMg").value = 90;
-    document.getElementById("PawnValueEg").value = 110;
-    document.getElementById("KnightValueMg").value = 380;
-    document.getElementById("KnightValueEg").value = 360;
-    document.getElementById("BishopValueMg").value = 390;
-    document.getElementById("BishopValueEg").value = 370;
-    document.getElementById("RookValueMg").value = 500;
-    document.getElementById("RookValueEg").value = 620;
-    document.getElementById("QueenValueMg").value = 1160;
-    document.getElementById("QueenValueEg").value = 1190;
-    document.getElementById("BishopPairMg").value = 51;
-    document.getElementById("BishopPairEg").value = 51;
-    document.getElementById("KnightPair").value = -1;
-    document.getElementById("RookPair").value = -11;
-    document.getElementById("KnightLikesClosed").value = 8;
-    document.getElementById("RookLikesOpen").value = 0;
-    document.getElementById("ExchangeImbalance").value = 10;
-    document.getElementById("MinorVsQueen").value = 10;
-    document.getElementById("KeepPawn").value = 0;
-    document.getElementById("KeepKnight").value = 4;
-    document.getElementById("KeepBishop").value = 0;
-    document.getElementById("KeepRook").value = 0;
-    document.getElementById("KeepQueen").value = 5;
-    document.getElementById("OwnAttack").value = 300;
-    document.getElementById("OppAttack").value = 100;
-    document.getElementById("KingTropism").value = 35;
-    document.getElementById("PawnShield").value = 120;
-    document.getElementById("PawnStorm").value = 99;
-    document.getElementById("Material").value = 90;
-    document.getElementById("OwnMobility").value = 50;
-    document.getElementById("OppMobility").value = 150;
-    document.getElementById("FlatMobility").value = 50;
-    document.getElementById("PrimaryPstWeight").value = 58;
-    document.getElementById("SecondaryPstWeight").value = 40;
-    document.getElementById("PiecePressure").value = 125;
-    document.getElementById("Lines").value = 100;
-    document.getElementById("Outposts").value = 125;
-    document.getElementById("Space").value = 100;
-    document.getElementById("PassedPawns").value = 100;
-    document.getElementById("PawnStructure").value = 100;
-    document.getElementById("PawnMass").value = 100;
-    document.getElementById("PawnChains").value = 100;
-    document.getElementById("blockedcpawn").value = -17;
-    document.getElementById("DoubledPawnMg").value = -12;
-    document.getElementById("DoubledPawnEg").value = -24;
-    document.getElementById("IsolatedPawnMg").value = -10;
-    document.getElementById("IsolatedPawnEg").value = -10;
-    document.getElementById("IsolatedOnOpenMg").value = -10;
-    document.getElementById("BackwardPawnMg").value = -8;
-    document.getElementById("BackwardPawnEg").value = -10;
-    document.getElementById("BackwardOnOpenMg").value = -8;
-    document.getElementById("FianchBase").value = 13;
-    document.getElementById("FianchKing").value = 20;
-    document.getElementById("ReturningB").value = 10;
-    document.getElementById("PrimaryPstStyle").value = "quirky";
-    document.getElementById("SecondaryPstStyle").value = "classic";
-    document.getElementById("Contempt").value = 5;
-    document.getElementById("SlowMover").value = 100;
-    document.getElementById("Selectivity").value = 175;
-    document.getElementById("SearchSkill").value = 10;
-    document.getElementById("BookFilter").value = 20;
-    document.getElementById("GuideBookFile").value = "guide/strangler.bin";
-    document.getElementById("MainBookFile").value = "rodent.bin";
-  }
-
-  function setSwapper() {
-    document.getElementById("CharacterName").value = "SwapperRT";
-    document.getElementById("Author").value = "";
-    document.getElementById("Converter").value = "";
-    document.getElementById("Description").value = "likes exchanging pieces, tends to go for a draw";
-    document.getElementById("UCI_LimitStrength").value = "false";
-    document.getElementById("UCI_Elo").value = 2800;
-    document.getElementById("PawnValueMg").value = 90;
-    document.getElementById("PawnValueEg").value = 110;
-    document.getElementById("KnightValueMg").value = 380;
-    document.getElementById("KnightValueEg").value = 360;
-    document.getElementById("BishopValueMg").value = 390;
-    document.getElementById("BishopValueEg").value = 370;
-    document.getElementById("RookValueMg").value = 530;
-    document.getElementById("RookValueEg").value = 650;
-    document.getElementById("QueenValueMg").value = 1160;
-    document.getElementById("QueenValueEg").value = 1190;
-    document.getElementById("BishopPairMg").value = 51;
-    document.getElementById("BishopPairEg").value = 51;
-    document.getElementById("KnightPair").value = -1;
-    document.getElementById("RookPair").value = -11;
-    document.getElementById("KnightLikesClosed").value = 6;
-    document.getElementById("RookLikesOpen").value = 0;
-    document.getElementById("ExchangeImbalance").value = 10;
-    document.getElementById("MinorVsQueen").value = 10;
-    document.getElementById("KeepPawn").value = 0;
-    document.getElementById("KeepKnight").value = 0;
-    document.getElementById("KeepBishop").value = 0;
-    document.getElementById("KeepRook").value = 0;
-    document.getElementById("KeepQueen").value = 0;
-    document.getElementById("OwnAttack").value = 100;
-    document.getElementById("OppAttack").value = 100;
-    document.getElementById("KingTropism").value = 20;
-    document.getElementById("PawnShield").value = 119;
-    document.getElementById("PawnStorm").value = 99;
-    document.getElementById("Material").value = 100;
-    document.getElementById("OwnMobility").value = 50;
-    document.getElementById("OppMobility").value = 50;
-    document.getElementById("FlatMobility").value = 50;
-    document.getElementById("PrimaryPstWeight").value = 58;
-    document.getElementById("SecondaryPstWeight").value = 40;
-    document.getElementById("PiecePressure").value = 109;
-    document.getElementById("Lines").value = 100;
-    document.getElementById("Outposts").value = 78;
-    document.getElementById("Space").value = 0;
-    document.getElementById("PassedPawns").value = 100;
-    document.getElementById("PawnStructure").value = 120;
-    document.getElementById("PawnMass").value = 100;
-    document.getElementById("PawnChains").value = 100;
-    document.getElementById("DoubledPawnMg").value = -8;
-    document.getElementById("DoubledPawnEg").value = -21;
-    document.getElementById("IsolatedPawnMg").value = -7;
-    document.getElementById("IsolatedPawnEg").value = -7;
-    document.getElementById("IsolatedOnOpenMg").value = -13;
-    document.getElementById("BackwardPawnMg").value = -2;
-    document.getElementById("BackwardPawnEg").value = -1;
-    document.getElementById("BackwardOnOpenMg").value = -10;
-    document.getElementById("FianchBase").value = 13;
-    document.getElementById("FianchKing").value = 20;
-    document.getElementById("ReturningB").value = 10;
-    document.getElementById("PrimaryPstStyle").value = "quirky";
-    document.getElementById("SecondaryPstStyle").value = "classic";
-    document.getElementById("Contempt").value = -20;
-    document.getElementById("SlowMover").value = 100;
-    document.getElementById("Selectivity").value = 175;
-    document.getElementById("SearchSkill").value = 10;
-    document.getElementById("BookFilter").value = 20;
-    document.getElementById("GuideBookFile").value = "guide.bin";
-    document.getElementById("MainBookFile").value = "rodent.bin";
-
-  }
-
-  function download(filename, text) {
-    var element = document.createElement('a');
-    element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text));
-    element.setAttribute('download', filename);
-
-    element.style.display = 'none';
-    document.body.appendChild(element);
-
-    element.click();
-
-    document.body.removeChild(element);
-  }
-
-
-  function inputToOption(name) {
-    var el = document.getElementById(name);
-    var val = el.value;
-    return "setoption name " + name + " value " + val;
-  }
-
-  function savePersonality() {
-    var out = '; Personality for Rodent IV chess engine\r\n';
-    out += '; \r\n';
-    out += '; Name = ' + CharacterName.value + '\r\n';
-    out += '; personality for Rodent IV chess engine\r\n';
-    out += '; author: ' + Author.value + '\r\n';
-    out += '; converted by: ' + Converter.value + '\r\n';
-    out += '; ' + Description.value + '\r\n';
-    out += ';\r\n';
-    out += inputToOption("UCI_LimitStrength") + '\r\n';
-    out += inputToOption("UCI_Elo") + '\r\n';
-    out += inputToOption("PawnValueMg") + '\r\n';
-    out += inputToOption("KnightValueMg") + '\r\n';
-    out += inputToOption("BishopValueMg") + '\r\n';
-    out += inputToOption("RookValueMg") + '\r\n';
-    out += inputToOption("QueenValueMg") + '\r\n';
-
-    out += inputToOption("PawnValueEg") + '\r\n';
-    out += inputToOption("KnightValueEg") + '\r\n';
-    out += inputToOption("BishopValueEg") + '\r\n';
-    out += inputToOption("RookValueEg") + '\r\n';
-    out += inputToOption("QueenValueEg") + '\r\n';
-
-    out += inputToOption("KeepPawn") + '\r\n';
-    out += inputToOption("KeepKnight") + '\r\n';
-    out += inputToOption("KeepBishop") + '\r\n';
-    out += inputToOption("KeepRook") + '\r\n';
-    out += inputToOption("KeepQueen") + '\r\n';
-
-    out += inputToOption("BishopPairMg") + '\r\n';
-    out += inputToOption("BishopPairEg") + '\r\n';
-    out += inputToOption("KnightPair") + '\r\n';
-    out += inputToOption("RookPair") + '\r\n';
-    out += inputToOption("KnightLikesClosed") + '\r\n';
-    out += inputToOption("RookLikesOpen") + '\r\n';
-
-
-    out += inputToOption("ExchangeImbalance") + '\r\n';
-    out += inputToOption("MinorVsQueen") + '\r\n';
-
-    out += inputToOption("Material") + '\r\n';
-    out += inputToOption("OwnAttack") + '\r\n';
-    out += inputToOption("OppAttack") + '\r\n';
-    out += inputToOption("OwnMobility") + '\r\n';
-    out += inputToOption("OppMobility") + '\r\n';
-    out += inputToOption("FlatMobility") + '\r\n';
-
-    out += inputToOption("KingTropism") + '\r\n';
-    out += inputToOption("PrimaryPstWeight") + '\r\n';
-    out += inputToOption("SecondaryPstWeight") + '\r\n';
-    out += inputToOption("PiecePressure") + '\r\n';
-    out += inputToOption("PassedPawns") + '\r\n';
-    out += inputToOption("PawnStructure") + '\r\n';
-
-    out += inputToOption("Lines") + '\r\n';
-    out += inputToOption("Outposts") + '\r\n';
-    out += inputToOption("Space") + '\r\n';
-    out += inputToOption("PawnShield") + '\r\n';
-    out += inputToOption("PawnStorm") + '\r\n';
-
-    out += inputToOption("DoubledPawnMg") + '\r\n';
-    out += inputToOption("DoubledPawnEg") + '\r\n';
-    out += inputToOption("IsolatedPawnMg") + '\r\n';
-    out += inputToOption("IsolatedPawnEg") + '\r\n';
-    out += inputToOption("IsolatedOnOpenMg") + '\r\n';
-    out += inputToOption("BackwardPawnMg") + '\r\n';
-    out += inputToOption("BackwardPawnEg") + '\r\n';
-    out += inputToOption("BackwardOnOpenMg") + '\r\n';
-    out += inputToOption("blockedcpawn") + '\r\n';
-    out += inputToOption("FianchBase") + '\r\n';
-    out += inputToOption("FianchKing") + '\r\n';
-    out += inputToOption("ReturningB") + '\r\n';
-
-    out += inputToOption("PawnMass") + '\r\n';
-    out += inputToOption("PawnChains") + '\r\n';
-
-    var pst_name = document.getElementById("PrimaryPstStyle").value;
-    if (pst_name == "quirky")
-      out += "setoption name PrimaryPstStyle value 0\r\n"
-    if (pst_name == "classic")
-      out += "setoption name PrimaryPstStyle value 1\r\n"
-    if (pst_name == "normal")
-      out += "setoption name PrimaryPstStyle value 2\r\n"
-    if (pst_name == "blunt")
-      out += "setoption name PrimaryPstStyle value 3\r\n"
-    if (pst_name == "forward")
-      out += "setoption name PrimaryPstStyle value 4\r\n"
-
-    var pst_name = document.getElementById("SecondaryPstStyle").value;
-    if (pst_name == "quirky")
-      out += "setoption name SecondaryPstStyle value 0\r\n"
-    if (pst_name == "classic")
-      out += "setoption name SecondaryPstStyle value 1\r\n"
-    if (pst_name == "normal")
-      out += "setoption name SecondaryPstStyle value 2\r\n"
-    if (pst_name == "blunt")
-      out += "setoption name SecondaryPstStyle value 3\r\n"
-    if (pst_name == "forward")
-      out += "setoption name SecondaryPstStyle value 4\r\n"
-
-    out += inputToOption("Contempt") + '\r\n';
-    out += inputToOption("SlowMover") + '\r\n';
-    out += inputToOption("Selectivity") + '\r\n';
-    out += inputToOption("SearchSkill") + '\r\n';
-
-    out += inputToOption("BookFilter") + '\r\n';
-    out += 'setoption name GuideBookFile value guide/guide.bin\r\n';
-    out += 'setoption name MainBookFile value rodent.bin\r\n';
-
-
-    download(CharacterName.value + ".txt", out);
-  }
-
-  function inputToOptionDGTV2(name) {
-    var el = document.getElementById(name);
-    var val = el.value;
-    return name + " = " + val;
-  }
-
-  function savePersonalityToDGTV2() {
-    var out = '[DEFAULT]\n';
-    out += 'Hash = 16\n';
-    out += 'Threads = 2\n';
-    out += 'UCI_LimitStrength = true\n';
-    out += 'UCI_Elo = 1800\n';
-    out += '# Change the above Elo value to your required grade between 800 & 2800 and all personalities will play at this grade.\n';
-    out += '# If the Elo is below 2800 then alter the line above to UCI_LimitStrength = true, for 2800 only this should be false.\n';
-    out += '# I have written a Bash file (Rod4Elo.sh in the pi home folder) that asks for your preferred grade and automatically \n';
-    out += '# applies the changes required. These changes only apply to personalities, they are ignored by the Elo levels as they\n';
-    out += '# have their own settings \n';
-    out += '\n';
-    out += '[' + CharacterName.value + ']\n';
-    out += '; ' + CharacterName.value + ' personality for Rodent IV chess engine\n';
-    out += '; author: ' + Author.value + '\n';
-    out += '; converted' + Converter.value + '\n';
-    out += '; ' + Description.value + '\n';
-    out += '; \n';
-    out += inputToOptionDGTV2("UCI_LimitStrength") + '\n';
-    out += inputToOptionDGTV2("UCI_Elo") + '\n';
-    out += inputToOptionDGTV2("PawnValueMg") + '\n';
-    out += inputToOptionDGTV2("KnightValueMg") + '\n';
-    out += inputToOptionDGTV2("BishopValueMg") + '\n';
-    out += inputToOptionDGTV2("RookValueMg") + '\n';
-    out += inputToOptionDGTV2("QueenValueMg") + '\n';
-
-    out += inputToOptionDGTV2("PawnValueEg") + '\n';
-    out += inputToOptionDGTV2("KnightValueEg") + '\n';
-    out += inputToOptionDGTV2("BishopValueEg") + '\n';
-    out += inputToOptionDGTV2("RookValueEg") + '\n';
-    out += inputToOptionDGTV2("QueenValueEg") + '\n';
-
-    out += inputToOptionDGTV2("KeepPawn") + '\n';
-    out += inputToOptionDGTV2("KeepKnight") + '\n';
-    out += inputToOptionDGTV2("KeepBishop") + '\n';
-    out += inputToOptionDGTV2("KeepRook") + '\n';
-    out += inputToOptionDGTV2("KeepQueen") + '\n';
-
-    out += inputToOptionDGTV2("BishopPairMg") + '\n';
-    out += inputToOptionDGTV2("BishopPairEg") + '\n';
-    out += inputToOptionDGTV2("KnightPair") + '\n';
-    out += inputToOptionDGTV2("RookPair") + '\n';
-    out += inputToOptionDGTV2("KnightLikesClosed") + '\n';
-    out += inputToOptionDGTV2("RookLikesOpen") + '\n';
-
-
-    out += inputToOptionDGTV2("ExchangeImbalance") + '\n';
-    out += inputToOptionDGTV2("MinorVsQueen") + '\n';
-
-    out += inputToOptionDGTV2("Material") + '\n';
-    out += inputToOptionDGTV2("OwnAttack") + '\n';
-    out += inputToOptionDGTV2("OppAttack") + '\n';
-    out += inputToOptionDGTV2("OwnMobility") + '\n';
-    out += inputToOptionDGTV2("OppMobility") + '\n';
-    out += inputToOptionDGTV2("FlatMobility") + '\n';
-
-    out += inputToOptionDGTV2("KingTropism") + '\n';
-    out += inputToOptionDGTV2("PrimaryPstWeight") + '\n';
-    out += inputToOptionDGTV2("SecondaryPstWeight") + '\n';
-    out += inputToOptionDGTV2("PiecePressure") + '\n';
-    out += inputToOptionDGTV2("PassedPawns") + '\n';
-    out += inputToOptionDGTV2("PawnStructure") + '\n';
-
-    out += inputToOptionDGTV2("Lines") + '\n';
-    out += inputToOptionDGTV2("Outposts") + '\n';
-    out += inputToOptionDGTV2("Space") + '\n';
-    out += inputToOptionDGTV2("PawnShield") + '\n';
-    out += inputToOptionDGTV2("PawnStorm") + '\n';
-
-    out += inputToOptionDGTV2("DoubledPawnMg") + '\n';
-    out += inputToOptionDGTV2("DoubledPawnEg") + '\n';
-    out += inputToOptionDGTV2("IsolatedPawnMg") + '\n';
-    out += inputToOptionDGTV2("IsolatedPawnEg") + '\n';
-    out += inputToOptionDGTV2("IsolatedOnOpenMg") + '\n';
-    out += inputToOptionDGTV2("BackwardPawnMg") + '\n';
-    out += inputToOptionDGTV2("BackwardPawnEg") + '\n';
-    out += inputToOptionDGTV2("BackwardOnOpenMg") + '\n';
-
-    out += inputToOptionDGTV2("FianchBase") + '\n';
-    out += inputToOptionDGTV2("FianchKing") + '\n';
-    out += inputToOptionDGTV2("ReturningB") + '\n';
-
-    out += inputToOptionDGTV2("PawnMass") + '\n';
-    out += inputToOptionDGTV2("PawnChains") + '\n';
-
-    var pst_name = document.getElementById("PrimaryPstStyle").value;
-    if (pst_name == "quirky")
-      out += "PrimaryPstStyle = 0\r\n"
-    if (pst_name == "classic")
-      out += "PrimaryPstStyle = 1\r\n"
-    if (pst_name == "normal")
-      out += "PrimaryPstStyle = 2\r\n"
-    if (pst_name == "blunt")
-      out += "PrimaryPstStyle = 3\r\n"
-    if (pst_name == "forward")
-      out += "PrimaryPstStyle = 4\r\n"
-
-    var pst_name = document.getElementById("SecondaryPstStyle").value;
-    if (pst_name == "quirky")
-      out += "SecondaryPstStyle = 0\r\n"
-    if (pst_name == "classic")
-      out += "SecondaryPstStyle = 1\r\n"
-    if (pst_name == "normal")
-      out += "SecondaryPstStyle = 2\r\n"
-    if (pst_name == "blunt")
-      out += "SecondaryPstStyle = 3\r\n"
-    if (pst_name == "forward")
-      out += "SecondaryPstStyle = 4\r\n"
-
-    out += inputToOptionDGTV2("Contempt") + '\n';
-    out += inputToOptionDGTV2("SlowMover") + '\n';
-    out += inputToOptionDGTV2("Selectivity") + '\n';
-    out += inputToOptionDGTV2("SearchSkill") + '\n';
-
-    out += inputToOptionDGTV2("BookFilter") + '\n';
-    out += 'GuideBookFile = guide/guide.bin\n';
-    out += 'MainBookFile = rodent.bin\n';
-
-    download("rodentIV.uci", out);
-  }
-
-</script>
-<article class="panel is-info">
-  <p class="panel-heading">
-    Rodent IV personality creator
-  </p>
-  <div class="panel-block">
-    <p>
-      Use one of the default character presets below by pressing one the the buttons like "Ampere" or modify any of the
-      below
-      setting to your like.<br>
-      Once finished click "Save Personality" which will download your individual character setting file to your PC.<br>
-      In a final step you have to upload this file again to this page so that changes add to the
-      configurations. <br>See File upload at the bottom of the page
-    </p>
+<div class="settings-container">
+  <!-- Sidebar Navigation -->
+  <div class="settings-sidebar">
+    <nav class="settings-nav">
+      <a class="settings-nav-item active" data-section="presets" onclick="showSection('presets')">
+        <span class="nav-icon">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+        </span>
+        <span>Presets</span>
+      </a>
+      <a class="settings-nav-item" data-section="identity" onclick="showSection('identity')">
+        <span class="nav-icon">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+        </span>
+        <span>Identity</span>
+      </a>
+      <a class="settings-nav-item" data-section="elo" onclick="showSection('elo')">
+        <span class="nav-icon">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 6l2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z"/></svg>
+        </span>
+        <span>ELO</span>
+      </a>
+      <a class="settings-nav-item" data-section="weights" onclick="showSection('weights')">
+        <span class="nav-icon">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/></svg>
+        </span>
+        <span>Weights</span>
+      </a>
+      <a class="settings-nav-item" data-section="piecevalues" onclick="showSection('piecevalues')">
+        <span class="nav-icon">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 22H5v-2h14v2M12 2c-2.67 0-8 1.34-8 4v12l8-4 8 4V6c0-2.66-5.33-4-8-4z"/></svg>
+        </span>
+        <span>Piece Values</span>
+      </a>
+      <a class="settings-nav-item" data-section="pawnstructure" onclick="showSection('pawnstructure')">
+        <span class="nav-icon">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8.13 2 5 5.13 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.87-3.13-7-7-7z"/></svg>
+        </span>
+        <span>Pawn Structure</span>
+      </a>
+      <a class="settings-nav-item" data-section="material" onclick="showSection('material')">
+        <span class="nav-icon">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z"/></svg>
+        </span>
+        <span>Material</span>
+      </a>
+      <a class="settings-nav-item" data-section="patterns" onclick="showSection('patterns')">
+        <span class="nav-icon">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/></svg>
+        </span>
+        <span>Patterns</span>
+      </a>
+      <a class="settings-nav-item" data-section="export" onclick="showSection('export')">
+        <span class="nav-icon">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+        </span>
+        <span>Export</span>
+      </a>
+    </nav>
   </div>
-
-  <div class="panel-block">
-    <p>
-      Be aware that you cannot upload any characters found in Rodentiv Character folder since the file format is
-      slightly different!
-    </p>
-  </div>
-  <div class="panel-block">
-    <div class="is-pulled-right" style="width:100%">
-      <button class="button is-pulled-right" onclick="savePersonality()">Save personality</button>
-    </div>
-  </div>
-  <div class="panel-block"></div>
-  <p>
-    You can always revert to the default settings on this page by clicking "Reset to default" if you are unsure of
-    your changes.
-  </p>
-
-
-  <div class="panel-block">
-    <div class="is-pulled-right" style="width:100%">
-      <button class="button is-pulled-right" onclick="setDefault()">Reset to default</button>
-    </div>
-  </div>
-  <div class="panel-block">
-    <p>
-      Complete Character Examples below
-    </p>
-
-
-  </div>
-  <div class="panel-block">
-    <div class="is-pulled-right" style="width:100%">
-      <button class="button is-pulled-right" title="attacker that cares for pawn structure"
-        onclick="setAmpere()">Ampere</button>
-      <button class="button is-pulled-right" title="Cloe likes closed positions" onclick="setCloe()">Cloe</button>
-      <button class="button is-pulled-right" title="defensive player who likes bishops"
-        onclick="setDeborah()">Deborah</button>
-      <button class="button is-pulled-right" title="attack, restraint, contempt, likes blocked positions"
-        onclick="setGrumpy()">Grumpy</button>
-      <button class="button is-pulled-right" title="As the Names tells" onclick="setStrangler()">Strangler</button>
-      <button class="button is-pulled-right" title="likes exchanging pieces, tends to go for a draw"
-        onclick="setSwapper()">Swapper</button>
-    </div>
-  </div>
-  <div class="panel-block">
-    <p>
-      Apply playing style changes to your character - gives you an idea where to apply changes to your playing
-      character.
-    </p>
-
-
-  </div>
-  <div class="panel-block">
-    <div class="is-pulled-right" style="width:100%">
-      <button class="button is-pulled-right" onclick="setAttacker()">Attacker</button>
-      <button class="button is-pulled-right" onclick="setDefender()">Defender</button>
-      <button class="button is-pulled-right" onclick="setConstrictor()">Constrictor</button>
-      <button class="button is-pulled-right" onclick="setEscapist()">Escapist</button>
-    </div>
-  </div>
-</article>
-
-<article class="panel is-info">
-  <p class="panel-heading">
-    Character Name and Description
-  </p>
-  <div class="panel-block">
-    <p> <span class="tag is-danger is-light" title="Name of the playing Character">Name</span> <input class="input"
-        type="text" id="CharacterName" value="RodenIVTuner"> </p>
-    <p> <span class="tag is-danger is-light" title="Name of the Author">Author</span> <input class="input" type="text"
-        id="Author" value="RodenIVTuner"> </p>
-    <p> <span class="tag is-danger is-light" title="Name of One Converting">Converted by</span> <input class="input"
-        type="text" id="Converter" value="RodenIVTuner"> </p>
-
-  </div>
-  <div class="panel-block">
-    <p> <span class="tag is-danger is-light" title="Brief Description of the Character">Description</span> <textarea
-        placeholder="Give your Character a Playing Style description ..." class="textarea" name="text" wrap="soft"
-        maxlength="120" id="Description" value="agressive, pawn Mover" style="overflow:hidden; resize:none;"></textarea>
-
-  </div>
-</article>
-
-
-
-
-{% endblock %}
-
-
-{% block second %}
-<article class="panel is-info">
-  <p class="panel-heading">
-    Elo
-  </p>
-  <div class="panel-block">
-    <p> <span class="tag is-warning is-light" title="Limit Engine Playing Strength">LimitStrength</span>
-
-      <select class="select" id="UCI_LimitStrength">
-        <option value="true" selected="selected">true</option>
-        <option value="false">false</option>
-      </select>
-    </p>
-    <p> <span class="tag is-warning is-light" title="Engine Playing Strength">Elo</span> <input class="input"
-        type="bolean" id="UCI_Elo" value="2800" min="0" max="2800"> </p>
-  </div>
-</article>
-<article class="panel is-info">
-  <p class="panel-heading">
-    Weights & Piece Positioning
-  </p>
-  <div class="panel-block">
-
-    <div>
-      <p><b>Weights 1 </b></p>
-      <p> <span class="tag is-warning"
-          title="Influence of material advantage on evaluation, expressed as a percentage. Default is 100. Values around 90 lead to frequent pawn sacrifices, smaller values results in weaker, riskier and more fun game.">Material</span><input
-          class="input" type="number" id="Material" value="100" min="0" max="500"> </p>
-      <p> <span class="tag is-warning" title="Program's threats against enemy king, expressed as percentage">Own
-          attack</span><input class="input" type="number" id="OwnAttack" value="100" min="0" max="500"> </p>
-      <p> <span class="tag is-warning"
-          title="Opponent's threats against program's king, expressed as percentage">Opp
-          attack</span><input class="input" type="number" id="OppAttack" value="100" min="0" max="500"> </p>
-      <p> <span class="tag is-warning"
-          title="Own mobility, expressed as percentage; after increasing it above opponent's mobility, the engine will pursue active play">Own
-          mobility</span><input class="input" type="number" id="OwnMobility" value="50" min="0" max="500"> </p>
-      <p> <span class="tag is-warning"
-          title="Opponent's mobility, expressed as percentage; after increasing it above own mobility, the engine will try to restrict its opponent">Opp
-          mobility</span><input class="input" type="number" id="OppMobility" value="50" min="0" max="500"> </p>
-      <p> <span class="tag is-warning" title="Symmetric component of mobility evaluation">Flat mobility</span><input
-          class="input" type="number" id="FlatMobility" value="50" min="0" max="500"> </p>
-    </div>
-
-
-    <div>
-      <p><b>Weights 2</b></p>
-      <p> <span class="tag is-warning"
-          title="Bonus for pieces near to enemy king, applied to both sides, expressed as percentage; small values increase playing strength, 100% decreases it slightly; default is 20">King
-          tropism</span><input class="input" type="number" id="KingTropism" value="20" min="-50" max="500"> </p>
-      <p> <span class="tag is-warning is-light"
-          title="Weight of attacking and defending pieces, expressed as percentage">Piece
-          pressure</span><input class="input" type="number" id="PiecePressure" value="109" min="0" max="500"> </p>
-      <p> <span class="tag is-warning is-light"
-          title="Weight of semi-open and open files, as well as 7th rank evaluation, expressed as percentage">Lines</span><input
-          class="input" type="number" id="Lines" value="100" min="0" max="500"> </p>
-      <p> <span class="tag is-warning is-light"
-          title="Weight of good squares for minor pieces, expressed as percentage">Outposts</span><input
-          class="input" type="number" id="Outposts" value="78" min="0" max="500"> </p>
-      <p> <span class="tag is-warning is-light"
-          title="Space weight - known to be a stylistic embellishment">Space</span><input class="input"
-          type="number" id="Space" value="0" min="0" max="500"> </p>
-    </div>
-
-    <div>
-      <p><b>Piece positioning</b></p>
-      <p> <span class="tag is-warning is-light"
-          title="Influence of primary piece/square tables on the final score, expressed as percentage">Primary
-          style</span>
-        <select class="select" id="PrimaryPstStyle" style="float:right" ;>
-          <option value="quirky" selected="selected">quirky</option>
-          <option value="classic">classic</option>
-          <option value="normal">normal</option>
-          <option value="blunt">blunt</option>
-          <option value="forward">forward</option>
-        </select>
-      </p>
-      <p> <span class="tag is-warning is-light"
-          title="Influence of primary piece/square tables on the final score, expressed as percentage">Primary
-          weight</span><input class="input" type="number" id="PrimaryPstWeight" value="75" min="0" max="500"> </p>
-
-      <p> <span class="tag is-warning is-light"
-          title="Influence of secondary piece/square tables on the final score, expressed as percentage">Secondary
-          style</span>
-        <select class="select" id="SecondaryPstStyle" style="float:right" ;>
-          <option value="quirky" selected="selected">quirky</option>
-          <option value="classic">classic</option>
-          <option value="normal">normal</option>
-          <option value="blunt">blunt</option>
-          <option value="forward">forward</option>
-        </select>
-      </p>
-
-      <p> <span class="tag is-warning is-light"
-          title="Influence of secondary piece/square tables on the final score, expressed as percentage">Secondary
-          weight</span><input class="input" type="number" id="SecondaryPstWeight" value="75" min="0" max="500"> </p>
-
-
-    </div>
-</article>
-<article class="panel is-info">
-  <p class="panel-heading">
-    Playing Style settings
-  </p>
-  <div class="panel-block">
-    <div>
-      <p><b>Midgame</b></p>
-      <p> <span class="tag is-warning is-light" title="Midgame pawn value">Pawn (mg)</span> <input class="input"
-          type="number" id="PawnValueMg" value="90" min="0" max="1200"> </p>
-      <p> <span class="tag is-warning is-light" title="Midgame knight value">Knight (mg)</span><input class="input"
-          type="number" id="KnightValueMg" value="380" min="0" max="1200"> </p>
-      <p> <span class="tag is-warning is-light" title="Midgame bishop value">Bishop (mg)</span><input class="input"
-          type="number" id="BishopValueMg" value="390" min="0" max="1200"> </p>
-      <p> <span class="tag is-warning is-light" title="Midgame rook value">Rook (mg)</span><input class="input"
-          type="number" id="RookValueMg" value="530" min="0" max="1200"> </p>
-      <p> <span class="tag is-warning is-light" title="Midgame queen value">Queen (mg)</span><input class="input"
-          type="number" id="QueenValueMg" value="1160" min="0" max="1200"> </p>
-      <p> <span class="tag is-warning is-light" title="Bishop pair value in middlegame, default 51">Bishop Pair
-          (mg)</span><input class="input" type="number" id="BishopPairMg" value="51" min="-100" max="100"> </p>
-    </div>
-
-    <div>
-      <p><b>Endgame</b></p>
-      <p> <span class="tag is-warning is-light" title="Endgame pawn value">Pawn (eg)</span><input class="input"
-          type="number" id="PawnValueEg" value="110" min="0" max="1200"> </p>
-      <p> <span class="tag is-warning is-light" title="Endgame knight value">Knight (eg)</span><input class="input"
-          type="number" id="KnightValueEg" value="360" min="0" max="1200"> </p>
-      <p> <span class="tag is-warning is-light" title="Endgame bishop value">Bishop (eg)</span><input class="input"
-          type="number" id="BishopValueEg" value="370" min="0" max="1200"> </p>
-      <p> <span class="tag is-warning is-light" title="Endgame rook value">Rook (eg)</span><input class="input"
-          type="number" id="RookValueEg" value="650" min="0" max="1200"> </p>
-      <p> <span class="tag is-warning is-light" title="Endgame queen value">Queen (eg)</span><input class="input"
-          type="number" id="QueenValueEg" value="1190" min="0" max="1200"> </p>
-      <p> <span class="tag is-warning is-light" title="Bishop pair value in endgame, default 51">Bishop Pair
-          (eg)</span><input class="input" type="number" id="BishopPairEg" value="51" min="-100" max="100"> </p>
-    </div>
-
-    <div>
-      <p><b>Contempt</b></p>
-      <p> <span class="tag is-warning is-light"
-          title="In how much worse position engine is inclined to play on">Contempt</span><input class="input"
-          type="number" id="Contempt" value="0" min="-250" max="250"> </p>
-      <p> <span class="tag is-warning is-light"
-          title="Modification of own pawn value, positive numbers mean that the engine prefers to keep pawns, negative that it prefers to exchange them; non-zero values weaken the engine, but positive value may be good for positional personalities">Keep
-          pawn</span><input class="input" type="number" id="KeepPawn" value="0" min="-200" max="200"> </p>
-      <p> <span class="tag is-warning is-light"
-          title="Modification of own knight value, positive numbers mean that the engine prefers to keep knights, negative that it prefers to exchange them; non-zero values weaken the engine, but positive value may be good for some attacking personalities or for personalities following precepts of Nimzowitsch">Keep
-          knight</span><input class="input" type="number" id="KeepKnight" value="0" min="-200" max="200"> </p>
-      <p> <span class="tag is-warning is-light"
-          title="Modification of own bishop value, positive numbers mean that the engine prefers to keep bishops, negative that it prefers to exchange them; non-zero values weaken the engine">Keep
-          bishop</span><input class="input" type="number" id="KeepBishop" value="0" min="-200" max="200"> </p>
-      <p> <span class="tag is-warning is-light"
-          title="Modification of own rook value, positive numbers mean that the engine prefers to keep rooks, negative that it prefers to exchange them; non-zero values weaken the engine">Keep
-          rook</span><input class="input" type="number" id="KeepRook" value="0" min="-200" max="200"> </p>
-      <p> <span class="tag is-warning is-light"
-          title="Modification of own queen value, positive numbers mean that the engine prefers to keep queens, negative that it prefers to exchange them; non-zero values weaken the engine, but positive value may be good for attacking personalities">Keep
-          queen</span><input class="input" type="number" id="KeepQueen" value="0" min="-200" max="200"> </p>
-    </div>
-  </div>
-</article>
-
-
-
-
-
-{% endblock %}
-
-{% block third %}
-
-<article class="panel is-info">
-  <p class="panel-heading">
-    Pawn Structure
-  </p>
-  <div class="panel-block">
-
-
-    <div>
-      <p> <span class="tag is-warning" title="Weight of passed pawn evaluation, expressed as percentage">Passed
-          pawns</span><input class="input" type="number" id="PassedPawns" value="100" min="0" max="500"> </p>
-      <p> <span class="tag is-warning" title="Weight of pawn structure evaluation, expressed as percentage">Pawn
-          structure</span><input class="input" type="number" id="PawnStructure" value="100" min="0" max="500"> </p>
-      <p> <span class="tag is-warning is-light"
-          title="Weight of support given by pawns to each other, expressed as percentage">Pawn
-          mass</span><input class="input" type="number" id="PawnMass" value="100" min="0" max="500"
-          style="float:right" ;> </p>
-      <p> <span class="tag is-warning is-light"
-          title="Weight of evaluation of pawn chains, expressed as percentage; it is only meaningful in a handful of positions, arising from King's Indian Defence, French Defence, King's Indian Attack etc.">
-          Pawn chains</span><input class="input" type="number" id="PawnChains" value="100" min="0" max="500"
-          style="float:right" ;> </p>
-      <p> <span class="tag is-warning is-light"
-          title="Value of pawns in front of own king, expressed as percentage">Pawn
-          shield</span><input class="input" type="number" id="PawnShield" value="119" min="0" max="500"> </p>
-
-    </div>
-
-    <div>
-      <p> <span class="tag is-warning is-light"
-          title="Value of pawns approaching enemy king, expressed as percentage">Pawn
-          storm</span><input class="input" type="number" id="PawnStorm" value="99" min="0" max="500"> </p>
-      <p> <span class="tag" title="Modidy Value of pawns if doubled in middlegame">Doubled (mg)</span><input
-          class="input" type="number" id="DoubledPawnMg" value="-12" min="-100" max="0" style="float:right" ;> </p>
-      <p> <span class="tag" title="Modidy Value of pawns if doubled in endgame">Doubled (eg)</span><input
-          class="input" type="number" id="DoubledPawnEg" value="-23" min="-100" max="0" style="float:right" ;> </p>
-      <p> <span class="tag" title="Modidy Value of pawns if isolated in middlegame">Isolated (mg)</span><input
-          class="input" type="number" id="IsolatedPawnMg" value="-10" min="-100" max="0" style="float:right" ;> </p>
-      <p> <span class="tag" title="Modidy Value of pawns if isolated in endgame">Isolated (eg)</span><input
-          class="input" type="number" id="IsolatedPawnEg" value="-8" min="-100" max="0" style="float:right" ;> </p>
-
-    </div>
-
-
-    <div>
-      <p> <span class="tag" title="Modidy Value of pawns if isolated in open game">Isolated (open)</span><input
-          class="input" type="number" id="IsolatedOnOpenMg" value="-10" min="-100" max="0" style="float:right" ;>
-      </p>
-      <p> <span class="tag" title="Modidy Value of pawns if blocked in C">Blocked on C</span><input class="input"
-          type="number" id="blockedcpawn" value="-17" min="-100" max="0" style="float:right" ;> </p>
-      <p><span class="tag" title="Modidy Value of pawns if backward in middlegame"> Backward (mg)</span><input
-          class="input" type="number" id="BackwardPawnMg" value="-8" min="-100" max="0" style="float:right" ;> </p>
-      <p><span class="tag" title="Modidy Value of pawns if backward in middlegame"> Backward (eg)</span><input
-          class="input" type="number" id="BackwardPawnEg" value="-10" min="-100" max="0" style="float:right" ;> </p>
-      <p> <span class="tag" title="Modidy Value of pawns if backward in  open game">Backward (open)</span><input
-          class="input" type="number" id="BackwardOnOpenMg" value="-8" min="-100" max="0" style="float:right" ;>
-      </p>
-
-
-    </div>
-
-
-  </div>
-</article>
-<article class="panel is-info">
-  <p class="panel-heading">
-    Material, Pattern and Others
-  </p>
-  <div class="panel-block">
-
-    <div>
-      <p><b>Material</b></p>
-      <p> <span class="tag is-warning is-light"
-          title="Penalty for having two knights, helps to differentiate between BN and NN mateiral configurations. Default -9">Knight
-          Pair</span><input class="input" type="number" id="KnightPair" value="-9" min="-100" max="100"> </p>
-      <p> <span class="tag is-warning is-light"
-          title="Penalty for having two rooks. It is meaningful for the side with exchange advantage, and makes it want to simplify by exchanging rooks. Default -9">Rook
-          Pair</span><input class="input" type="number" id="RookPair" value="-9" min="-100" max="100"> </p>
-      <p> <span class="tag is-warning"
-          title="Bonus for each pawn when having a knight; increasing typically means that the engine will favour closed positions; default value is 6, personalities preferring closed position typically use 8">N
-          likes closed</span><input class="input" type="number" id="KnightLikesClosed" value="6" min="0" max="10">
-      </p>
-      <p> <span class="tag is-warning is-light" title="Penalty for each pawn when having a rook">R likes
-          open</span><input class="input" type="number" id="RookLikesOpen" value="3" min="0" max="10"> </p>
-      <p> <span class="tag is-warning"
-          title="Bonus for exchange advantage; decreasing makes the engine more likely to play exchange sacrifices">Exchange
-          Adv</span><input class="input" type="number" id="ExchangeImbalance" value="30" min="-100" max="100"> </p>
-      <p> <span class="tag is-warning is-light"
-          title="Bonus each minor piece gets for confronting enemy queen; increasing will weaken the play, but engine will seek imbalances">Minor
-          vs Queen</span><input class="input" type="number" id="MinorVsQueen" value="4" min="-100" max="100"> </p>
-
-    </div>
-
-    <div>
-
-      <p><b>Patterns</b></p>
-      <p> <span class="tag" title="FianchBase">FianchBase</span><input class="input" type="number" id="FianchBase"
-          value="4" min="0" max="100" style="float:right" ;> </p>
-      <p> <span class="tag" title="FianchKing"> FianchKing</span><input class="input" type="number" id="FianchKing"
-          value="6" min="0" max="100" style="float:right" ;> </p>
-      <p> <span class="tag" title="Returning Bish"> Returning Bish</span><input class="input" type="number"
-          id="ReturningB" value="10" min="0" max="100" style="float:right" ;> </p>
-
-    </div>
-    <div>
-      <p><b>Others</b></p>
-      <p> <span class="tag" title="SlowMover"> SlowMover</span><input class="input" type="number" id="SlowMover"
-          value="100" min="10" max="500"> </p>
-      <p> <span class="tag" title="Selectivity"> Selectivity</span><input class="input" type="number"
-          id="Selectivity" value="175" min="0" max="200"> </p>
-      <p> <span class="tag" title="SearchSkill"> SearchSkill</span><input class="input" type="number"
-          id="SearchSkill" value="10" min="0" max="10"> </p>
-      <p> <span class="tag" title="Book filter"> Book filter</span><input class="input" type="number"
-          id="BookFilter" value="20" min="0" max="100"> </p>
-    </div>
-  </div>
-</article>
-
-<article class="panel is-info">
-  <p class="panel-heading">
-    File Upload
-  </p>
-  <div class="panel-block">
-    <form method="POST" action="" enctype="multipart/form-data">
-      <div id="file-js-example" class="file has-name">
-        <label class="file-label">
-          <input class="file-input" type="file" name="file">
-          <span class="file-cta">
-            <span class="file-icon">
-              <i class="fas fa-upload"></i>
-            </span>
-            <span class="file-label">
-              Choose a file…
-            </span>
-          </span>
-          <span class="file-name">
-            No file uploaded
-          </span>
-        </label>
+  
+  <!-- Settings Content -->
+  <div class="settings-content">
+    
+    <!-- PRESETS SECTION -->
+    <div id="section-presets" class="settings-section active">
+      <div class="settings-header">
+        <h2 class="settings-title">Rodent IV Personality Creator</h2>
+        <p class="settings-description">Create custom personalities for the Rodent IV chess engine</p>
       </div>
+      
+      <div class="settings-card">
+        <div class="settings-group">
+          <h3 class="settings-group-title">Character Presets</h3>
+          <p class="settings-row-help" style="margin-bottom: 1rem;">Load a complete personality preset to get started</p>
+          
+          <div id="preset-buttons" style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem;">
+            <!-- Buttons generated by JS -->
+          </div>
+        </div>
+        
+        <div class="settings-group">
+          <h3 class="settings-group-title">Playing Styles</h3>
+          <p class="settings-row-help" style="margin-bottom: 1rem;">Apply style modifications to your current configuration</p>
+          
+          <div id="style-buttons" style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem;">
+            <!-- Buttons generated by JS -->
+          </div>
+        </div>
+        
+        <div class="settings-group">
+          <h3 class="settings-group-title">Reset</h3>
+          <button class="button is-warning" onclick="RodentTuner.loadPreset('default')">Reset to Default</button>
+        </div>
+      </div>
+    </div>
 
+    <!-- IDENTITY SECTION -->
+    <div id="section-identity" class="settings-section">
+      <div class="settings-header">
+        <h2 class="settings-title">Character Identity</h2>
+        <p class="settings-description">Name and describe your personality</p>
+      </div>
+      
+      <div class="settings-card">
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">Character Name</div>
+            <div class="settings-row-help">Name of the playing character</div>
+          </div>
+          <div class="settings-row-control">
+            <input class="input" type="text" id="CharacterName" value="RodentIVTuner">
+          </div>
+        </div>
+        
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">Author</div>
+            <div class="settings-row-help">Name of the personality author</div>
+          </div>
+          <div class="settings-row-control">
+            <input class="input" type="text" id="Author" value="RodentIVTuner">
+          </div>
+        </div>
+        
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">Converted By</div>
+            <div class="settings-row-help">Name of the converter (if applicable)</div>
+          </div>
+          <div class="settings-row-control">
+            <input class="input" type="text" id="Converter" value="RodentIVTuner">
+          </div>
+        </div>
+        
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">Description</div>
+            <div class="settings-row-help">Brief description of the character's playing style</div>
+          </div>
+          <div class="settings-row-control" style="flex: 2;">
+            <textarea class="textarea" id="Description" placeholder="Describe the playing style..." maxlength="120" rows="2">aggressive Pawn mover</textarea>
+          </div>
+        </div>
+      </div>
+    </div>
 
-      <p><input class="button" type="submit" value="Upload"></p>
-    </form>
-    <script>
-      const fileInput = document.querySelector('#file-js-example input[type=file]');
-      fileInput.onchange = () => {
-        if (fileInput.files.length > 0) {
-          const fileName = document.querySelector('#file-js-example .file-name');
-          fileName.textContent = fileInput.files[0].name;
+    <!-- ELO SECTION -->
+    <div id="section-elo" class="settings-section">
+      <div class="settings-header">
+        <h2 class="settings-title">ELO Settings</h2>
+        <p class="settings-description">Configure engine playing strength</p>
+      </div>
+      
+      <div class="settings-card">
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">Limit Strength</div>
+            <div class="settings-row-help">Enable ELO-limited play mode</div>
+          </div>
+          <div class="settings-row-control">
+            <div class="select">
+              <select id="UCI_LimitStrength">
+                <option value="true">true</option>
+                <option value="false" selected>false</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">ELO Rating</div>
+            <div class="settings-row-help">Target ELO (800-2800)</div>
+          </div>
+          <div class="settings-row-control">
+            <input class="input" type="number" id="UCI_Elo" value="2800" min="800" max="2800">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- WEIGHTS SECTION -->
+    <div id="section-weights" class="settings-section">
+      <div class="settings-header">
+        <h2 class="settings-title">Evaluation Weights</h2>
+        <p class="settings-description">Configure how the engine values different aspects of the position</p>
+      </div>
+      
+      <div class="settings-card" id="weights-form">
+        <!-- Generated by JS -->
+      </div>
+    </div>
+
+    <!-- PIECE VALUES SECTION -->
+    <div id="section-piecevalues" class="settings-section">
+      <div class="settings-header">
+        <h2 class="settings-title">Piece Values</h2>
+        <p class="settings-description">Configure piece values for middlegame and endgame</p>
+      </div>
+      
+      <div class="settings-card" id="piecevalues-form">
+        <!-- Generated by JS -->
+      </div>
+    </div>
+
+    <!-- PAWN STRUCTURE SECTION -->
+    <div id="section-pawnstructure" class="settings-section">
+      <div class="settings-header">
+        <h2 class="settings-title">Pawn Structure</h2>
+        <p class="settings-description">Configure pawn-related evaluation parameters</p>
+      </div>
+      
+      <div class="settings-card" id="pawnstructure-form">
+        <!-- Generated by JS -->
+      </div>
+    </div>
+
+    <!-- MATERIAL SECTION -->
+    <div id="section-material" class="settings-section">
+      <div class="settings-header">
+        <h2 class="settings-title">Material Imbalances</h2>
+        <p class="settings-description">Configure piece combination preferences</p>
+      </div>
+      
+      <div class="settings-card" id="material-form">
+        <!-- Generated by JS -->
+      </div>
+    </div>
+
+    <!-- PATTERNS SECTION -->
+    <div id="section-patterns" class="settings-section">
+      <div class="settings-header">
+        <h2 class="settings-title">Patterns & Others</h2>
+        <p class="settings-description">Configure pattern recognition and search settings</p>
+      </div>
+      
+      <div class="settings-card" id="patterns-form">
+        <!-- Generated by JS -->
+      </div>
+    </div>
+
+    <!-- EXPORT SECTION -->
+    <div id="section-export" class="settings-section">
+      <div class="settings-header">
+        <h2 class="settings-title">Export & Import</h2>
+        <p class="settings-description">Save or load personality files</p>
+      </div>
+      
+      <div class="settings-card">
+        <div class="settings-group">
+          <h3 class="settings-group-title">Export Personality</h3>
+          <p class="settings-row-help" style="margin-bottom: 1rem;">Download your personality configuration file</p>
+          
+          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <button class="button is-success" onclick="RodentTuner.exportPersonality()">
+              <span>Download Personality File</span>
+            </button>
+            <button class="button is-info" onclick="RodentTuner.exportUCI()">
+              <span>Download UCI Config</span>
+            </button>
+          </div>
+        </div>
+        
+        <div class="settings-group">
+          <h3 class="settings-group-title">Import Personality</h3>
+          <p class="settings-row-help" style="margin-bottom: 1rem;">Upload a personality file created with this tool</p>
+          
+          <form method="POST" action="" enctype="multipart/form-data">
+            <div class="file has-name is-fullwidth" style="margin-bottom: 1rem;">
+              <label class="file-label">
+                <input class="file-input" type="file" name="file" id="file-upload">
+                <span class="file-cta">
+                  <span class="file-label">Choose file...</span>
+                </span>
+                <span class="file-name" id="file-name">No file selected</span>
+              </label>
+            </div>
+            <button class="button is-primary" type="submit">Upload</button>
+          </form>
+        </div>
+        
+        <div class="settings-group">
+          <h3 class="settings-group-title">Documentation</h3>
+          <p class="settings-row-help">
+            For detailed documentation on personality parameters, see:
+          </p>
+          <ul style="margin-top: 0.5rem; margin-left: 1.5rem;">
+            <li><a href="https://github.com/nescitus/Rodent_III/blob/master/docs/about_personalities.pdf" target="_blank" rel="noopener">Rodent III Personalities Guide</a></li>
+            <li><a href="https://github.com/nescitus/rodent-iv/blob/master/docs/FinalRodent.pdf" target="_blank" rel="noopener">Rodent IV Official Manual</a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/**
+ * Rodent IV Personality Tuner
+ * 
+ * Data-driven approach: all personality settings are defined as configuration objects,
+ * UI is generated from schema, and presets are plain data objects applied uniformly.
+ */
+const RodentTuner = (function() {
+  'use strict';
+  
+  // PST style mapping - name to numeric value for export
+  const PST_STYLES = { quirky: 0, classic: 1, normal: 2, blunt: 3, forward: 4 };
+  
+  // Field definitions - each field has id, label, help text, type, default, min/max
+  const FIELD_SCHEMA = {
+    // Identity fields (handled separately in HTML)
+    identity: [
+      { id: 'CharacterName', label: 'Character Name', default: 'RodentIVTuner' },
+      { id: 'Author', label: 'Author', default: 'RodentIVTuner' },
+      { id: 'Converter', label: 'Converted By', default: 'RodentIVTuner' },
+      { id: 'Description', label: 'Description', default: 'aggressive Pawn mover' }
+    ],
+    
+    weights: {
+      'Attack & Mobility': [
+        { id: 'Material', label: 'Material', help: 'Influence of material advantage (default 100)', default: 100, min: 0, max: 500 },
+        { id: 'OwnAttack', label: 'Own Attack', help: "Program's threats against enemy king", default: 100, min: 0, max: 500 },
+        { id: 'OppAttack', label: 'Opponent Attack', help: "Opponent's threats against program's king", default: 100, min: 0, max: 500 },
+        { id: 'OwnMobility', label: 'Own Mobility', help: 'Higher values = pursue active play', default: 50, min: 0, max: 500 },
+        { id: 'OppMobility', label: 'Opponent Mobility', help: 'Higher values = restrict opponent', default: 50, min: 0, max: 500 },
+        { id: 'FlatMobility', label: 'Flat Mobility', help: 'Symmetric mobility component', default: 50, min: 0, max: 500 }
+      ],
+      'Positional Factors': [
+        { id: 'KingTropism', label: 'King Tropism', help: 'Bonus for pieces near enemy king (default 20)', default: 20, min: -50, max: 500 },
+        { id: 'PiecePressure', label: 'Piece Pressure', help: 'Weight of attacking/defending pieces', default: 109, min: 0, max: 500 },
+        { id: 'Lines', label: 'Lines', help: 'Semi-open/open files and 7th rank', default: 100, min: 0, max: 500 },
+        { id: 'Outposts', label: 'Outposts', help: 'Good squares for minor pieces', default: 78, min: 0, max: 500 },
+        { id: 'Space', label: 'Space', help: 'Space advantage weight', default: 0, min: 0, max: 500 }
+      ],
+      'Piece-Square Tables': [
+        { id: 'PrimaryPstStyle', label: 'Primary PST Style', help: 'Primary piece positioning style', type: 'select', options: ['quirky', 'classic', 'normal', 'blunt', 'forward'], default: 'quirky' },
+        { id: 'PrimaryPstWeight', label: 'Primary PST Weight', help: 'Influence of primary PST', default: 58, min: 0, max: 500 },
+        { id: 'SecondaryPstStyle', label: 'Secondary PST Style', help: 'Secondary piece positioning style', type: 'select', options: ['quirky', 'classic', 'normal', 'blunt', 'forward'], default: 'classic' },
+        { id: 'SecondaryPstWeight', label: 'Secondary PST Weight', help: 'Influence of secondary PST', default: 40, min: 0, max: 500 }
+      ]
+    },
+    
+    piecevalues: {
+      'Middlegame Values': [
+        { id: 'PawnValueMg', label: 'Pawn (mg)', default: 90, min: 0, max: 1200 },
+        { id: 'KnightValueMg', label: 'Knight (mg)', default: 380, min: 0, max: 1200 },
+        { id: 'BishopValueMg', label: 'Bishop (mg)', default: 390, min: 0, max: 1200 },
+        { id: 'RookValueMg', label: 'Rook (mg)', default: 530, min: 0, max: 1200 },
+        { id: 'QueenValueMg', label: 'Queen (mg)', default: 1160, min: 0, max: 1200 },
+        { id: 'BishopPairMg', label: 'Bishop Pair (mg)', default: 51, min: -100, max: 100 }
+      ],
+      'Endgame Values': [
+        { id: 'PawnValueEg', label: 'Pawn (eg)', default: 110, min: 0, max: 1200 },
+        { id: 'KnightValueEg', label: 'Knight (eg)', default: 360, min: 0, max: 1200 },
+        { id: 'BishopValueEg', label: 'Bishop (eg)', default: 370, min: 0, max: 1200 },
+        { id: 'RookValueEg', label: 'Rook (eg)', default: 650, min: 0, max: 1200 },
+        { id: 'QueenValueEg', label: 'Queen (eg)', default: 1190, min: 0, max: 1200 },
+        { id: 'BishopPairEg', label: 'Bishop Pair (eg)', default: 51, min: -100, max: 100 }
+      ],
+      'Contempt & Keep Preferences': [
+        { id: 'Contempt', label: 'Contempt', help: 'How much worse position engine will play on', default: 0, min: -250, max: 250 },
+        { id: 'KeepPawn', label: 'Keep Pawn', help: 'Preference to keep pawns (+) or exchange (-)', default: 0, min: -200, max: 200 },
+        { id: 'KeepKnight', label: 'Keep Knight', help: 'Preference to keep knights (+) or exchange (-)', default: 0, min: -200, max: 200 },
+        { id: 'KeepBishop', label: 'Keep Bishop', help: 'Preference to keep bishops (+) or exchange (-)', default: 0, min: -200, max: 200 },
+        { id: 'KeepRook', label: 'Keep Rook', help: 'Preference to keep rooks (+) or exchange (-)', default: 0, min: -200, max: 200 },
+        { id: 'KeepQueen', label: 'Keep Queen', help: 'Preference to keep queens (+) or exchange (-)', default: 0, min: -200, max: 200 }
+      ]
+    },
+    
+    pawnstructure: {
+      'General Pawn Weights': [
+        { id: 'PassedPawns', label: 'Passed Pawns', help: 'Weight of passed pawn evaluation', default: 100, min: 0, max: 500 },
+        { id: 'PawnStructure', label: 'Pawn Structure', help: 'Weight of pawn structure evaluation', default: 100, min: 0, max: 500 },
+        { id: 'PawnMass', label: 'Pawn Mass', help: 'Weight of pawn support for each other', default: 100, min: 0, max: 500 },
+        { id: 'PawnChains', label: 'Pawn Chains', help: 'Weight of pawn chain evaluation', default: 100, min: 0, max: 500 },
+        { id: 'PawnShield', label: 'Pawn Shield', help: 'Value of pawns in front of own king', default: 119, min: 0, max: 500 },
+        { id: 'PawnStorm', label: 'Pawn Storm', help: 'Value of pawns approaching enemy king', default: 99, min: 0, max: 500 }
+      ],
+      'Pawn Weaknesses': [
+        { id: 'DoubledPawnMg', label: 'Doubled (mg)', default: -8, min: -100, max: 0 },
+        { id: 'DoubledPawnEg', label: 'Doubled (eg)', default: -21, min: -100, max: 0 },
+        { id: 'IsolatedPawnMg', label: 'Isolated (mg)', default: -7, min: -100, max: 0 },
+        { id: 'IsolatedPawnEg', label: 'Isolated (eg)', default: -7, min: -100, max: 0 },
+        { id: 'IsolatedOnOpenMg', label: 'Isolated on Open (mg)', default: -13, min: -100, max: 0 },
+        { id: 'BackwardPawnMg', label: 'Backward (mg)', default: -2, min: -100, max: 0 },
+        { id: 'BackwardPawnEg', label: 'Backward (eg)', default: -1, min: -100, max: 0 },
+        { id: 'BackwardOnOpenMg', label: 'Backward on Open (mg)', default: -10, min: -100, max: 0 },
+        { id: 'blockedcpawn', label: 'Blocked C Pawn', default: -17, min: -100, max: 0 }
+      ]
+    },
+    
+    material: {
+      'Material Imbalances': [
+        { id: 'KnightPair', label: 'Knight Pair', help: 'Penalty for having two knights (default -1)', default: -1, min: -100, max: 100 },
+        { id: 'RookPair', label: 'Rook Pair', help: 'Penalty for having two rooks (default -11)', default: -11, min: -100, max: 100 },
+        { id: 'KnightLikesClosed', label: 'Knight Likes Closed', help: 'Bonus per pawn with knight; higher = closed positions', default: 6, min: 0, max: 10 },
+        { id: 'RookLikesOpen', label: 'Rook Likes Open', help: 'Penalty per pawn when having a rook', default: 0, min: 0, max: 10 },
+        { id: 'ExchangeImbalance', label: 'Exchange Imbalance', help: 'Bonus for exchange advantage', default: 10, min: -100, max: 100 },
+        { id: 'MinorVsQueen', label: 'Minor vs Queen', help: 'Bonus for minors confronting enemy queen', default: 10, min: -100, max: 100 }
+      ]
+    },
+    
+    patterns: {
+      'Patterns': [
+        { id: 'FianchBase', label: 'Fianchetto Base', default: 13, min: 0, max: 100 },
+        { id: 'FianchKing', label: 'Fianchetto King', default: 20, min: 0, max: 100 },
+        { id: 'ReturningB', label: 'Returning Bishop', default: 10, min: 0, max: 100 }
+      ],
+      'Search Settings': [
+        { id: 'SlowMover', label: 'Slow Mover', help: 'Time management (default 100)', default: 100, min: 10, max: 500 },
+        { id: 'Selectivity', label: 'Selectivity', help: 'Search selectivity (default 175)', default: 175, min: 0, max: 200 },
+        { id: 'SearchSkill', label: 'Search Skill', help: 'Search skill level (0-10)', default: 10, min: 0, max: 10 },
+        { id: 'BookFilter', label: 'Book Filter', help: 'Opening book filtering', default: 20, min: 0, max: 100 }
+      ],
+      'Opening Books': [
+        { id: 'GuideBookFile', label: 'Guide Book File', type: 'text', default: 'guide/guide.bin' },
+        { id: 'MainBookFile', label: 'Main Book File', type: 'text', default: 'rodent.bin' }
+      ]
+    },
+    
+    elo: [
+      { id: 'UCI_LimitStrength', label: 'Limit Strength', type: 'select', options: ['true', 'false'], default: 'false' },
+      { id: 'UCI_Elo', label: 'ELO Rating', default: 2800, min: 800, max: 2800 }
+    ]
+  };
+  
+  // Preset definitions - only specify values that differ from defaults
+  const PRESETS = {
+    default: {
+      name: 'Default',
+      description: 'Default Rodent IV settings'
+    },
+    
+    ampere: {
+      name: 'AmpereRT',
+      author: 'RodentIVTuner',
+      description: 'attacker that cares for pawn structure',
+      OwnAttack: 160, OwnMobility: 100, OppMobility: 70, FlatMobility: 25,
+      Space: 100, PassedPawns: 125, PawnStructure: 150,
+      DoubledPawnMg: -10, BackwardPawnMg: -4, BackwardPawnEg: -3, BackwardOnOpenMg: -9,
+      PrimaryPstStyle: 'normal', SecondaryPstStyle: 'normal',
+      GuideBookFile: 'guide/active.bin'
+    },
+    
+    cloe: {
+      name: 'CloeRT',
+      author: 'RodentIVTuner',
+      description: 'Cloe likes closed positions',
+      PawnShield: 150, PawnStorm: 120, OppMobility: 60,
+      Lines: 120, Outposts: 90, Space: 100,
+      PawnMass: 150, PawnChains: 150, KnightLikesClosed: 7, KeepPawn: 1,
+      PrimaryPstStyle: 'normal',
+      GuideBookFile: 'guide/closed.bin'
+    },
+    
+    deborah: {
+      name: 'DeborahRT',
+      author: 'RodentIVTuner',
+      description: 'defensive player who likes bishops',
+      BishopValueMg: 400, BishopValueEg: 380,
+      OwnAttack: 85, OppAttack: 115, PiecePressure: 125,
+      KnightLikesClosed: 5, RookLikesOpen: 3,
+      PrimaryPstStyle: 'classic', SecondaryPstStyle: 'quirky',
+      GuideBookFile: 'guide.bin'
+    },
+    
+    grumpy: {
+      name: 'GrumpyRT',
+      author: 'by Pawel Koziol',
+      description: 'attack, restraint, contempt, likes blocked positions',
+      KnightValueMg: 385, KnightValueEg: 365, BishopPairMg: 41,
+      OwnAttack: 120, OppMobility: 70, Space: 100,
+      KnightLikesClosed: 8, KeepPawn: 1,
+      GuideBookFile: 'guide/grandpa.bin'
+    },
+    
+    strangler: {
+      name: 'StranglerRT',
+      author: 'adapted from Brendan J. Norman personality for Rodent III',
+      description: '',
+      RookValueMg: 500, RookValueEg: 620,
+      OwnAttack: 300, KingTropism: 35, PawnShield: 120,
+      Material: 90, OppMobility: 150, PiecePressure: 125,
+      Outposts: 125, Space: 100, KnightLikesClosed: 8,
+      KeepKnight: 4, KeepQueen: 5,
+      DoubledPawnMg: -12, DoubledPawnEg: -24,
+      IsolatedPawnMg: -10, IsolatedPawnEg: -10,
+      BackwardPawnMg: -8, BackwardPawnEg: -10, BackwardOnOpenMg: -8,
+      Contempt: 5,
+      GuideBookFile: 'guide/strangler.bin'
+    },
+    
+    swapper: {
+      name: 'SwapperRT',
+      author: '',
+      description: 'likes exchanging pieces, tends to go for a draw',
+      PawnStructure: 120, Contempt: -20,
+      GuideBookFile: 'guide.bin'
+    }
+  };
+  
+  // Playing style modifiers - partial updates to apply on top of current values
+  const STYLES = {
+    attacker: { name: 'Attacker', OwnAttack: 125, OppAttack: 100, OwnMobility: 75, OppMobility: 50 },
+    defender: { name: 'Defender', OwnAttack: 100, OppAttack: 125, OwnMobility: 50, OppMobility: 75 },
+    constrictor: { name: 'Constrictor', OwnAttack: 125, OppAttack: 100, OwnMobility: 50, OppMobility: 75 },
+    escapist: { name: 'Escapist', OwnAttack: 100, OppAttack: 125, OwnMobility: 75, OppMobility: 50 }
+  };
+  
+  // Get all field IDs from schema
+  function getAllFieldIds() {
+    const ids = [];
+    for (const section of Object.values(FIELD_SCHEMA)) {
+      if (Array.isArray(section)) {
+        section.forEach(f => ids.push(f.id));
+      } else {
+        for (const group of Object.values(section)) {
+          group.forEach(f => ids.push(f.id));
         }
       }
-    </script>
-  </div>
-  <div class="panel-block">
-    <p>As you can see, the tool highlights certain options. If you hover a cursor over the highlighted option, a
-      short description of its meaning should appear. Some options are highlited more strongly – this is an
-      indication that I consider them more important for shaping program's style. Of course as a user you are
-      free to disagree and experiment (but please remember that increasing "N likes closed" leads to preferring
-      closed positions).
-    </p>
+    }
+    return ids;
+  }
+  
+  // Get default values from schema
+  function getDefaults() {
+    const defaults = {};
+    for (const section of Object.values(FIELD_SCHEMA)) {
+      if (Array.isArray(section)) {
+        section.forEach(f => { defaults[f.id] = f.default; });
+      } else {
+        for (const group of Object.values(section)) {
+          group.forEach(f => { defaults[f.id] = f.default; });
+        }
+      }
+    }
+    return defaults;
+  }
+  
+  // Apply values to form
+  function applyToForm(values) {
+    for (const [id, value] of Object.entries(values)) {
+      const el = document.getElementById(id);
+      if (el) {
+        el.value = value;
+      }
+    }
+  }
+  
+  // Get current form values
+  function getFormValues() {
+    const values = {};
+    for (const id of getAllFieldIds()) {
+      const el = document.getElementById(id);
+      if (el) {
+        values[id] = el.value;
+      }
+    }
+    return values;
+  }
+  
+  // Load a preset
+  function loadPreset(presetName) {
+    const defaults = getDefaults();
+    const preset = PRESETS[presetName] || {};
+    
+    // Start with defaults, then apply preset overrides
+    const values = { ...defaults };
+    
+    // Apply preset values (excluding metadata like name/description)
+    for (const [key, value] of Object.entries(preset)) {
+      if (key !== 'name' && key !== 'description' && key !== 'author') {
+        values[key] = value;
+      }
+    }
+    
+    // Apply identity fields
+    values.CharacterName = preset.name || 'RodentIVTuner';
+    values.Author = preset.author || 'RodentIVTuner';
+    values.Converter = 'RodentIVTuner';
+    values.Description = preset.description || 'aggressive Pawn mover';
+    
+    applyToForm(values);
+  }
+  
+  // Apply a playing style modifier
+  function applyStyle(styleName) {
+    const style = STYLES[styleName];
+    if (!style) return;
+    
+    for (const [key, value] of Object.entries(style)) {
+      if (key !== 'name') {
+        const el = document.getElementById(key);
+        if (el) el.value = value;
+      }
+    }
+  }
+  
+  // Generate form HTML for a section
+  function generateFormSection(sectionId) {
+    const schema = FIELD_SCHEMA[sectionId];
+    if (!schema) return '';
+    
+    let html = '';
+    
+    for (const [groupName, fields] of Object.entries(schema)) {
+      html += `<div class="settings-group"><h3 class="settings-group-title">${groupName}</h3>`;
+      
+      for (const field of fields) {
+        const helpHtml = field.help ? `<div class="settings-row-help">${field.help}</div>` : '';
+        let inputHtml;
+        
+        if (field.type === 'select') {
+          const options = field.options.map(opt => 
+            `<option value="${opt}"${opt === field.default ? ' selected' : ''}>${opt}</option>`
+          ).join('');
+          inputHtml = `<div class="select"><select id="${field.id}">${options}</select></div>`;
+        } else if (field.type === 'text') {
+          inputHtml = `<input class="input" type="text" id="${field.id}" value="${field.default}">`;
+        } else {
+          inputHtml = `<input class="input" type="number" id="${field.id}" value="${field.default}" min="${field.min}" max="${field.max}">`;
+        }
+        
+        html += `
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <div class="settings-row-label">${field.label}</div>
+              ${helpHtml}
+            </div>
+            <div class="settings-row-control">${inputHtml}</div>
+          </div>`;
+      }
+      
+      html += '</div>';
+    }
+    
+    return html;
+  }
+  
+  // Generate preset buttons
+  function generatePresetButtons() {
+    const container = document.getElementById('preset-buttons');
+    if (!container) return;
+    
+    container.innerHTML = '';
+    
+    for (const [key, preset] of Object.entries(PRESETS)) {
+      if (key === 'default') continue;
+      
+      const btn = document.createElement('button');
+      btn.className = 'button is-primary';
+      btn.textContent = preset.name;
+      btn.title = preset.description || '';
+      btn.onclick = () => loadPreset(key);
+      container.appendChild(btn);
+    }
+  }
+  
+  // Generate style buttons
+  function generateStyleButtons() {
+    const container = document.getElementById('style-buttons');
+    if (!container) return;
+    
+    container.innerHTML = '';
+    
+    for (const [key, style] of Object.entries(STYLES)) {
+      const btn = document.createElement('button');
+      btn.className = 'button is-info is-outlined';
+      btn.textContent = style.name;
+      btn.onclick = () => applyStyle(key);
+      container.appendChild(btn);
+    }
+  }
+  
+  // Export as Rodent personality file
+  function exportPersonality() {
+    const values = getFormValues();
+    const lines = [
+      '; Personality for Rodent IV chess engine',
+      '; ',
+      `; Name = ${values.CharacterName}`,
+      '; personality for Rodent IV chess engine',
+      `; author: ${values.Author}`,
+      `; converted by: ${values.Converter}`,
+      `; ${values.Description}`,
+      ';'
+    ];
+    
+    // Add all UCI options
+    const uciFields = getAllFieldIds().filter(id => 
+      !['CharacterName', 'Author', 'Converter', 'Description', 'GuideBookFile', 'MainBookFile'].includes(id)
+    );
+    
+    for (const id of uciFields) {
+      if (id === 'PrimaryPstStyle' || id === 'SecondaryPstStyle') {
+        const numValue = PST_STYLES[values[id]] ?? 0;
+        lines.push(`setoption name ${id} value ${numValue}`);
+      } else {
+        lines.push(`setoption name ${id} value ${values[id]}`);
+      }
+    }
+    
+    // Add book files
+    lines.push(`setoption name GuideBookFile value ${values.GuideBookFile}`);
+    lines.push(`setoption name MainBookFile value ${values.MainBookFile}`);
+    
+    downloadFile(`${values.CharacterName}.txt`, lines.join('\r\n'));
+  }
+  
+  // Export as UCI config
+  function exportUCI() {
+    const values = getFormValues();
+    const lines = [
+      '[DEFAULT]',
+      'Hash = 16',
+      'Threads = 2',
+      'UCI_LimitStrength = true',
+      'UCI_Elo = 1800',
+      '',
+      `[${values.CharacterName}]`,
+      `; ${values.CharacterName} personality for Rodent IV chess engine`,
+      `; author: ${values.Author}`,
+      `; ${values.Description}`,
+      '; '
+    ];
+    
+    // Add all UCI options
+    const uciFields = getAllFieldIds().filter(id => 
+      !['CharacterName', 'Author', 'Converter', 'Description', 'GuideBookFile', 'MainBookFile'].includes(id)
+    );
+    
+    for (const id of uciFields) {
+      if (id === 'PrimaryPstStyle' || id === 'SecondaryPstStyle') {
+        const numValue = PST_STYLES[values[id]] ?? 0;
+        lines.push(`${id} = ${numValue}`);
+      } else {
+        lines.push(`${id} = ${values[id]}`);
+      }
+    }
+    
+    // Add book files
+    lines.push(`GuideBookFile = ${values.GuideBookFile}`);
+    lines.push(`MainBookFile = ${values.MainBookFile}`);
+    
+    downloadFile('rodentIV.uci', lines.join('\n'));
+  }
+  
+  // Download a file
+  function downloadFile(filename, content) {
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+  
+  // Initialize
+  function init() {
+    // Generate form sections
+    for (const sectionId of ['weights', 'piecevalues', 'pawnstructure', 'material', 'patterns']) {
+      const container = document.getElementById(`${sectionId}-form`);
+      if (container) {
+        container.innerHTML = generateFormSection(sectionId);
+      }
+    }
+    
+    // Generate buttons
+    generatePresetButtons();
+    generateStyleButtons();
+    
+    // File upload display
+    const fileInput = document.getElementById('file-upload');
+    if (fileInput) {
+      fileInput.onchange = function() {
+        const fileName = document.getElementById('file-name');
+        if (fileName && this.files.length > 0) {
+          fileName.textContent = this.files[0].name;
+        }
+      };
+    }
+  }
+  
+  // Public API
+  return {
+    init,
+    loadPreset,
+    applyStyle,
+    exportPersonality,
+    exportUCI
+  };
+})();
 
-  </div>
-  <div class="panel-block">
-    <p>
-      Explanations of all the options can be found in the section Evaluation parameters. General ideas about
-      personalities creation are described in the document about_personalities.pdf
-      <a
-        href="https://github.com/nescitus/Rodent_III/blob/master/docs/about_personalities.pdf">https://github.com/nescitus/Rodent_III/blob/master/docs/about_personalities.pdf</a>
+// Section navigation
+function showSection(sectionId) {
+  document.querySelectorAll('.settings-section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.settings-nav-item').forEach(i => i.classList.remove('active'));
+  document.getElementById('section-' + sectionId).classList.add('active');
+  document.querySelector('[data-section="' + sectionId + '"]').classList.add('active');
+}
 
-    </p>
-  </div>
-  <div class="panel-block">
-    <p>
-      Here you can fine the official Manual to RodentIV
-      <a
-        href="https://github.com/nescitus/rodent-iv/blob/master/docs/FinalRodent.pdf">https://github.com/nescitus/rodent-iv/blob/master/docs/FinalRodent.pdf</a>
-
-    </p>
-  </div>
-</article>
+// Initialize on DOM ready
+document.addEventListener('DOMContentLoaded', RodentTuner.init);
+</script>
 
 {% endblock %}
