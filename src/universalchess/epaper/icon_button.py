@@ -331,11 +331,12 @@ class IconButtonWidget(Widget):
         # Render description below icon+label area
         if description_lines:
             desc_start_y = content_top + icon_label_height + 4  # 4px gap
+            desc_left_margin = 4  # Small left margin to prevent cutoff
             for i, desc_line in enumerate(description_lines):
                 desc_y = desc_start_y + i * description_line_height
                 self._render_text_line(
-                    sprite, desc_line, content_left, desc_y, 
-                    content_width, text_color, centered=False,
+                    sprite, desc_line, content_left + desc_left_margin, desc_y, 
+                    content_width - desc_left_margin, text_color, centered=False,
                     font_size=self.description_font_size, bold=False
                 )
     
