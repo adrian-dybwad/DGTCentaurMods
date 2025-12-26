@@ -114,27 +114,35 @@
     }
 </style>
 
+<script type=text/javascript src="{{ url_for('static', filename='js/chess.js') }}"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@2.9.4/dist/Chart.min.js"></script>
+
 <div class="analysis-container">
     <div class="analysis-board">
         {% include 'chessboard_component.html' %}
-        <script type=text/javascript src="{{ url_for('static', filename='js/chess.js') }}"></script>
-        <script src="https://cdn.jsdelivr.net/npm/chart.js@2.9.4/dist/Chart.min.js"></script>
-        <div style="padding-top:10px; margin-bottom: -25px;">
-            <canvas id="chart-game"></canvas>
-        </div>
-        <nav class="pagination" role="navigation" aria-label="pagination" style="margin-top:10px;display:none;" id="pgnnav">
-            <progress id="analysisbar" class="progress is-large" value="15" max="100">15%</progress>
-            <a class="pagination-link" onClick="showPGNFirstMove()">&lt;&lt;</a>
-            <a class="pagination-link" onClick="showPGNPreviousMove()">&lt;</a>
-            <a class="pagination-link" onClick="showPGNNextMove()">&gt;</a>
-            <a class="pagination-link" onClick="showPGNLastMove()">&gt;&gt;</a>
-        </nav>
     </div>
     
     <div class="analysis-sidebar">
+        <!-- Chart, eval bar, and controls at the top -->
+        <div style="height: 100px; margin-bottom: 0.5rem;">
+            <canvas id="chart-game"></canvas>
+        </div>
+        <nav class="pagination" role="navigation" aria-label="pagination" style="display:none; margin-bottom: 0.5rem;" id="pgnnav">
+            <progress id="analysisbar" class="progress" value="50" max="100" style="height: 0.5rem; margin-bottom: 0.5rem;">50%</progress>
+            <div style="display: flex; gap: 0.25rem;">
+                <a class="pagination-link" onClick="showPGNFirstMove()">&lt;&lt;</a>
+                <a class="pagination-link" onClick="showPGNPreviousMove()">&lt;</a>
+                <a class="pagination-link" onClick="showPGNNextMove()">&gt;</a>
+                <a class="pagination-link" onClick="showPGNLastMove()">&gt;&gt;</a>
+            </div>
+        </nav>
+        
+        <!-- Move table -->
         <div id="moveholder" class="analysis-moves"></div>
+        
+        <!-- PGN textarea -->
         <div class="analysis-pgn">
-            <textarea id="gamepgn" class="textarea" placeholder="" rows="12"></textarea>
+            <textarea id="gamepgn" class="textarea" placeholder="" rows="8"></textarea>
         </div>
     </div>
 </div>
