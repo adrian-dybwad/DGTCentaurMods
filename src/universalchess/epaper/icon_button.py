@@ -304,8 +304,11 @@ class IconButtonWidget(Widget):
         description_line_height = self.description_font_size + 2
         
         if self.description:
-            # Word-wrap description to fit content width (roughly 24 chars at font size 11)
-            chars_per_line = max(16, content_width // 7)  # Approximate chars based on width
+            # Word-wrap description to fit content width
+            # At font size 10-11, average character width is ~5-6 pixels
+            # Use font_size * 0.5 as approximate char width for proportional fonts
+            avg_char_width = max(4, self.description_font_size * 0.5)
+            chars_per_line = max(20, int(content_width / avg_char_width))
             description_lines = self._wrap_description(self.description, chars_per_line)
             description_height = len(description_lines) * description_line_height + 4  # +4 for gap
         
