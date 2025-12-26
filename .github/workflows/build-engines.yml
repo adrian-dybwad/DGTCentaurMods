@@ -120,12 +120,24 @@ jobs:
               ninja -C build/release -j2
               cp build/release/lc0 /workspace/engine-binaries/arm64/maia/lc0
               
-              # Download Maia weights
+              # Download Maia weights (human-like play at various ELO levels)
               echo "=== Downloading Maia weights ==="
               cd /workspace/engine-binaries/arm64/maia/maia_weights
               for elo in 1100 1200 1300 1400 1500 1600 1700 1800 1900; do
                 wget -q "https://github.com/CSSLab/maia-chess/releases/download/v1.0/maia-${elo}.pb.gz"
               done
+              
+              # Download Leela weights
+              mkdir -p /workspace/engine-binaries/arm64/maia/leela_weights
+              cd /workspace/engine-binaries/arm64/maia/leela_weights
+              
+              # T1-256x10 - Small/fast network optimized for CPU/low-power devices (~25MB)
+              echo "=== Downloading T1-256x10 (small/fast) ==="
+              wget -q -O t1-256x10.pb.gz "https://training.lczero.org/get_network?sha=00af53b081e80147172e6f281c01571016924e9aac89cdf6666a1cc3a4ecf5bf"
+              
+              # T80-512x15 - Medium network, good balance of strength and speed (~90MB)
+              echo "=== Downloading T80-512x15 (medium) ==="
+              wget -q -O t80-512x15.pb.gz "https://training.lczero.org/get_network?sha=c8f303a4c7e3d6e6ea07e04dc29b587eef22b4dbb3f0b0b7b1e18d4ead2e9e7f" || true
               
               echo "=== ARM64 builds complete ==="
               ls -la /workspace/engine-binaries/arm64/
@@ -246,12 +258,24 @@ jobs:
               ninja -C build/release -j2
               cp build/release/lc0 /workspace/engine-binaries/armhf/maia/lc0
               
-              # Download Maia weights
+              # Download Maia weights (human-like play at various ELO levels)
               echo "=== Downloading Maia weights ==="
               cd /workspace/engine-binaries/armhf/maia/maia_weights
               for elo in 1100 1200 1300 1400 1500 1600 1700 1800 1900; do
                 wget -q "https://github.com/CSSLab/maia-chess/releases/download/v1.0/maia-${elo}.pb.gz"
               done
+              
+              # Download Leela weights
+              mkdir -p /workspace/engine-binaries/armhf/maia/leela_weights
+              cd /workspace/engine-binaries/armhf/maia/leela_weights
+              
+              # T1-256x10 - Small/fast network optimized for CPU/low-power devices (~25MB)
+              echo "=== Downloading T1-256x10 (small/fast) ==="
+              wget -q -O t1-256x10.pb.gz "https://training.lczero.org/get_network?sha=00af53b081e80147172e6f281c01571016924e9aac89cdf6666a1cc3a4ecf5bf"
+              
+              # T80-512x15 - Medium network, good balance of strength and speed (~90MB)
+              echo "=== Downloading T80-512x15 (medium) ==="
+              wget -q -O t80-512x15.pb.gz "https://training.lczero.org/get_network?sha=c8f303a4c7e3d6e6ea07e04dc29b587eef22b4dbb3f0b0b7b1e18d4ead2e9e7f" || true
               
               echo "=== ARM32 builds complete ==="
               ls -la /workspace/engine-binaries/armhf/

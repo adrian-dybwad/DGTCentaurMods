@@ -383,6 +383,30 @@ download_weights() {
     
     log "Weights downloaded to $weights_dir"
     ls -lh "$weights_dir"
+    
+    # Download Leela weights (stronger networks)
+    log_step "Downloading Leela neural network weights"
+    
+    local leela_dir="$INSTALL_DIR/leela_weights"
+    mkdir -p "$leela_dir"
+    
+    # T1-256x10 - Small/fast network optimized for CPU/low-power devices (~25MB)
+    local t1_dest="$leela_dir/t1-256x10.pb.gz"
+    if [[ -f "$t1_dest" ]]; then
+        log "t1-256x10.pb.gz - already exists, skipping"
+    else
+        log "Downloading T1-256x10 (small/fast, ~25MB)..."
+        if wget -q --show-progress -O "$t1_dest" \
+            "https://training.lczero.org/get_network?sha=00af53b081e80147172e6f281c01571016924e9aac89cdf6666a1cc3a4ecf5bf"; then
+            log "t1-256x10.pb.gz - OK"
+        else
+            log_warn "t1-256x10.pb.gz - FAILED (continuing)"
+            rm -f "$t1_dest"
+        fi
+    fi
+    
+    log "Leela weights downloaded to $leela_dir"
+    ls -lh "$leela_dir" 2>/dev/null || true
 }
 
 # =============================================================================
@@ -396,19 +420,29 @@ show_summary() {
     echo "Maia (lc0) has been installed successfully!"
     echo ""
     echo "Binary:  $INSTALL_DIR/lc0"
-    echo "Weights: $INSTALL_DIR/maia_weights/"
     echo ""
-    echo "Available Maia rating levels:"
+    echo "=== Maia Weights (human-like play) ==="
+    echo "Location: $INSTALL_DIR/maia_weights/"
     for weight in "${MAIA_WEIGHTS[@]}"; do
         if [[ -f "$INSTALL_DIR/maia_weights/$weight" ]]; then
             local level
             level=$(echo "$weight" | sed 's/maia-\([0-9]*\).*/\1/')
-            echo "  - ELO $level: $INSTALL_DIR/maia_weights/$weight"
+            echo "  - ELO $level: maia_weights/$weight"
         fi
     done
     echo ""
-    echo "To use Maia, run:"
+    echo "=== Leela Weights (maximum strength) ==="
+    echo "Location: $INSTALL_DIR/leela_weights/"
+    if [[ -f "$INSTALL_DIR/leela_weights/t1-256x10.pb.gz" ]]; then
+        echo "  - T1-256x10 (small/fast): leela_weights/t1-256x10.pb.gz"
+    fi
+    echo ""
+    echo "Usage examples:"
+    echo "  # Human-like play at 1500 ELO:"
     echo "  $INSTALL_DIR/lc0 --weights=$INSTALL_DIR/maia_weights/maia-1500.pb.gz"
+    echo ""
+    echo "  # Maximum strength (fast network for Pi):"
+    echo "  $INSTALL_DIR/lc0 --weights=$INSTALL_DIR/leela_weights/t1-256x10.pb.gz"
     echo ""
 }
 
