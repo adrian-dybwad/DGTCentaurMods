@@ -19,9 +19,10 @@
 # This and any other notices must remain intact and unaltered in any
 # distribution, modification, variant, or derivative of this software.
 
-from flask import Flask, render_template, Response, request, redirect, send_file, abort
+from flask import Flask, render_template, Response, request, redirect, send_file, abort, stream_with_context
 from universalchess.db import models
 from universalchess.paths import get_current_fen, get_current_placement, get_resource_path
+from universalchess.services.game_broadcast import get_subscriber, GameState
 from universalchess.paths import EPAPER_STATIC_JPG
 from .chessboard import LiveBoard
 from . import centaurflask
@@ -1790,3 +1791,99 @@ def api_engine_status():
         "progress": _engine_install_state["progress"],
         "last_result": _engine_install_state["last_result"]
     })
+
+
+# -----------------------------------------------------------------------------
+# Server-Sent Events for real-time game state updates
+# -----------------------------------------------------------------------------
+
+import queue
+import threading
+
+# Thread-safe queue for SSE clients - each client gets its own queue
+_sse_clients: list[queue.Queue] = []
+_sse_clients_lock = threading.Lock()
+
+def _on_game_state_update(state: GameState) -> None:
+    """Callback invoked when game state is received from main app.
+    
+    Broadcasts the state to all connected SSE clients.
+    """
+    message = state.to_json()
+    with _sse_clients_lock:
+        for client_queue in _sse_clients:
+            try:
+                # Non-blocking put - drop if client is slow
+                client_queue.put_nowait(message)
+            except queue.Full:
+                pass  # Client is too slow, skip this update
+
+
+def _init_game_subscriber():
+    """Initialize the game state subscriber (called once on app startup)."""
+    try:
+        subscriber = get_subscriber()
+        subscriber.add_callback(_on_game_state_update)
+        subscriber.start()
+    except Exception as e:
+        # Log but don't crash - SSE is optional enhancement
+        print(f"[SSE] Failed to start game subscriber: {e}")
+
+
+# Start subscriber when module loads (Flask is already running)
+_init_game_subscriber()
+
+
+@app.route("/events")
+def sse_events():
+    """Server-Sent Events endpoint for real-time game state updates.
+    
+    Clients connect here to receive push updates when moves are made.
+    Each update contains the full game state (FEN, PGN, player names, etc).
+    
+    Usage (JavaScript):
+        const eventSource = new EventSource('/events');
+        eventSource.onmessage = (event) => {
+            const state = JSON.parse(event.data);
+            console.log('New position:', state.fen);
+            console.log('PGN:', state.pgn);
+        };
+    """
+    def generate():
+        # Create a queue for this client
+        client_queue = queue.Queue(maxsize=10)
+        
+        with _sse_clients_lock:
+            _sse_clients.append(client_queue)
+        
+        try:
+            # Send initial state if available
+            subscriber = get_subscriber()
+            last_state = subscriber.get_last_state()
+            if last_state:
+                yield f"data: {last_state.to_json()}\n\n"
+            
+            # Stream updates as they arrive
+            while True:
+                try:
+                    # Wait for next update (with timeout to detect disconnects)
+                    message = client_queue.get(timeout=30)
+                    yield f"data: {message}\n\n"
+                except queue.Empty:
+                    # Send keepalive comment to detect broken connections
+                    yield ": keepalive\n\n"
+        finally:
+            # Clean up when client disconnects
+            with _sse_clients_lock:
+                if client_queue in _sse_clients:
+                    _sse_clients.remove(client_queue)
+    
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        }
+    )

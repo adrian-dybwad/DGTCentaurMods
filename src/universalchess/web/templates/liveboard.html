@@ -1,9 +1,50 @@
-{# Live board component - displays current board state with auto-refresh #}
+{# Live board component - displays current board state with real-time updates via SSE #}
 
 {% include 'chessboard_component.html' %}
 
 <script>
-// Live FEN updates
+// Real-time game state updates via Server-Sent Events
+let gameEventSource = null;
+let lastGameState = null;
+
+function initGameEventSource() {
+    if (gameEventSource) {
+        gameEventSource.close();
+    }
+    
+    gameEventSource = new EventSource('/events');
+    
+    gameEventSource.onmessage = function(event) {
+        try {
+            const state = JSON.parse(event.data);
+            lastGameState = state;
+            
+            // Update board position
+            if (state.fen && state.fen !== board1Fen) {
+                board1Fen = state.fen;
+                board1.position(state.fen);
+            }
+            
+            // Update PGN textarea if it exists
+            const pgnTextarea = document.getElementById('lastpgn');
+            if (pgnTextarea && state.pgn) {
+                pgnTextarea.value = state.pgn;
+            }
+            
+            // Dispatch custom event for other components to listen to
+            window.dispatchEvent(new CustomEvent('gameStateUpdate', { detail: state }));
+        } catch (e) {
+            console.error('Error parsing game state:', e);
+        }
+    };
+    
+    gameEventSource.onerror = function(event) {
+        console.log('SSE connection error, will reconnect...');
+        // EventSource auto-reconnects, but we can add custom logic here if needed
+    };
+}
+
+// Fallback polling for when SSE is not available
 function getLiveFen() {
     fetch('/fen')
         .then(response => response.text())
@@ -16,11 +57,23 @@ function getLiveFen() {
         .catch(() => {});
 }
 
-setInterval(getLiveFen, 2000);
-
-window.onload = function() {
+// Initialize SSE on page load, with polling fallback
+window.addEventListener('load', function() {
     board1.resize();
-    if (typeof showLastPGN === 'function') showLastPGN();
-    if (typeof showLastGames === 'function') showLastGames();
-}
+    
+    // Try SSE first
+    if (typeof EventSource !== 'undefined') {
+        initGameEventSource();
+    } else {
+        // Fallback to polling for older browsers
+        setInterval(getLiveFen, 2000);
+    }
+});
+
+// Clean up on page unload
+window.addEventListener('beforeunload', function() {
+    if (gameEventSource) {
+        gameEventSource.close();
+    }
+});
 </script>

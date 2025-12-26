@@ -1,10 +1,14 @@
 """
 Chess game service.
 
-Manages game lifecycle, coordinates with ChessGameState, and writes FEN log.
+Manages game lifecycle, coordinates with ChessGameState, and broadcasts
+game state to web clients via Unix socket.
 """
 
 from typing import Optional
+import chess
+import chess.pgn
+import io
 
 try:
     from universalchess.board.logging import log
@@ -13,7 +17,9 @@ except ImportError:
     log = logging.getLogger(__name__)
 
 from universalchess.state import get_chess_game as get_game_state
+from universalchess.state import get_players_state
 from universalchess.paths import write_fen_log
+from universalchess.services.game_broadcast import broadcast_game_state
 
 
 class ChessGameService:
@@ -117,15 +123,76 @@ class ChessGameService:
         self._state.set_position(fen)
     
     # -------------------------------------------------------------------------
+    # PGN generation
+    # -------------------------------------------------------------------------
+    
+    def get_pgn(self) -> str:
+        """Generate PGN string for the current game.
+        
+        Returns:
+            PGN formatted string of the current game.
+        """
+        try:
+            game = chess.pgn.Game()
+            
+            # Get player names from state
+            players = get_players_state()
+            game.headers["White"] = players.white_name
+            game.headers["Black"] = players.black_name
+            
+            # Set result if game is over
+            if self._state.is_game_over:
+                result = self._state.result
+                if result:
+                    game.headers["Result"] = result
+            
+            # Replay moves from the board's move stack
+            node = game
+            board = chess.Board()
+            for move in self._state.move_stack:
+                node = node.add_variation(move)
+                board.push(move)
+            
+            # Export to string
+            exporter = chess.pgn.StringExporter(headers=True, variations=False, comments=False)
+            return game.accept(exporter)
+        except Exception as e:
+            log.debug(f"[ChessGameService] Error generating PGN: {e}")
+            return ""
+    
+    # -------------------------------------------------------------------------
     # Internal
     # -------------------------------------------------------------------------
     
     def _on_position_change(self) -> None:
-        """Called when position changes. Writes FEN log for external consumers."""
+        """Called when position changes. Writes FEN log and broadcasts to web."""
+        fen = self._state.fen
+        
+        # Write FEN log for backwards compatibility (Chromecast, etc)
         try:
-            write_fen_log(self._state.fen)
+            write_fen_log(fen)
         except Exception as e:
             log.debug(f"[ChessGameService] Error writing FEN log: {e}")
+        
+        # Broadcast full game state to web clients
+        try:
+            players = get_players_state()
+            move_stack = self._state.move_stack
+            last_move = move_stack[-1].uci() if move_stack else None
+            
+            broadcast_game_state(
+                fen=fen,
+                pgn=self.get_pgn(),
+                turn="w" if self._state.turn == chess.WHITE else "b",
+                move_number=(len(move_stack) // 2) + 1,
+                last_move=last_move,
+                game_over=self._state.is_game_over,
+                result=self._state.result,
+                white=players.white_name,
+                black=players.black_name,
+            )
+        except Exception as e:
+            log.debug(f"[ChessGameService] Error broadcasting game state: {e}")
 
 
 # -----------------------------------------------------------------------------

@@ -128,6 +128,8 @@ def write_fen_log(fen: str) -> None:
     Args:
         fen: FEN string to write
     """
+    import os
+    os.makedirs(os.path.dirname(FEN_LOG), exist_ok=True)
     with open(FEN_LOG, "w", encoding="utf-8") as f:
         f.write(fen)
 

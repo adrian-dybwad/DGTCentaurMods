@@ -244,6 +244,13 @@ fi
 }
 
 # Install Stockfish from system package and create symlink
+# Create required directories
+echo -e "::: Creating required directories"
+mkdir -p "${DGTCM_PATH}/tmp"
+mkdir -p "${DGTCM_PATH}/db"
+mkdir -p "${DGTCM_PATH}/config"
+chown -R pi:pi "${DGTCM_PATH}" 2>/dev/null || true
+
 # This ensures we get the correct architecture binary automatically
 echo -e "::: Setting up Stockfish engine"
 ENGINES_DIR="${DGTCM_PATH}/engines"
