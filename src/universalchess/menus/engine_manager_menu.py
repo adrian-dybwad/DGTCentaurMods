@@ -243,11 +243,16 @@ def handle_engine_manager_menu(
             icon = "checkbox_checked" if installed else "checkbox_empty"
             est_minutes = engine.get("estimated_install_minutes", 5)
             summary = engine.get("summary", "")
+            description = engine.get("description", "")
+            
+            # Create a short teaser from the full description (first ~60 chars)
+            teaser = description[:60] + "..." if len(description) > 60 else description
 
+            # Label includes name, summary, and install time
             if installed:
-                label = engine["display_name"]
+                label = f"{engine['display_name']} - {summary}"
             else:
-                label = f"{engine['display_name']} (~{est_minutes}m)"
+                label = f"{engine['display_name']} (~{est_minutes}m) - {summary}"
 
             entries.append(
                 IconMenuEntry(
@@ -258,8 +263,8 @@ def handle_engine_manager_menu(
                     selectable=True,
                     height_ratio=2.0,
                     layout="horizontal",
-                    font_size=12,
-                    description=summary,
+                    font_size=11,
+                    description=teaser,
                     description_font_size=10,
                 )
             )
