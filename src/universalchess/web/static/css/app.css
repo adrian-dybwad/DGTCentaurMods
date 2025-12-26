@@ -95,7 +95,7 @@ body {
       rgba(255,255,255,0.1) 0%, 
       rgba(255,255,255,0.05) 50%, 
       rgba(0,0,0,0.1) 100%),
-    linear-gradient(135deg, #6b4c9a 0%, #4a2c7a 50%, #3d1f6d 100%);
+    linear-gradient(135deg, #aa44aa 0%, #8a3490 50%, #6a2475 100%);
   box-shadow: 
     var(--shadow-md),
     inset 0 1px 0 rgba(255,255,255,0.2),
@@ -171,7 +171,7 @@ body {
 
 @media screen and (max-width: 1023px) {
   .navbar-menu {
-    background: linear-gradient(135deg, #5a3d8a 0%, #4a2c7a 100%);
+    background: linear-gradient(135deg, #aa44aa 0%, #8a3490 100%);
     box-shadow: var(--shadow-md);
   }
 }
@@ -263,7 +263,7 @@ body {
 .settings-nav-item.active {
   background: rgba(107, 76, 154, 0.12);
   color: #5a3d8a;
-  border-left-color: #6b4c9a;
+  border-left-color: #aa44aa;
   font-weight: 600;
 }
 
@@ -279,7 +279,7 @@ body {
 }
 
 .settings-nav-item.active .nav-icon {
-  color: #6b4c9a;
+  color: #aa44aa;
 }
 
 .settings-content {
@@ -447,7 +447,7 @@ body {
 }
 
 .toggle-switch input:checked + .toggle-slider {
-  background-color: #6b4c9a;
+  background-color: #aa44aa;
   border-color: #5a3d8a;
 }
 

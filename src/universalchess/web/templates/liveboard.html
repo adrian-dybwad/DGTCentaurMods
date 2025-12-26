@@ -1,48 +1,26 @@
-<div id="liveboard-container">
-    <style>
-        #liveboard-container {
-            max-width: 100%;
-        }
-        #board1 {
-            width: 100%;
-            max-width: 600px;
-        }
-        .white-1e1d7 { background-color: #f0d9b5; color: #131313 }
-        .black-3c85d { background-color: #b58863; color: #131313 }
-    </style>
-    <div id='board1'></div>
-    <script src="{{ url_for('static', filename='js/jquery-3.4.1.min.js') }}"></script>
-    <script type=text/javascript src="{{ url_for('static', filename='chessboardjs/js/chessboard-1.0.0.min.js') }}"></script>
-    <script>
-    var currentFen = '{{ fen }}'
-    var config = {
-        position: currentFen,
-        pieceTheme: "{{ url_for('piece_svg', piece_code='wK') }}".replace("wK.svg", "{piece}.svg")
-    }
-    var board1 = Chessboard('board1', config)
-    
-    function getFen() {
-        fetch('/fen')
-            .then(response => response.text())
-            .then(fen => {
-                if (fen && fen !== currentFen) {
-                    currentFen = fen;
-                    board1.position(fen);
-                }
-            })
-            .catch(() => {});
-    }
-    
-    setInterval(getFen, 2000);
-    
-    window.addEventListener('resize', function() {
-        board1.resize();
-    });
-    
-    window.onload = function() {
-        board1.resize();
-        if (typeof showLastPGN === 'function') showLastPGN();
-        if (typeof showLastGames === 'function') showLastGames();
-    }
-    </script>
-</div>
+{# Live board component - displays current board state with auto-refresh #}
+
+{% include 'chessboard_component.html' %}
+
+<script>
+// Live FEN updates
+function getLiveFen() {
+    fetch('/fen')
+        .then(response => response.text())
+        .then(fen => {
+            if (fen && fen !== board1Fen) {
+                board1Fen = fen;
+                board1.position(fen);
+            }
+        })
+        .catch(() => {});
+}
+
+setInterval(getLiveFen, 2000);
+
+window.onload = function() {
+    board1.resize();
+    if (typeof showLastPGN === 'function') showLastPGN();
+    if (typeof showLastGames === 'function') showLastGames();
+}
+</script>
