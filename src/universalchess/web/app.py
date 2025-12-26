@@ -1605,6 +1605,41 @@ def api_get_engines():
         return json.dumps([{"name": "stockfish", "display_name": "Stockfish", "installed": True}])
 
 
+@app.route("/api/engines/<engine_name>/levels", methods=["GET"])
+def api_get_engine_levels(engine_name):
+    """Get ELO levels and personalities for an engine from its .uci file."""
+    try:
+        import configparser
+        import pathlib
+        
+        # Look for .uci file in config or defaults directories
+        uci_paths = [
+            pathlib.Path("/opt/universalchess/config/engines") / f"{engine_name}.uci",
+            pathlib.Path(__file__).parent.parent / "defaults" / "engines" / f"{engine_name}.uci",
+        ]
+        
+        uci_path = None
+        for path in uci_paths:
+            if path.exists():
+                uci_path = path
+                break
+        
+        if not uci_path:
+            return json.dumps(["Default"])
+        
+        config = configparser.ConfigParser()
+        config.read(str(uci_path))
+        
+        levels = ["Default"]
+        for section in config.sections():
+            if section != "DEFAULT":
+                levels.append(section)
+        
+        return json.dumps(levels)
+    except Exception as e:
+        return json.dumps(["Default"])
+
+
 @app.route("/api/engines/all", methods=["GET"])
 def api_get_all_engines():
     """Get full details of all engines for management UI."""

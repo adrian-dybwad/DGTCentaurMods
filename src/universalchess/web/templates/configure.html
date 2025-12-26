@@ -107,7 +107,7 @@
             </div>
             <div class="settings-row-control">
               <div class="select">
-                <select id="player1-engine" onchange="markChanged()">
+                <select id="player1-engine" onchange="onEngineChange(1)">
                   <option value="stockfish">Stockfish</option>
                 </select>
               </div>
@@ -116,8 +116,8 @@
           
           <div class="settings-row" id="player1-elo-row">
             <div class="settings-row-info">
-              <div class="settings-row-label">ELO Level</div>
-              <div class="settings-row-help">Engine strength setting</div>
+              <div class="settings-row-label">ELO / Style</div>
+              <div class="settings-row-help">Engine strength or personality (e.g., Attacker, Positional)</div>
             </div>
             <div class="settings-row-control">
               <div class="select">
@@ -181,7 +181,7 @@
             </div>
             <div class="settings-row-control">
               <div class="select">
-                <select id="player2-engine" onchange="markChanged()">
+                <select id="player2-engine" onchange="onEngineChange(2)">
                   <option value="stockfish">Stockfish</option>
                 </select>
               </div>
@@ -190,8 +190,8 @@
           
           <div class="settings-row" id="player2-elo-row">
             <div class="settings-row-info">
-              <div class="settings-row-label">ELO Level</div>
-              <div class="settings-row-help">Engine strength setting</div>
+              <div class="settings-row-label">ELO / Style</div>
+              <div class="settings-row-help">Engine strength or personality (e.g., Attacker, Positional)</div>
             </div>
             <div class="settings-row-control">
               <div class="select">
@@ -687,12 +687,15 @@
       .catch(err => console.error('Failed to load settings:', err));
   }
   
-  function applySettingsToForm(data) {
+  async function applySettingsToForm(data) {
     // Player 1
     if (data.PlayerOne) {
       setSelectValue('player1-type', data.PlayerOne.type || 'human');
       document.getElementById('player1-name').value = data.PlayerOne.name || '';
-      setSelectValue('player1-engine', data.PlayerOne.engine || 'stockfish');
+      const p1Engine = data.PlayerOne.engine || 'stockfish';
+      setSelectValue('player1-engine', p1Engine);
+      // Load ELO levels for this engine, then set the value
+      await loadEngineLevelsAsync(p1Engine, 'player1-elo');
       setSelectValue('player1-elo', data.PlayerOne.elo || 'Default');
       setSelectValue('player1-hb-mode', data.PlayerOne.hand_brain_mode || 'normal');
     }
@@ -701,7 +704,10 @@
     if (data.PlayerTwo) {
       setSelectValue('player2-type', data.PlayerTwo.type || 'engine');
       document.getElementById('player2-name').value = data.PlayerTwo.name || '';
-      setSelectValue('player2-engine', data.PlayerTwo.engine || 'stockfish');
+      const p2Engine = data.PlayerTwo.engine || 'stockfish';
+      setSelectValue('player2-engine', p2Engine);
+      // Load ELO levels for this engine, then set the value
+      await loadEngineLevelsAsync(p2Engine, 'player2-elo');
       setSelectValue('player2-elo', data.PlayerTwo.elo || 'Default');
       setSelectValue('player2-hb-mode', data.PlayerTwo.hand_brain_mode || 'normal');
     }
@@ -899,6 +905,68 @@
         });
       })
       .catch(err => console.error('Failed to load engines:', err));
+  }
+  
+  // Load ELO levels/personalities for an engine
+  function loadEngineLevels(engineName, selectId) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    
+    // Store current value to restore if possible
+    const currentValue = select.value;
+    
+    fetch(`/api/engines/${engineName}/levels`)
+      .then(response => response.json())
+      .then(levels => {
+        select.innerHTML = '';
+        levels.forEach(level => {
+          const option = document.createElement('option');
+          option.value = level;
+          option.textContent = level;
+          select.appendChild(option);
+        });
+        
+        // Restore previous selection if it still exists
+        if (levels.includes(currentValue)) {
+          select.value = currentValue;
+        }
+      })
+      .catch(err => {
+        console.error('Failed to load engine levels:', err);
+        select.innerHTML = '<option value="Default">Default</option>';
+      });
+  }
+  
+  // Handle engine selection change - load corresponding ELO levels
+  function onEngineChange(playerNum) {
+    const engineSelect = document.getElementById(`player${playerNum}-engine`);
+    const eloSelectId = `player${playerNum}-elo`;
+    if (engineSelect) {
+      loadEngineLevels(engineSelect.value, eloSelectId);
+    }
+    markChanged();
+  }
+  
+  // Async version of loadEngineLevels for use during form initialization
+  async function loadEngineLevelsAsync(engineName, selectId) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    
+    try {
+      const response = await fetch(`/api/engines/${engineName}/levels`);
+      const levels = await response.json();
+      
+      select.innerHTML = '';
+      levels.forEach(level => {
+        const option = document.createElement('option');
+        option.value = level;
+        option.textContent = level;
+        select.appendChild(option);
+      });
+    } catch (err) {
+      console.error('Failed to load engine levels:', err);
+      select.innerHTML = '<option value="Default">Default</option>';
+    }
   }
   
   // Load full engine list for management
