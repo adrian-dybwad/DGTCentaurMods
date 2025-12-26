@@ -36,8 +36,6 @@ See **[docs/releasing.md](../docs/releasing.md)** for complete documentation.
 |--------|---------|
 | `build.sh` | Build the .deb package |
 | `rebuild.sh` | Full rebuild cycle: purge, build, install, restart |
-| `setup.sh` | Initial device setup (configs, resources) |
-| `reset.sh` | Reset device to clean state |
 
 ## Running
 
@@ -54,21 +52,6 @@ See **[docs/releasing.md](../docs/releasing.md)** for complete documentation.
 - Clean only: `./build.sh clean`
 
 Resulting `.deb` files are in `scripts/releases/`.
-
-## Reset the Pi before building/installing
-
-Run the reset script on the target Pi to purge any previous installation and revert system changes. Requires root.
-
-```bash
-# Interactive (prompts before removing /opt if non-project files exist)
-sudo bash scripts/reset.sh
-
-# Non-interactive (auto-approve)
-sudo bash scripts/reset.sh --yes
-
-# Dry-run (print actions without executing)
-sudo bash scripts/reset.sh --dry-run
-```
 
 ## Web smoke test
 

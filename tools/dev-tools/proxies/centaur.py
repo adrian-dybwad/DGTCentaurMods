@@ -9,7 +9,7 @@ Useful to monitor traffic to and from the real centaur software.
 
 Example:
 1) In one ssh session, start this script:
-    cd ~/DGTCentaurMods/tools/dev-tools/proxies
+    cd tools/dev-tools/proxies
     python centaur.py
 2) In another ssh session, start the real centaur software:
     cd ~/centaur # or wherever the centaur binary is

@@ -73,9 +73,6 @@ See the install procedure in the release page for the target device image/packag
 ## Local development setup (configs and database)
 
 - Active config is read from `/opt/universalchess/config/centaur.ini`. A default template is tracked at `packaging/deb-root/opt/universalchess/defaults/config/centaur.ini`.
-- To prepare a dev device quickly, run `scripts/setup.sh` on the Pi. It will:
-  - Ensure `/opt/universalchess/config/centaur.ini` exists, copying from `defaults/config/centaur.ini` if missing.
-  - Copy resources to `/opt/universalchess/resources/`.
 - The SQLite database is created at runtime at `/opt/universalchess/db/centaur.db` on first run; it is not tracked in git.
  - The current FEN position is written to `/opt/universalchess/tmp/fen.log` by runtime services.
 

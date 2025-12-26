@@ -165,39 +165,22 @@ sudo usermod -a -G bluetooth pi
 ##### Enable systemd services.
 echo -e "::: Setup services"
     systemctl daemon-reload
+
     echo -e "::: Disabling rfcomm.service (application manages RFCOMM in Python)"
     systemctl disable rfcomm.service 2>/dev/null || true
+
+    echo -e "::: Stopping rfcomm.service"
     systemctl stop rfcomm.service 2>/dev/null || true
-    # Migrate web service name: stop/disable old unit, remove file if present
-    if systemctl list-unit-files | grep -q '^centaurmods-web.service'; then
-        systemctl stop centaurmods-web.service 2>/dev/null || true
-        systemctl disable centaurmods-web.service 2>/dev/null || true
-    fi
-    if [ -e /etc/systemd/system/centaurmods-web.service ]; then
-        rm -f /etc/systemd/system/centaurmods-web.service
-        systemctl daemon-reload
-    fi
-    # Cleanup legacy services
-    # stopDGTController.service - old name for shutdown service
-    systemctl stop stopDGTController.service 2>/dev/null || true
-    systemctl disable stopDGTController.service 2>/dev/null || true
-    if [ -e /etc/systemd/system/stopDGTController.service ]; then
-        rm -f /etc/systemd/system/stopDGTController.service
-        systemctl daemon-reload
-    fi
+
+    echo -e "::: Enabling universal-chess-web.service"
     systemctl enable universal-chess-web.service
+
+    echo -e "::: Enabling universal-chess.service"
     systemctl enable universal-chess.service
     # universal-chess-stop-controller.service - fallback shutdown hook for when main service isn't running
     # The main service disables this on startup and re-enables on non-shutdown exit
     systemctl enable universal-chess-stop-controller.service
 
-    # Migrate previous unit names (stop/disable best effort; files may or may not exist)
-    systemctl stop DGTCentaurModsWeb.service 2>/dev/null || true
-    systemctl disable DGTCentaurModsWeb.service 2>/dev/null || true
-    systemctl stop DGTCentaurMods.service 2>/dev/null || true
-    systemctl disable DGTCentaurMods.service 2>/dev/null || true
-    systemctl stop DGTStopController.service 2>/dev/null || true
-    systemctl disable DGTStopController.service 2>/dev/null || true
 #    systemctl enable ntp
     systemctl enable var-run-sdp.path
     systemctl enable var-run-sdp.service
@@ -303,7 +286,7 @@ fi
 #echo -e "::: Installing python packages."
 #    cd $DGTCM_PATH
 #    CFLAGS="-fcommon" pip3 install -r $DGTCM_PATH/setup/requirements.txt
-echo -e "::: Installing python packages (trixie-safe)"
+echo -e "::: Installing python packages"
 
 export DEBIAN_FRONTEND=noninteractive
 

@@ -1,4 +1,4 @@
-# CentaurMods Web Service Setup
+# Universal Chess Web Service Setup
 
 ## Overview
 The web service runs Flask on port 5000 (non-privileged) and uses nginx to proxy requests from port 80.
@@ -10,11 +10,11 @@ The web service runs Flask on port 5000 (non-privileged) and uses nginx to proxy
 - **Changes**: Updated to run Flask on port 5000 instead of port 80
 
 ### 2. Nginx Configuration
-- **File**: `packaging/deb-root/etc/nginx/sites-available/centaurmods-web`
+- **File**: `packaging/deb-root/etc/nginx/sites-available/universal-chess-web`
 - **Purpose**: Proxies requests from port 80 to Flask running on port 5000
 
 ### 3. Setup Script
-- **File**: `DGTCentaurMods/scripts/enable-web-proxy.sh`
+- **File**: `src/universalchess/scripts/enable-web-proxy.sh`
 - **Purpose**: Enables the nginx site and reloads nginx
 
 ## Installation Steps
@@ -26,13 +26,13 @@ The web service runs Flask on port 5000 (non-privileged) and uses nginx to proxy
 
 2. **Copy nginx configuration**:
    ```bash
-   sudo cp packaging/deb-root/etc/nginx/sites-available/centaurmods-web /etc/nginx/sites-available/
+   sudo cp packaging/deb-root/etc/nginx/sites-available/universal-chess-web /etc/nginx/sites-available/
    ```
 
 3. **Enable nginx site**:
    ```bash
-   sudo chmod +x DGTCentaurMods/scripts/enable-web-proxy.sh
-   sudo ./DGTCentaurMods/scripts/enable-web-proxy.sh
+   sudo chmod +x src/universalchess/scripts/enable-web-proxy.sh
+   sudo ./src/universalchess/scripts/enable-web-proxy.sh
    ```
 
 4. **Reload systemd and start services**:
@@ -52,7 +52,7 @@ The web service runs Flask on port 5000 (non-privileged) and uses nginx to proxy
 
 ## Logs
 
-- **Flask logs**: `/var/log/centaurmods-web.log`
+- **Flask logs**: `/var/log/universal-chess-web.log`
 - **Nginx logs**: `/var/log/nginx/access.log` and `/var/log/nginx/error.log`
 
 ## Service Management
@@ -62,7 +62,7 @@ The web service runs Flask on port 5000 (non-privileged) and uses nginx to proxy
 sudo systemctl status universal-chess-web.service
 
 # View Flask logs
-sudo tail -f /var/log/centaurmods-web.log
+sudo tail -f /var/log/universal-chess-web.log
 
 # View nginx logs
 sudo tail -f /var/log/nginx/access.log
