@@ -58,27 +58,49 @@ jobs:
           name: release-artifacts
           path: ./artifacts
       
+      - name: Extract changelog for version
+        id: changelog
+        run: |
+          VERSION="${{ needs.build.outputs.version }}"
+          
+          # Extract the section for this version from CHANGELOG.md
+          awk "/^## \[${VERSION}\]/{found=1; next} /^## \[/{found=0} found" CHANGELOG.md > changelog_section.md
+          
+          # Build release notes
+          cat > release_notes.md << 'EOF'
+          ## Installation
+          
+          Download the `.deb` file and install on your Raspberry Pi:
+          
+          ```bash
+          sudo dpkg -i universal-chess_${{ needs.build.outputs.version }}_all.deb
+          sudo apt-get install -f  # Install any missing dependencies
+          ```
+          
+          ## Verify Download
+          
+          ```bash
+          sha256sum -c SHA256SUMS.txt
+          ```
+          
+          ---
+          
+          EOF
+          
+          # Append changelog section if it exists
+          if [ -s changelog_section.md ]; then
+            cat changelog_section.md >> release_notes.md
+          else
+            echo "See [CHANGELOG.md](https://github.com/adrian-dybwad/Universal-Chess/blob/main/CHANGELOG.md) for full details." >> release_notes.md
+          fi
+      
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: Universal Chess v${{ needs.build.outputs.version }}
-          generate_release_notes: true
+          generate_release_notes: false
           files: |
             artifacts/*.deb
             artifacts/SHA256SUMS.txt
-          body: |
-            ## Installation
-            
-            Download the `.deb` file and install on your Raspberry Pi:
-            
-            ```bash
-            sudo dpkg -i universal-chess_${{ needs.build.outputs.version }}_all.deb
-            sudo apt-get install -f  # Install any missing dependencies
-            ```
-            
-            ## Verify Download
-            
-            ```bash
-            sha256sum -c SHA256SUMS.txt
-            ```
+          body_path: release_notes.md
 
