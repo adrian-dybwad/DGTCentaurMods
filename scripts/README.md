@@ -2,6 +2,34 @@
 
 Build, development, and utility scripts for Universal-Chess.
 
+## Quick Reference
+
+| Task | Command |
+|------|---------|
+| **Create a release** | `./release.sh` |
+| **Build .deb package** | `./build.sh` |
+| **Bump version** | `./bump-version.sh patch` |
+| **Check for updates** | `./check-updates.sh` |
+| **Run the app** | `./run.sh` |
+
+## Release & Versioning
+
+| Script | Purpose |
+|--------|---------|
+| `release.sh` | Interactive release workflow (see [docs/releasing.md](../docs/releasing.md)) |
+| `bump-version.sh` | Bump version in DEBIAN/control |
+| `check-updates.sh` | Check GitHub for new releases |
+
+**Creating a release:**
+```bash
+./release.sh           # Interactive mode
+./release.sh patch     # Quick patch release (2.0.0 -> 2.0.1)
+./release.sh minor     # Quick minor release (2.0.0 -> 2.1.0)
+./release.sh 2.1.0     # Explicit version
+```
+
+See **[docs/releasing.md](../docs/releasing.md)** for complete documentation.
+
 ## Build Scripts
 
 | Script | Purpose |
@@ -68,15 +96,35 @@ chmod +x rebuild.sh  # first time only
 | Directory | Purpose |
 |-----------|---------|
 | `engines/` | Engine build scripts (build-maia.sh, etc.) |
-| `vm-setup/` | VM setup for Mac development |
+| `vm-setup/` | VM development environment setup |
 | `config/` | Build configuration |
 | `releases/` | Built .deb artifacts (gitignored) |
+
+## Debugging & Development
+
+| Script | Purpose |
+|--------|---------|
+| `probe.sh` | Probe board hardware |
+| `board_probe.sh` | Low-level board diagnostics |
+| `proxy.sh` | Serial proxy for debugging |
+| `monitor_centaur_serial.py` | Monitor serial communication |
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [docs/releasing.md](../docs/releasing.md) | Complete release process guide |
+| [docs/architecture.md](../docs/architecture.md) | System architecture overview |
+| [vm-setup/README.md](vm-setup/README.md) | VM development setup |
+| [build-info.md](build-info.md) | Build system details |
 
 ## CI/CD
 
 CI/CD is handled by GitHub Actions. See `.github/workflows/`:
 
-- `test.yml` - Run tests on push/PR
-- `build.yml` - Build .deb package
-- `release.yml` - Create GitHub releases
-- `nightly.yml` - Automated nightly builds
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `test.yml` | Push, PR | Run tests (Python 3.9, 3.11, 3.13) |
+| `release.yml` | Tag `v*` | Build package, create GitHub release |
+| `nightly.yml` | Daily, push to main | Nightly pre-release builds |
+| `build.yml` | Manual | Build package without release |
