@@ -143,19 +143,38 @@
   
   // Parse PGN and queue all positions for analysis
   function replayPgnForAnalysis(pgn) {
-    if (!pgn || pgn === lastSeenPgn) return;
+    console.log('[Analysis] replayPgnForAnalysis called, pgn length:', pgn ? pgn.length : 0);
+    if (!pgn || pgn === lastSeenPgn) {
+      console.log('[Analysis] Skipping - no pgn or same as last');
+      return;
+    }
     lastSeenPgn = pgn;
     
     try {
+      // Check if Chess is defined
+      if (typeof Chess === 'undefined') {
+        console.error('[Analysis] Chess.js not loaded!');
+        return;
+      }
+      
       const chess = new Chess();
+      console.log('[Analysis] Created Chess instance');
+      
       const loaded = chess.load_pgn(pgn);
+      console.log('[Analysis] load_pgn result:', loaded);
+      
       if (!loaded) {
-        console.log('Could not parse PGN for replay');
+        console.log('[Analysis] Could not parse PGN:', pgn.substring(0, 200));
         return;
       }
       
       const moves = chess.history();
-      if (moves.length === 0) return;
+      console.log('[Analysis] Game has', moves.length, 'moves:', moves);
+      
+      if (moves.length === 0) {
+        console.log('[Analysis] No moves found in PGN');
+        return;
+      }
       
       // Reset and replay to get FEN at each position
       chess.reset();
@@ -173,23 +192,27 @@
         }
       }
       
+      console.log('[Analysis] Queued', analysisQueue.length, 'positions for analysis');
+      
       // Start processing queue if not already
       if (analysisQueue.length > 0 && !isProcessingQueue) {
         processNextInQueue();
       }
     } catch (e) {
-      console.error('Error replaying PGN:', e);
+      console.error('[Analysis] Error replaying PGN:', e);
     }
   }
   
   function processNextInQueue() {
     if (analysisQueue.length === 0) {
       isProcessingQueue = false;
+      console.log('[Analysis] Queue processing complete');
       return;
     }
     
     isProcessingQueue = true;
     const next = analysisQueue.shift();
+    console.log('[Analysis] Analyzing queued position', next.moveNum, 'remaining:', analysisQueue.length);
     analyzePositionQueued(next.fen, next.moveNum);
   }
   
@@ -379,9 +402,15 @@
     `;
     
     // On first connect with an existing game, replay the PGN to populate history
-    if (state.pgn && !hasReplayedCurrentGame && moveNum > 1) {
-      hasReplayedCurrentGame = true;
-      replayPgnForAnalysis(state.pgn);
+    // Check if PGN has actual moves (contains move notation like "1." or move text)
+    if (state.pgn && !hasReplayedCurrentGame) {
+      // Check if PGN contains actual moves (not just headers)
+      const hasMoves = state.pgn.match(/\d+\.\s*[KQRBNP]?[a-h]?[1-8]?x?[a-h][1-8]/);
+      if (hasMoves) {
+        hasReplayedCurrentGame = true;
+        console.log('[Analysis] Replaying existing game PGN');
+        replayPgnForAnalysis(state.pgn);
+      }
     }
     
     // Trigger analysis on new position (live move)
