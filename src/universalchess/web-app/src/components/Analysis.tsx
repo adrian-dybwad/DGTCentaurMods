@@ -273,26 +273,33 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
     return 'progress is-warning';
   })();
 
-  // Chart data
+  // Chart data - evaluations for each move after the start position
+  // The chart shows one point per move, with the evaluation from white's perspective
+  const analyzedMoves = moves.slice(1);  // Skip start position
+  const chartLabels = analyzedMoves.map((_, i) => String(i + 1));
+  const chartEvals = analyzedMoves.map((m) => {
+    if (m.eval === null) return 0;  // Show 0 for unanalyzed instead of null (avoids gaps)
+    return Math.max(-500, Math.min(500, m.eval));
+  });
+
   const chartData = {
-    labels: moves.slice(1).map((_, i) => i + 1),
+    labels: chartLabels,
     datasets: [
       {
         label: 'Eval',
-        data: moves.slice(1).map((m) => {
-          if (m.eval === null) return null;
-          return Math.max(-500, Math.min(500, m.eval));
-        }),
+        data: chartEvals,
         fill: true,
         borderColor: 'rgb(150, 150, 150)',
-        borderWidth: 1,
+        borderWidth: 2,
         tension: 0.4,
         backgroundColor: 'rgba(150, 150, 150, 0.3)',
-        pointRadius: moves.slice(1).map((_, i) => i + 1 === movePos ? 6 : 3),
-        pointBackgroundColor: moves.slice(1).map((_, i) =>
+        pointRadius: analyzedMoves.map((_, i) => i + 1 === movePos ? 6 : 3),
+        pointBackgroundColor: analyzedMoves.map((_, i) =>
           i + 1 === movePos ? '#aa44aa' : 'rgba(255, 255, 255, 1)'
         ),
-        spanGaps: true,
+        pointBorderColor: analyzedMoves.map((_, i) =>
+          i + 1 === movePos ? '#aa44aa' : 'rgb(150, 150, 150)'
+        ),
       },
     ],
   };
@@ -300,6 +307,9 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
+    animation: {
+      duration: 0,  // Disable animations for faster updates
+    },
     plugins: {
       legend: { display: false },
       title: { display: false },
@@ -316,15 +326,20 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
     },
     scales: {
       y: {
+        type: 'linear' as const,
         min: -500,
         max: 500,
         ticks: {
           stepSize: 250,
-          callback: (value: number) => (value / 100).toFixed(0),
+          callback: function(tickValue: string | number) {
+            const value = typeof tickValue === 'number' ? tickValue : parseFloat(tickValue);
+            return (value / 100).toFixed(0);
+          },
         },
         grid: { color: 'rgba(200,200,200,0.3)' },
       },
       x: {
+        type: 'category' as const,
         display: false,
         grid: { display: false },
       },
