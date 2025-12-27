@@ -26,6 +26,9 @@ export function LiveBoard() {
   // Track when arrows should be delayed (after position navigation)
   const arrowDelayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shouldDelayArrowsRef = useRef(false);
+  // Track if initial position has been set (to avoid clearing arrows on initial load)
+  const hasInitialPositionRef = useRef(false);
+  const lastPositionRef = useRef<{ moveIndex: number; totalMoves: number } | null>(null);
   
   // Best move visibility for latest position - defaults to hidden, persisted in localStorage
   const [showBestMoveEnabled, setShowBestMoveEnabled] = useState<boolean>(() => {
@@ -41,22 +44,46 @@ export function LiveBoard() {
   const toggleShowBestMove = useCallback(() => {
     setShowBestMoveEnabled((prev) => !prev);
   }, []);
+  
+  // When enabling show best move, immediately sync delayed arrows with current arrows
+  // This ensures arrows appear immediately when toggling on, without waiting for navigation
+  useEffect(() => {
+    if (showBestMoveEnabled && bestMove && !delayedBestMove) {
+      setDelayedBestMove(bestMove);
+    }
+  }, [showBestMoveEnabled, bestMove, delayedBestMove]);
 
   const handlePositionChange = useCallback((fen: string, moveIndex: number, totalMoves: number) => {
     setDisplayFen(fen);
     setIsAtLatestMove(moveIndex === totalMoves);
     
-    // Clear all arrows immediately and mark that new arrows should be delayed
-    // This prevents arrows appearing before piece animation completes
-    // and prevents flash of old arrows when navigating in either direction
-    if (arrowDelayTimeoutRef.current) {
-      clearTimeout(arrowDelayTimeoutRef.current);
+    // Check if this is the initial position load or if position actually changed
+    const lastPos = lastPositionRef.current;
+    const isInitialLoad = !hasInitialPositionRef.current;
+    const positionActuallyChanged = lastPos && (lastPos.moveIndex !== moveIndex || lastPos.totalMoves !== totalMoves);
+    
+    // Update position tracking
+    lastPositionRef.current = { moveIndex, totalMoves };
+    hasInitialPositionRef.current = true;
+    
+    // Only clear arrows and delay if the position actually changed (navigation)
+    // Don't clear on initial load - let the arrows appear naturally from analysis
+    if (positionActuallyChanged) {
+      // Clear all arrows immediately and mark that new arrows should be delayed
+      // This prevents arrows appearing before piece animation completes
+      // and prevents flash of old arrows when navigating in either direction
+      if (arrowDelayTimeoutRef.current) {
+        clearTimeout(arrowDelayTimeoutRef.current);
+      }
+      setDelayedBestMove(null);
+      setDelayedPlayedMove(null);
+      setBestMove(null);
+      setPlayedMove(null);
+      shouldDelayArrowsRef.current = true;
+    } else if (isInitialLoad) {
+      // Initial load - don't delay arrows, let them appear immediately when ready
+      shouldDelayArrowsRef.current = false;
     }
-    setDelayedBestMove(null);
-    setDelayedPlayedMove(null);
-    setBestMove(null);
-    setPlayedMove(null);
-    shouldDelayArrowsRef.current = true;
   }, []);
 
   const handleBestMoveChange = useCallback((move: { from: string; to: string } | null) => {
@@ -74,14 +101,14 @@ export function LiveBoard() {
     }
     
     if (shouldDelayArrowsRef.current) {
-      // Delay arrows until animation completes
+      // Delay arrows until animation completes (navigation case)
       arrowDelayTimeoutRef.current = setTimeout(() => {
         setDelayedBestMove(bestMove);
         setDelayedPlayedMove(playedMove);
         shouldDelayArrowsRef.current = false;
       }, BOARD_ANIMATION_DURATION_MS);
     } else {
-      // No delay needed (initial load or arrows updated without position change)
+      // No delay needed - update immediately
       setDelayedBestMove(bestMove);
       setDelayedPlayedMove(playedMove);
     }

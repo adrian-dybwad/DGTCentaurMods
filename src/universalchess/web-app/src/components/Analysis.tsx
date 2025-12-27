@@ -70,6 +70,8 @@ export function Analysis({ pgn, mode, onPositionChange, onBestMoveChange, onPlay
   const lastPgnRef = useRef('');
   const queueRef = useRef<number[]>([]);
   const processingRef = useRef(false);
+  // Counter to track the latest analysis request - used to ignore stale results
+  const analysisRequestIdRef = useRef(0);
 
   // Total moves in the game
   const totalMoves = moves.length > 0 ? moves.length - 1 : 0;  // moves[0] is start position
@@ -244,11 +246,23 @@ export function Analysis({ pgn, mode, onPositionChange, onBestMoveChange, onPlay
     const move = moves[movePos];
     if (!move) return;
 
+    const fenToAnalyze = move.fen;
+    
+    // Increment request ID to track this specific request
+    // This ensures we only use results from the latest analysis, not stale ones
+    analysisRequestIdRef.current += 1;
+    const thisRequestId = analysisRequestIdRef.current;
+
     const sf = getStockfishService();
-    sf.analyze(move.fen, 16)
+    sf.analyze(fenToAnalyze, 16)
       .then((result) => {
+        // Ignore stale results - only update if this is still the latest request
+        if (analysisRequestIdRef.current !== thisRequestId) {
+          return;
+        }
+        
         // Normalize to White's perspective
-        const isBlackToMove = move.fen.includes(' b ');
+        const isBlackToMove = fenToAnalyze.includes(' b ');
         
         let cp = result.score ?? 0;
         let mate = result.mate;
