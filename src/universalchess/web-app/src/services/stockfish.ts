@@ -1,34 +1,38 @@
 import type { AnalysisResult } from '../types/game';
 
+interface QueuedRequest {
+  fen: string;
+  depth: number;
+  resolve: (result: AnalysisResult) => void;
+  reject: (error: Error) => void;
+}
+
 /**
  * Stockfish web worker wrapper for chess analysis.
  * 
- * The stockfish.js file must be served from /stockfish/stockfish.js
- * In development, this is proxied to the Flask backend.
+ * Handles request queuing internally - multiple analyze() calls are safe.
+ * Requests are processed sequentially in FIFO order.
  */
 export class StockfishService {
   private worker: Worker | null = null;
   private isReady = false;
   private initPromise: Promise<void> | null = null;
-  private pendingResolve: ((result: AnalysisResult) => void) | null = null;
-  private currentFen = '';
-  private currentResult: Partial<AnalysisResult> = {};
   private workerPath: string;
+  
+  // Request queue
+  private queue: QueuedRequest[] = [];
+  private currentRequest: QueuedRequest | null = null;
+  private currentResult: Partial<AnalysisResult> = {};
 
   constructor(workerPath = '/stockfish/stockfish.js') {
     this.workerPath = workerPath;
   }
 
-  /**
-   * Initialize Stockfish worker. Safe to call multiple times.
-   */
   async init(): Promise<void> {
-    // Return existing promise if already initializing
     if (this.initPromise) {
       return this.initPromise;
     }
 
-    // Already initialized
     if (this.worker && this.isReady) {
       return Promise.resolve();
     }
@@ -51,19 +55,16 @@ export class StockfishService {
           reject(new Error(`Stockfish worker failed to load: ${e.message}`));
         };
 
-        // Initialize UCI
         this.worker.postMessage('uci');
         
-        // Wait for uciok with timeout
         const timeout = setTimeout(() => {
           if (!this.isReady) {
-            console.error('[Stockfish] Init timeout - never received uciok');
+            console.error('[Stockfish] Init timeout');
             this.initPromise = null;
             reject(new Error('Stockfish init timeout'));
           }
         }, 10000);
 
-        // Poll for ready state
         const checkReady = setInterval(() => {
           if (this.isReady) {
             clearInterval(checkReady);
@@ -91,7 +92,7 @@ export class StockfishService {
       return;
     }
 
-    // Parse score
+    // Parse score from info lines
     if (line.startsWith('info') && line.includes('score')) {
       const cpMatch = line.match(/score cp (-?\d+)/);
       const mateMatch = line.match(/score mate (-?\d+)/);
@@ -110,31 +111,46 @@ export class StockfishService {
       }
     }
 
-    // Parse bestmove
+    // Parse bestmove - analysis complete
     if (line.startsWith('bestmove')) {
       const match = line.match(/bestmove (\S+)/);
       if (match) {
         this.currentResult.bestMove = match[1];
       }
 
-      if (this.pendingResolve) {
-        this.pendingResolve({
-          fen: this.currentFen,
+      // Resolve current request
+      if (this.currentRequest) {
+        this.currentRequest.resolve({
+          fen: this.currentRequest.fen,
           score: this.currentResult.score ?? null,
           mate: this.currentResult.mate ?? null,
           bestMove: this.currentResult.bestMove ?? null,
           depth: this.currentResult.depth ?? 0,
         });
-        this.pendingResolve = null;
+        this.currentRequest = null;
       }
+
+      // Process next in queue
+      this.processNext();
     }
   }
 
+  private processNext(): void {
+    if (this.currentRequest) return;  // Already processing
+    if (this.queue.length === 0) return;  // Nothing to process
+    if (!this.worker || !this.isReady) return;  // Not ready
+
+    this.currentRequest = this.queue.shift()!;
+    this.currentResult = {};
+
+    this.worker.postMessage(`position fen ${this.currentRequest.fen}`);
+    this.worker.postMessage(`go depth ${this.currentRequest.depth}`);
+  }
+
   /**
-   * Analyze a position. Initializes Stockfish if not already done.
+   * Analyze a position. Requests are queued and processed sequentially.
    */
   async analyze(fen: string, depth = 18): Promise<AnalysisResult> {
-    // Auto-init if needed
     if (!this.isReady) {
       await this.init();
     }
@@ -143,31 +159,34 @@ export class StockfishService {
       throw new Error('Stockfish worker not available');
     }
 
-    // Cancel any pending analysis
-    this.worker.postMessage('stop');
-
-    this.currentFen = fen;
-    this.currentResult = {};
-
-    return new Promise((resolve) => {
-      this.pendingResolve = resolve;
-      this.worker!.postMessage(`position fen ${fen}`);
-      this.worker!.postMessage(`go depth ${depth}`);
+    return new Promise((resolve, reject) => {
+      this.queue.push({ fen, depth, resolve, reject });
+      this.processNext();
     });
   }
 
-  /**
-   * Check if Stockfish is ready.
-   */
   get ready(): boolean {
     return this.isReady;
   }
 
   stop(): void {
+    // Clear queue
+    for (const req of this.queue) {
+      req.reject(new Error('Analysis stopped'));
+    }
+    this.queue = [];
+    
+    // Stop current analysis
+    if (this.currentRequest) {
+      this.currentRequest.reject(new Error('Analysis stopped'));
+      this.currentRequest = null;
+    }
+    
     this.worker?.postMessage('stop');
   }
 
   destroy(): void {
+    this.stop();
     this.worker?.terminate();
     this.worker = null;
     this.isReady = false;

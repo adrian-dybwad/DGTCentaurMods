@@ -212,8 +212,10 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
   }, [sfReady, moves.length]);
 
   // Analyze current position at higher depth when movePos changes
+  // BUT only if the queue is done processing (to avoid overwriting pendingResolve)
   useEffect(() => {
     if (!sfReady || movePos <= 0) return;
+    if (processingRef.current) return;  // Queue is still processing
     
     const move = moves[movePos];
     if (!move) return;
@@ -243,7 +245,7 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
       .catch(() => {
         // Keep previous eval
       });
-  }, [sfReady, movePos, moves]);
+  }, [sfReady, movePos, moves, analyzing]);  // Re-run when analyzing changes (queue finishes)
 
   // Notify parent of position change
   useEffect(() => {
