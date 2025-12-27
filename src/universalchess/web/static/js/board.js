@@ -82,26 +82,41 @@
     }
   }
 
-  function initOneBoard(wrapper) {
+  function initOneBoard(wrapper, retryCount) {
     const boardId = wrapper.getAttribute('data-board-id');
     if (!boardId) return;
     if (window[boardId]) return; // Already initialized.
 
+    const tries = typeof retryCount === 'number' ? retryCount : 0;
+
+    // chessboard.js requires jQuery. Wait for both.
+    if (typeof window.jQuery === 'undefined' || typeof window.Chessboard !== 'function') {
+      if (tries < 50) {
+        setTimeout(() => initOneBoard(wrapper, tries + 1), 100);
+      } else {
+        console.error('jQuery or Chessboard() not available after 5s. Check script loading.');
+      }
+      return;
+    }
+
     const fenRaw = wrapper.getAttribute('data-fen') || '';
     const placement = normalizePlacementFen(fenRaw) || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
     const pieceTheme = wrapper.getAttribute('data-piece-theme');
-
-    if (typeof window.Chessboard !== 'function') {
-      console.error('Chessboard() not available. Ensure chessboardjs is loaded.');
-      return;
-    }
 
     const config = {
       position: placement,
       pieceTheme: pieceTheme || undefined,
     };
 
-    window[boardId] = window.Chessboard(boardId, config);
+    try {
+      window[boardId] = window.Chessboard(boardId, config);
+    } catch (e) {
+      console.error('Chessboard() threw:', e);
+      if (tries < 50) {
+        setTimeout(() => initOneBoard(wrapper, tries + 1), 100);
+      }
+      return;
+    }
     ensureSquareIds(boardId, 20);
 
     // Keep ids stable if chessboard.js rebuilds its DOM.
@@ -158,16 +173,21 @@
       return;
     }
 
-    // Still not good: surface a visible error instead of silent failure.
+    // Still not good: surface a visible error with diagnostics.
     wrappers.forEach(w => {
       const boardId = w.getAttribute('data-board-id');
       if (!boardId) return;
       const boardEl = document.getElementById(boardId);
       const squares = boardEl ? boardEl.querySelectorAll('div[class*="square-"]').length : 0;
       if (squares < 64) {
+        const hasJQuery = typeof window.jQuery !== 'undefined';
+        const hasChessboard = typeof window.Chessboard === 'function';
+        const boardInstance = window[boardId];
+        const diag = `jQuery: ${hasJQuery}, Chessboard: ${hasChessboard}, instance: ${!!boardInstance}, squares: ${squares}`;
+        console.error('Board init failed:', diag);
         showBoardInitError(
           boardId,
-          'Chessboard failed to initialize. Check DevTools Network for /static/chessboardjs/js/chessboard-1.0.0.min.js and /static/js/board.js, and Console for errors.'
+          `Chessboard failed to initialize. Diagnostics: ${diag}`
         );
       }
     });
