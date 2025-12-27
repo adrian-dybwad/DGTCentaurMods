@@ -5,6 +5,7 @@ import './Licenses.css';
 interface License {
   name: string;
   type: string;
+  description: string;
   url?: string;
   text?: string;
 }
@@ -13,46 +14,55 @@ const licenses: License[] = [
   {
     name: 'Universal Chess',
     type: 'GPL-3.0',
+    description: 'The main project. Universal Chess provides a modern web interface and enhanced software for DGT smart chess boards, enabling play against engines, online opponents, and game analysis.',
     url: 'https://github.com/adrian-dybwad/Universal-Chess/blob/main/LICENSE',
   },
   {
     name: 'DGTCentaur Mods (Original)',
     type: 'GPL-3.0',
+    description: 'The original open source project that Universal Chess is built upon. DGTCentaur Mods pioneered custom software for the DGT Centaur chess board.',
     url: 'https://github.com/EdNekebno/DGTCentaur',
   },
   {
     name: 'react-chessboard',
     type: 'MIT',
+    description: 'Renders the interactive chess board in the web interface. Provides drag-and-drop piece movement, board orientation, custom arrows, and smooth animations.',
     url: 'https://github.com/Clariity/react-chessboard',
   },
   {
     name: 'chess.js',
     type: 'BSD-2-Clause',
+    description: 'Handles chess game logic in the frontend. Validates moves, parses PGN notation, tracks game state, and provides move history navigation.',
     url: 'https://github.com/jhlywa/chess.js',
   },
   {
     name: 'Stockfish',
     type: 'GPL-3.0',
+    description: 'The default chess engine for play and analysis. Stockfish is the strongest open source chess engine, providing move evaluation, best move suggestions, and opponent play.',
     url: 'https://github.com/official-stockfish/Stockfish',
   },
   {
     name: 'React',
     type: 'MIT',
+    description: 'The UI framework powering the web interface. React enables the component-based architecture, reactive state management, and efficient DOM updates.',
     url: 'https://github.com/facebook/react',
   },
   {
     name: 'Vite',
     type: 'MIT',
+    description: 'The build tool and development server. Vite provides fast hot module replacement during development and optimized production builds.',
     url: 'https://github.com/vitejs/vite',
   },
   {
     name: 'Chart.js',
     type: 'MIT',
+    description: 'Renders the evaluation graph showing position advantage over time. Displays engine evaluation history as an interactive chart during game review.',
     url: 'https://github.com/chartjs/Chart.js',
   },
   {
     name: 'Zustand',
     type: 'MIT',
+    description: 'Manages global application state. Zustand handles game state synchronization, connection status, and settings across all components.',
     url: 'https://github.com/pmndrs/zustand',
   },
 ];
@@ -103,6 +113,8 @@ function LicenseItem({ license }: { license: License }) {
           </a>
         )}
       </div>
+
+      <p className="license-description">{license.description}</p>
 
       {expanded && license.text && (
         <pre className="license-text">{license.text}</pre>

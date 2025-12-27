@@ -20,6 +20,13 @@
   font-size: var(--text-sm);
 }
 
+.license-description {
+  margin: var(--space-3) 0 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-light);
+  line-height: var(--leading-relaxed);
+}
+
 .license-text {
   margin-top: var(--space-4);
   padding-top: var(--space-4);
