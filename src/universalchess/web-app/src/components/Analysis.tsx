@@ -418,6 +418,7 @@ export function Analysis({ pgn, mode, onPositionChange, onBestMoveChange, onPlay
     animation: {
       duration: 0,  // Disable animations for faster updates
     },
+    clip: false,  // Allow points to render outside chart area
     plugins: {
       legend: { display: false },
       title: { display: false },
