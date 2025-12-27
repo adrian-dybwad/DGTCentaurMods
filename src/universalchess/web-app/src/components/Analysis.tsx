@@ -121,9 +121,16 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
     }
   }, [pgn, mode]);
 
+  // Store moves in a ref so processNext always has current data
+  const movesRef = useRef<MoveData[]>([]);
+  useEffect(() => {
+    movesRef.current = moves;
+  }, [moves]);
+
   // Process queue when Stockfish is ready and we have moves
   useEffect(() => {
     if (!sfReady || queueRef.current.length === 0 || processingRef.current) return;
+    if (movesRef.current.length === 0) return;  // Wait for moves to be populated
 
     const processNext = async () => {
       if (queueRef.current.length === 0) {
@@ -138,9 +145,10 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
 
       const index = queueRef.current.shift()!;
       
-      // Get move data synchronously first
-      const move = moves[index];
+      // Get move data from ref (always current)
+      const move = movesRef.current[index];
       if (!move) {
+        console.log(`[Analysis] Move ${index} not found, skipping`);
         setTimeout(processNext, 0);
         return;
       }
@@ -154,6 +162,8 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
       // Capture the FEN before async operation
       const fenToAnalyze = move.fen;
       const isBlackToMove = fenToAnalyze.includes(' b ');
+
+      console.log(`[Analysis] Analyzing move ${index}: ${move.san}`);
 
       // Analyze this position
       const sf = getStockfishService();
@@ -174,7 +184,7 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
           // For chart: use large values for mate, otherwise centipawns
           const evalValue = mate !== null ? (mate > 0 ? 10000 : -10000) : cp;
           
-          console.log(`[Analysis] Move ${index}: fen=${fenToAnalyze.split(' ')[0].slice(-8)}... black=${isBlackToMove}, raw=${result.score}, cp=${cp}, eval=${evalValue}`);
+          console.log(`[Analysis] Move ${index} result: raw=${result.score}, black=${isBlackToMove}, cp=${cp}, eval=${evalValue}`);
           
           setMoves((prev) => {
             const updated = [...prev];
@@ -197,7 +207,7 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
         });
     };
 
-    console.log('[Analysis] Starting queue processing');
+    console.log('[Analysis] Starting queue processing, moves available:', movesRef.current.length);
     processNext();
   }, [sfReady, moves.length]);
 
