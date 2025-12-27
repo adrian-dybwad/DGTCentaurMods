@@ -57,7 +57,27 @@ function assignSquareIds(boardId) {
     }
 }
 
-assignSquareIds('{{ board_id }}');
+function ensureSquareIds(boardId, attemptsLeft) {
+    assignSquareIds(boardId);
+    // If we haven't assigned ids yet (board not rendered), retry a few times.
+    const boardEl = document.getElementById(boardId);
+    if (!boardEl) return;
+    const assigned = boardEl.querySelectorAll('div[id^=\"' + boardId + '-square-\"]').length;
+    if (assigned >= 64) return;
+    if (attemptsLeft <= 0) return;
+    setTimeout(function() { ensureSquareIds(boardId, attemptsLeft - 1); }, 50);
+}
+
+ensureSquareIds('{{ board_id }}', 20);
+
+// Keep ids stable even if chessboard.js re-renders the square DOM.
+try {
+    const boardEl = document.getElementById('{{ board_id }}');
+    if (boardEl && window.MutationObserver) {
+        const obs = new MutationObserver(function() { assignSquareIds('{{ board_id }}'); });
+        obs.observe(boardEl, { childList: true, subtree: true });
+    }
+} catch (e) { /* no-op */ }
 
 window.addEventListener('resize', function() {
     {{ board_id }}.resize();

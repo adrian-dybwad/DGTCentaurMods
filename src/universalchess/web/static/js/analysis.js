@@ -708,8 +708,20 @@ const analysisEngine = (function() {
   }
   
   function notifyPositionChange() {
+    // Clear any existing arrow immediately when the user navigates.
+    // This prevents domarrow.js from trying to resolve stale selectors if the board
+    // re-renders its square DOM.
+    setAnalysisState({ bestMove: null });
+    clearBestMoveArrow();
+    render();
+
     if (config.onPositionChange && chess) {
       config.onPositionChange(chess.fen(), movePos);
+    }
+
+    // Ensure square ids exist after board updates (see chessboard_component.html).
+    if (typeof window.assignSquareIds === 'function') {
+      window.assignSquareIds(config.boardId);
     }
     
     // Dispatch event for other listeners
