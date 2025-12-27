@@ -1,7 +1,8 @@
-{# Shared chessboard component for consistent board display across pages #}
+{# Shared chessboard component for consistent board display across pages. #}
+{# This file is intentionally PURE markup (no script tags) to avoid multiple-path issues. #}
+{# board.js is responsible for initializing and updating chessboard.js instances. #}
 {# Usage: {% include 'chessboard_component.html' %} #}
-{# Required variables: fen (optional, defaults to starting position) #}
-{# Optional variables: board_id (default: 'board1'), board_width (default: 600) #}
+{# Optional variables: fen, board_id (default: 'board1'), board_width (default: 600) #}
 
 {% set board_id = board_id|default('board1') %}
 {% set board_width = board_width|default(600) %}
@@ -19,116 +20,12 @@
         .white-1e1d7 { background-color: #e5e5e5; color: #131313 }
         .black-3c85d { background-color: #b2b2b2; color: #131313 }
     </style>
-    <div id='{{ board_id }}'></div>
+    <div
+      id="{{ board_id }}"
+      class="chessboard-wrapper"
+      data-board-id="{{ board_id }}"
+      data-fen="{{ fen|default('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR') }}"
+      data-piece-theme="{{ url_for('piece_svg', piece_code='wK')|replace('wK.svg', '{piece}.svg') }}"
+    ></div>
 </div>
-
-<script src="{{ url_for('static', filename='js/jquery-3.4.1.min.js') }}"></script>
-<script type="text/javascript" src="{{ url_for('static', filename='chessboardjs/js/chessboard-1.0.0.min.js') }}"></script>
-<script>
-{# chessboard.js expects placement-only; full FEN can crash it #}
-var {{ board_id }}FenRaw = '{{ fen|default("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR") }}';
-var {{ board_id }}Fen = ({{ board_id }}FenRaw || '').split(' ')[0];
-var {{ board_id }}Config = {
-    position: {{ board_id }}Fen,
-    pieceTheme: "{{ url_for('piece_svg', piece_code='wK') }}".replace("wK.svg", "{piece}.svg")
-};
-var {{ board_id }} = Chessboard('{{ board_id }}', {{ board_id }}Config);
-
-function normalizePlacementFen(fenLike) {
-    return (fenLike || '').split(' ')[0];
-}
-
-function isChessboardDomReady(boardId) {
-    const boardEl = document.getElementById(boardId);
-    if (!boardEl) return false;
-    // chessboard.js squares have classes like `square-e4`; expect 64.
-    return boardEl.querySelectorAll('div[class*="square-"]').length >= 64;
-}
-
-/**
- * Safely update the chessboard.js position.
- *
- * Why: chessboard.js can throw internally if `position()` is called before the
- * DOM is fully ready (or if given a full FEN). This helper normalizes input and
- * retries briefly until the board is ready.
- */
-window.updateChessboardPosition = function(boardId, fenLike, attempt) {
-    const tries = typeof attempt === 'number' ? attempt : 0;
-    const board = window[boardId];
-    if (!board || typeof board.position !== 'function') return;
-
-    const placement = normalizePlacementFen(fenLike);
-    if (!placement) return;
-
-    if (!isChessboardDomReady(boardId)) {
-        if (tries < 20) {
-            setTimeout(function() { window.updateChessboardPosition(boardId, fenLike, tries + 1); }, 50);
-        }
-        return;
-    }
-
-    try {
-        board.position(placement);
-    } catch (e) {
-        // If chessboard.js is mid-render, retry a few times.
-        if (tries < 20) {
-            setTimeout(function() { window.updateChessboardPosition(boardId, fenLike, tries + 1); }, 50);
-            return;
-        }
-        console.error('Failed to update board position:', e);
-    }
-};
-
-/**
- * Assign stable DOM ids to chessboard.js square elements so other UI features
- * (e.g., best-move arrows via domarrow.js) can reference them reliably.
- *
- * chessboard.js creates squares with classes like `square-e4`, but does not
- * provide ids. This function sets ids in the form:
- *   `${boardId}-square-${coord}`  e.g. `board1-square-e4`
- */
-function assignSquareIds(boardId) {
-    const boardEl = document.getElementById(boardId);
-    if (!boardEl) return;
-
-    const squares = boardEl.querySelectorAll('div[class*=\"square-\"]');
-    for (const el of squares) {
-        // Find a class like 'square-e4'
-        const coordClass = Array.from(el.classList).find(c => /^square-[a-h][1-8]$/.test(c));
-        if (!coordClass) continue;
-        const coord = coordClass.substring('square-'.length);
-        const desiredId = `${boardId}-square-${coord}`;
-        if (el.id !== desiredId) {
-            el.id = desiredId;
-        }
-    }
-}
-
-function ensureSquareIds(boardId, attemptsLeft) {
-    assignSquareIds(boardId);
-    // If we haven't assigned ids yet (board not rendered), retry a few times.
-    const boardEl = document.getElementById(boardId);
-    if (!boardEl) return;
-    const assigned = boardEl.querySelectorAll('div[id^=\"' + boardId + '-square-\"]').length;
-    if (assigned >= 64) return;
-    if (attemptsLeft <= 0) return;
-    setTimeout(function() { ensureSquareIds(boardId, attemptsLeft - 1); }, 50);
-}
-
-ensureSquareIds('{{ board_id }}', 20);
-
-// Keep ids stable even if chessboard.js re-renders the square DOM.
-try {
-    const boardEl = document.getElementById('{{ board_id }}');
-    if (boardEl && window.MutationObserver) {
-        const obs = new MutationObserver(function() { assignSquareIds('{{ board_id }}'); });
-        obs.observe(boardEl, { childList: true, subtree: true });
-    }
-} catch (e) { /* no-op */ }
-
-window.addEventListener('resize', function() {
-    {{ board_id }}.resize();
-    assignSquareIds('{{ board_id }}');
-});
-</script>
 

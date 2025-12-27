@@ -76,41 +76,8 @@
   </div>
   
   <script>
-    // Mobile navbar toggle
-    document.addEventListener('DOMContentLoaded', () => {
-      const $navbarBurgers = Array.prototype.slice.call(document.querySelectorAll('.navbar-burger'), 0);
-      $navbarBurgers.forEach(el => {
-        el.addEventListener('click', () => {
-          const target = el.dataset.target;
-          const $target = document.getElementById(target);
-          el.classList.toggle('is-active');
-          $target.classList.toggle('is-active');
-        });
-      });
-    });
-    
-    // Connection status monitoring
-    function checkConnection() {
-      var status = document.getElementById('connection-status');
-      if (!status) return;
-      
-      fetch('/fen', { method: 'GET', cache: 'no-cache' })
-        .then(function(response) {
-          if (response.ok) {
-            status.className = 'tag is-success';
-            status.innerHTML = '<span class="status-dot connected"></span> Connected';
-          } else {
-            status.className = 'tag is-warning';
-            status.innerHTML = '<span class="status-dot pending"></span> Reconnecting';
-          }
-        })
-        .catch(function() {
-          status.className = 'tag is-danger';
-          status.innerHTML = '<span class="status-dot disconnected"></span> Offline';
-        });
-    }
-    setInterval(checkConnection, 10000);
-    
+    // Connection status is now driven by the SSE client (game_client.js) on pages that use it.
+    // Avoid polling /fen from every page, which created multiple paths and unnecessary load.
     // PWA Install
     let deferredPrompt;
     const pwaPrompt = document.getElementById('pwaInstallPrompt');
@@ -147,6 +114,13 @@
       });
     }
   </script>
+
+  <!-- Core JS dependencies (loaded once to avoid duplicate execution across templates) -->
+  <script src="{{ url_for('static', filename='js/jquery-3.4.1.min.js') }}"></script>
+  <script type="text/javascript" src="{{ url_for('static', filename='chessboardjs/js/chessboard-1.0.0.min.js') }}"></script>
+  <script type="text/javascript" src="{{ url_for('static', filename='js/domarrow.js') }}"></script>
+  <script type="text/javascript" src="{{ url_for('static', filename='js/board.js') }}"></script>
+  <script type="text/javascript" src="{{ url_for('static', filename='js/game_client.js') }}"></script>
 
   </body>
 </html>
