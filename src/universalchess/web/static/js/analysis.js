@@ -282,7 +282,11 @@ const analysisEngine = (function() {
     isQueuedAnalysis = true;
     queuedMoveNumber = moveNumber;
     currentAnalysisFen = fen;
-    
+
+    // Ensure any previous analysis is stopped before starting queued replay work.
+    // Without this, Stockfish can keep running the previous `go` command and ignore
+    // subsequent `position`/`go` messages, which prevents history from populating.
+    stockfish.postMessage('stop');
     stockfish.postMessage('position fen ' + fen);
     stockfish.postMessage('go depth ' + config.queueDepth);
   }
