@@ -18,6 +18,21 @@
   gap: 0.4em;
 }
 
+/* Make the tag a clickable button */
+.tag-button {
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+}
+
+.tag-button:hover {
+  opacity: 0.9;
+}
+
+.tag-button:active {
+  transform: scale(0.97);
+}
+
 .tag.is-success {
   background-color: #48c774;
   color: #fff;
@@ -67,4 +82,21 @@
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
+}
+
+/* API host indicator shown when using a custom API URL */
+.api-host {
+  font-size: 0.65rem;
+  opacity: 0.8;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-left: 1px solid rgba(255, 255, 255, 0.3);
+  padding-left: 0.4em;
+  margin-left: 0.2em;
+}
+
+/* Adjust tag size when showing API host */
+.tag:has(.api-host) {
+  padding-right: 0.5em;
 }

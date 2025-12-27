@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { useGameStore } from '../stores/gameStore';
 import type { GameState } from '../types/game';
 import { MoveBanner } from './MoveBanner';
+import { buildApiUrl } from '../utils/api';
 
 /**
  * Global SSE connection manager.
@@ -36,7 +37,8 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
       }
 
       setConnectionStatus('reconnecting');
-      const es = new EventSource('/events');
+      const eventsUrl = buildApiUrl('/events');
+      const es = new EventSource(eventsUrl);
       eventSourceRef.current = es;
 
       es.onopen = () => {

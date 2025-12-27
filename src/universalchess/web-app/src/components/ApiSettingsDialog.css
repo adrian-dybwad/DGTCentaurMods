@@ -1,0 +1,209 @@
+/**
+ * API Settings Dialog styles
+ */
+
+.dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.dialog {
+  background: var(--color-bg-primary);
+  border-radius: 12px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+  max-width: 480px;
+  width: 100%;
+  max-height: 90vh;
+  overflow: auto;
+}
+
+.dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.dialog-header h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: var(--color-text-primary);
+}
+
+.dialog-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.dialog-close:hover {
+  color: var(--color-text-primary);
+}
+
+.dialog-body {
+  padding: 1.5rem;
+}
+
+.dialog-description {
+  color: var(--color-text-secondary);
+  margin-bottom: 1.5rem;
+  line-height: 1.6;
+}
+
+.dialog-description code {
+  background: var(--color-bg-secondary);
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+  font-family: monospace;
+}
+
+.form-group {
+  margin-bottom: 1rem;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.input-with-button {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.input-with-button input {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border: 2px solid var(--color-border);
+  border-radius: 8px;
+  font-size: 1rem;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  transition: border-color 0.2s;
+}
+
+.input-with-button input:focus {
+  outline: none;
+  border-color: var(--color-accent-primary);
+}
+
+.input-with-button input.is-success {
+  border-color: #48c774;
+}
+
+.input-with-button input.is-error {
+  border-color: #f14668;
+}
+
+.form-error {
+  display: block;
+  color: #f14668;
+  font-size: 0.875rem;
+  margin-top: 0.5rem;
+}
+
+.form-success {
+  display: block;
+  color: #48c774;
+  font-size: 0.875rem;
+  margin-top: 0.5rem;
+}
+
+.dialog-info {
+  background: var(--color-bg-secondary);
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+  margin-top: 1rem;
+}
+
+.dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  border-radius: 0 0 12px 12px;
+}
+
+.dialog-footer-right {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* Button styles for dialog */
+.dialog .btn {
+  padding: 0.625rem 1rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+.dialog .btn-primary {
+  background: var(--color-accent-primary);
+  color: white;
+}
+
+.dialog .btn-primary:hover {
+  background: var(--color-accent-secondary);
+}
+
+.dialog .btn-secondary {
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+}
+
+.dialog .btn-secondary:hover {
+  background: var(--color-bg-secondary);
+}
+
+.dialog .btn-ghost {
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+.dialog .btn-ghost:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-secondary);
+}
+
+.dialog .btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .dialog-footer {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .dialog-footer-right {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+

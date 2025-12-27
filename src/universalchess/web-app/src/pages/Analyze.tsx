@@ -4,6 +4,7 @@ import { ChessBoard } from '../components/ChessBoard';
 import { Analysis } from '../components/Analysis';
 import { MoveTable } from '../components/MoveTable';
 import { Card, CardHeader } from '../components/ui';
+import { apiFetch } from '../utils/api';
 import './Analyze.css';
 
 /**
@@ -29,7 +30,7 @@ export function Analyze() {
     setLoading(true);
     setError(null);
 
-    fetch(`/getpgn/${gameId}`)
+    apiFetch(`/getpgn/${gameId}`)
       .then((res) => {
         if (!res.ok) throw new Error('Game not found');
         return res.text();

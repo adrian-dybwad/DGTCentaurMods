@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Button, Card, CardHeader, Input, Select, Toggle, Badge } from '../components/ui';
 import type { EngineDefinition } from '../types/game';
+import { apiFetch } from '../utils/api';
 import './Settings.css';
 
 interface SettingsData {
@@ -121,8 +122,8 @@ export function Settings() {
   // Load settings and engines on mount
   useEffect(() => {
     Promise.all([
-      fetch('/api/settings').then((r) => r.json()),
-      fetch('/api/engines/all').then((r) => r.json()),
+      apiFetch('/api/settings').then((r) => r.json()),
+      apiFetch('/api/engines/all').then((r) => r.json()),
     ])
       .then(([settingsData, enginesData]) => {
         setRawSettings(settingsData);
@@ -147,7 +148,7 @@ export function Settings() {
     if (engineLevels[engineName]) return engineLevels[engineName];
     
     try {
-      const response = await fetch(`/api/engines/${engineName}/levels`);
+      const response = await apiFetch(`/api/engines/${engineName}/levels`);
       const levels = await response.json();
       setEngineLevels((prev) => ({ ...prev, [engineName]: levels }));
       return levels;
@@ -240,7 +241,7 @@ export function Settings() {
         DATABASE: { database_uri: formSettings.system.database_uri },
       };
 
-      await fetch('/api/settings', {
+      await apiFetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -258,7 +259,7 @@ export function Settings() {
   const saveAndApply = async () => {
     await saveSettings();
     try {
-      await fetch('/api/settings/apply', { method: 'POST' });
+      await apiFetch('/api/settings/apply', { method: 'POST' });
     } catch (e) {
       console.error('Failed to apply settings:', e);
     }
@@ -273,10 +274,10 @@ export function Settings() {
     setInstallingEngine(engineName);
     const endpoint = install ? 'install' : 'uninstall';
     try {
-      await fetch(`/api/engines/${endpoint}/${engineName}`, { method: 'POST' });
+      await apiFetch(`/api/engines/${endpoint}/${engineName}`, { method: 'POST' });
       // Poll for completion
       const checkStatus = async () => {
-        const response = await fetch('/api/engines/all');
+        const response = await apiFetch('/api/engines/all');
         const enginesData = await response.json();
         const engine = enginesData.find((e: EngineDefinition) => e.name === engineName);
         if (engine && engine.installed === install) {

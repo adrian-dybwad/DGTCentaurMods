@@ -1,0 +1,159 @@
+import { useState, useEffect } from 'react';
+import { getApiUrl, setApiUrl, resetApiUrl } from '../utils/api';
+import './ApiSettingsDialog.css';
+
+interface ApiSettingsDialogProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: () => void;
+}
+
+/**
+ * Dialog for configuring the API URL.
+ * Allows users to change which chess board the PWA connects to.
+ */
+export function ApiSettingsDialog({ isOpen, onClose, onSave }: ApiSettingsDialogProps) {
+  const [url, setUrl] = useState('');
+  const [error, setError] = useState('');
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setUrl(getApiUrl());
+      setError('');
+      setTestResult(null);
+    }
+  }, [isOpen]);
+
+  const validateUrl = (input: string): boolean => {
+    try {
+      new URL(input);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const handleTest = async () => {
+    if (!validateUrl(url)) {
+      setError('Please enter a valid URL (e.g., http://dgt.local)');
+      return;
+    }
+
+    setTesting(true);
+    setTestResult(null);
+    setError('');
+
+    try {
+      // Try to fetch the FEN endpoint as a simple connectivity test
+      const response = await fetch(`${url}/fen`, {
+        method: 'GET',
+        mode: 'cors',
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (response.ok) {
+        setTestResult('success');
+      } else {
+        setTestResult('error');
+        setError(`Server returned status ${response.status}`);
+      }
+    } catch (e) {
+      setTestResult('error');
+      if (e instanceof Error) {
+        if (e.name === 'TimeoutError') {
+          setError('Connection timed out');
+        } else {
+          setError('Could not connect to server');
+        }
+      }
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleSave = () => {
+    if (!validateUrl(url)) {
+      setError('Please enter a valid URL');
+      return;
+    }
+
+    setApiUrl(url);
+    onSave();
+    onClose();
+  };
+
+  const handleReset = () => {
+    resetApiUrl();
+    setUrl(window.location.origin);
+    setTestResult(null);
+    setError('');
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="dialog-overlay" onClick={onClose}>
+      <div className="dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="dialog-header">
+          <h3>Connection Settings</h3>
+          <button className="dialog-close" onClick={onClose}>×</button>
+        </div>
+
+        <div className="dialog-body">
+          <p className="dialog-description">
+            Enter the address of your chess board. This is typically <code>http://dgt.local</code> or
+            the IP address of your Raspberry Pi.
+          </p>
+
+          <div className="form-group">
+            <label htmlFor="api-url">Chess Board URL</label>
+            <div className="input-with-button">
+              <input
+                id="api-url"
+                type="url"
+                value={url}
+                onChange={(e) => {
+                  setUrl(e.target.value);
+                  setError('');
+                  setTestResult(null);
+                }}
+                placeholder="http://dgt.local"
+                className={testResult === 'success' ? 'is-success' : testResult === 'error' ? 'is-error' : ''}
+              />
+              <button
+                className="btn btn-secondary"
+                onClick={handleTest}
+                disabled={testing}
+              >
+                {testing ? 'Testing...' : 'Test'}
+              </button>
+            </div>
+            {error && <span className="form-error">{error}</span>}
+            {testResult === 'success' && <span className="form-success">Connection successful!</span>}
+          </div>
+
+          <div className="dialog-info">
+            <strong>Current origin:</strong> {window.location.origin}
+          </div>
+        </div>
+
+        <div className="dialog-footer">
+          <button className="btn btn-ghost" onClick={handleReset}>
+            Reset to Origin
+          </button>
+          <div className="dialog-footer-right">
+            <button className="btn btn-secondary" onClick={onClose}>
+              Cancel
+            </button>
+            <button className="btn btn-primary" onClick={handleSave}>
+              Save & Reconnect
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+

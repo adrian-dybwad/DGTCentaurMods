@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { Button, Card, Badge } from '../components/ui';
 import type { GameRecord } from '../types/game';
+import { apiFetch } from '../utils/api';
 import './Games.css';
 
 /**
@@ -16,7 +17,7 @@ export function Games() {
   const fetchGames = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch(`/getgames/${page}`);
+      const response = await apiFetch(`/getgames/${page}`);
       const data = await response.json();
       const gameList = Object.values(data) as GameRecord[];
       setGames(gameList);
@@ -43,7 +44,7 @@ export function Games() {
     }
 
     try {
-      const response = await fetch(`/getpgn/${gameId}`);
+      const response = await apiFetch(`/getpgn/${gameId}`);
       const pgn = await response.text();
       setExpandedPgn((prev) => ({ ...prev, [gameId]: pgn }));
     } catch (e) {
@@ -54,7 +55,7 @@ export function Games() {
   const deleteGame = async (gameId: number) => {
     if (!confirm('Delete this game? This cannot be undone.')) return;
     try {
-      await fetch(`/deletegame/${gameId}`);
+      await apiFetch(`/deletegame/${gameId}`);
       fetchGames();
     } catch (e) {
       console.error('Failed to delete game:', e);
