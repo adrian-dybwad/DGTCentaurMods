@@ -15,6 +15,10 @@ export default defineConfig(({ mode }) => {
   
   return {
     plugins: [react()],
+    define: {
+      // Make the API target available to the client at runtime
+      '__API_TARGET__': JSON.stringify(apiTarget),
+    },
     server: {
       port: 3000,
       proxy: {

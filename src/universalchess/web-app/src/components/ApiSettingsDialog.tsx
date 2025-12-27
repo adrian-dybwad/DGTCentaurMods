@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getApiUrl, setApiUrl, resetApiUrl } from '../utils/api';
+import { getApiUrl, setApiUrl, resetApiUrl, getDefaultApiUrl } from '../utils/api';
 import './ApiSettingsDialog.css';
 
 interface ApiSettingsDialogProps {
@@ -86,7 +86,7 @@ export function ApiSettingsDialog({ isOpen, onClose, onSave }: ApiSettingsDialog
 
   const handleReset = () => {
     resetApiUrl();
-    setUrl(window.location.origin);
+    setUrl(getDefaultApiUrl());
     setTestResult(null);
     setError('');
   };
@@ -146,7 +146,7 @@ export function ApiSettingsDialog({ isOpen, onClose, onSave }: ApiSettingsDialog
 
         <div className="dialog-footer">
           <button className="btn btn-ghost" onClick={handleReset}>
-            Reset to Origin
+            Reset to Default
           </button>
           <div className="dialog-footer-right">
             <button className="btn btn-secondary" onClick={onClose}>

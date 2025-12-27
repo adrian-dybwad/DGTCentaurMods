@@ -1,16 +1,33 @@
 /**
  * API URL management for PWA.
  * 
- * The API URL is stored in localStorage and defaults to the current origin
+ * The API URL is stored in localStorage and defaults to the configured API target
  * when first installed. This allows the PWA to remember which chess board
  * it was installed from, while also allowing users to change it.
  */
 
+// Injected by Vite at build time - the actual API target URL
+declare const __API_TARGET__: string;
+
 const API_URL_KEY = 'universal-chess-api-url';
 
 /**
- * Get the stored API URL, or the current origin if not set.
- * On first access (PWA install), stores the current origin.
+ * Get the default API URL.
+ * In development, this is the Vite proxy target (e.g., http://dgt.local).
+ * In production, this is the origin the app was served from.
+ */
+export function getDefaultApiUrl(): string {
+  // Use the build-time configured API target if available
+  if (typeof __API_TARGET__ !== 'undefined' && __API_TARGET__) {
+    return __API_TARGET__;
+  }
+  // Fallback to current origin (production PWA)
+  return window.location.origin;
+}
+
+/**
+ * Get the stored API URL, or the default if not set.
+ * On first access (PWA install), stores the default API URL.
  */
 export function getApiUrl(): string {
   const stored = localStorage.getItem(API_URL_KEY);
@@ -19,12 +36,10 @@ export function getApiUrl(): string {
     return stored;
   }
   
-  // First time - save the current origin
-  // In dev mode (localhost:3000), this will be the dev server
-  // In production PWA, this will be the actual chess board URL (e.g., http://dgt.local)
-  const origin = window.location.origin;
-  localStorage.setItem(API_URL_KEY, origin);
-  return origin;
+  // First time - save the default API URL
+  const defaultUrl = getDefaultApiUrl();
+  localStorage.setItem(API_URL_KEY, defaultUrl);
+  return defaultUrl;
 }
 
 /**
@@ -45,10 +60,10 @@ export function hasCustomApiUrl(): boolean {
 }
 
 /**
- * Reset API URL to current origin.
+ * Reset API URL to default (configured API target or current origin).
  */
 export function resetApiUrl(): void {
-  localStorage.setItem(API_URL_KEY, window.location.origin);
+  localStorage.setItem(API_URL_KEY, getDefaultApiUrl());
 }
 
 /**
