@@ -4,10 +4,12 @@
 
 <script type="text/javascript" src="{{ url_for('static', filename='stockfish/stockfish.js') }}"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@2.9.4/dist/Chart.min.js"></script>
+<script src="{{ url_for('static', filename='js/chess.js') }}"></script>
+<script src="{{ url_for('static', filename='js/analysis.js') }}"></script>
 
 <div class="columns">
   <div class="column is-8">
-{% include "liveboard.html" %}
+    {% include "liveboard.html" %}
   </div>
   <div class="column is-4">
     <div class="box">
@@ -19,363 +21,48 @@
     
     <div class="box" style="margin-top: 1rem;">
       <h3 class="title is-5" style="color: var(--color-accent-secondary);">Analysis</h3>
-      <div id="live-analysis">
-        <p class="has-text-grey">Waiting for position...</p>
-      </div>
-      <progress id="live-eval-bar" class="progress" value="50" max="100" style="margin-top: 0.5rem; height: 0.5rem;"></progress>
-      <div style="height: 120px; margin-top: 0.5rem;">
-        <canvas id="eval-history-chart"></canvas>
-      </div>
-      <a href="/pgn" class="button is-primary is-small" style="margin-top: 1rem;">View All Games</a>
+      {% include "analysis_component.html" %}
     </div>
     
     <div class="box" style="margin-top: 1rem;">
       <h3 class="title is-5" style="color: var(--color-accent-secondary);">Current PGN</h3>
       <textarea id="lastpgn" class="textarea" placeholder="PGN will appear here during play..." rows="8" readonly></textarea>
     </div>
+    
+    <a href="/pgn" class="button is-primary is-small" style="margin-top: 1rem;">View All Games</a>
   </div>
 </div>
 
-<script src="{{ url_for('static', filename='js/chess.js') }}"></script>
 <script>
-  // Stockfish analysis for live game
-  let liveStockfish = null;
-  let currentAnalysisFen = null;
-  let lastEvalScore = 0;
-  let bestMoveUci = '';
-  let lastMoveNumber = 0;
+  // State tracking for current game display
+  let lastGameState = null;
+  let lastDisplayedMoveNumber = 0;
   
-  // Evaluation history chart
-  let evalHistoryChart = null;
-  let evalHistory = [];  // Array of {moveNum, eval} for chart
-  
-  // Queue for batch analysis of existing game
-  let analysisQueue = [];  // Array of {fen, moveNum}
-  let isProcessingQueue = false;
-  let hasReplayedCurrentGame = false;
-  let lastSeenPgn = '';
-  // Note: lastGameState is declared in liveboard.html which is included above
-  
-  function initEvalHistoryChart() {
-    const ctx = document.getElementById('eval-history-chart');
-    if (!ctx) return;
-    
-    evalHistoryChart = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: [],
-        datasets: [{
-          label: 'Eval',
-          data: [],
-          fill: true,
-          borderColor: 'rgb(150, 150, 150)',
-          borderWidth: 1,
-          lineTension: 0.4,
-          backgroundColor: 'rgba(150, 150, 150, 0.3)',
-          pointRadius: 3,
-          pointBackgroundColor: 'rgba(255, 255, 255, 1)'
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        title: { display: false },
-        legend: { display: false },
-        layout: { padding: { bottom: 0 } },
-        scales: {
-          yAxes: [{
-            display: true,
-            ticks: {
-              min: -500,
-              max: 500,
-              stepSize: 250,
-              callback: function(value) {
-                return (value / 100).toFixed(0);
-              }
-            },
-            gridLines: { display: true, color: 'rgba(200,200,200,0.3)' }
-          }],
-          xAxes: [{
-            display: false,
-            gridLines: { display: false }
-          }]
-        },
-        tooltips: {
-          callbacks: {
-            label: function(tooltipItem) {
-              return (tooltipItem.yLabel / 100).toFixed(2);
-            }
-          }
+  // Initialize analysis engine in live mode
+  window.addEventListener('load', function() {
+    analysisEngine.init({
+      mode: 'live',
+      containerId: 'analysis',
+      stockfishPath: "{{ url_for('static', filename='stockfish/stockfish.js') }}",
+      onPositionChange: function(fen, moveNumber) {
+        // Update the board when navigating through moves
+        if (typeof board1 !== 'undefined' && fen) {
+          board1.position(fen);
         }
       }
     });
-  }
-  
-  function resetEvalHistory() {
-    evalHistory = [];
-    if (evalHistoryChart) {
-      evalHistoryChart.data.labels = [];
-      evalHistoryChart.data.datasets[0].data = [];
-      evalHistoryChart.update();
-    }
-  }
-  
-  function addEvalToHistory(moveNum, evalCp) {
-    // Clamp eval for display
-    const clampedEval = Math.max(-500, Math.min(500, evalCp));
-    
-    // Check if we already have this move number (update it)
-    const existingIndex = evalHistory.findIndex(e => e.moveNum === moveNum);
-    if (existingIndex >= 0) {
-      evalHistory[existingIndex].eval = clampedEval;
-    } else {
-      evalHistory.push({ moveNum, eval: clampedEval });
-      // Sort by move number
-      evalHistory.sort((a, b) => a.moveNum - b.moveNum);
-    }
-    
-    // Update chart
-    if (evalHistoryChart) {
-      evalHistoryChart.data.labels = evalHistory.map(e => e.moveNum);
-      evalHistoryChart.data.datasets[0].data = evalHistory.map(e => e.eval);
-      evalHistoryChart.update();
-    }
-  }
-  
-  // Parse PGN and queue all positions for analysis
-  function replayPgnForAnalysis(pgn) {
-    console.log('[Analysis] replayPgnForAnalysis called, pgn length:', pgn ? pgn.length : 0);
-    if (!pgn || pgn === lastSeenPgn) {
-      console.log('[Analysis] Skipping - no pgn or same as last');
-      return;
-    }
-    lastSeenPgn = pgn;
-    
-    try {
-      // Check if Chess is defined
-      if (typeof Chess === 'undefined') {
-        console.error('[Analysis] Chess.js not loaded!');
-        return;
-      }
-      
-      const chess = new Chess();
-      console.log('[Analysis] Created Chess instance');
-      
-      const loaded = chess.load_pgn(pgn);
-      console.log('[Analysis] load_pgn result:', loaded);
-      
-      if (!loaded) {
-        console.log('[Analysis] Could not parse PGN:', pgn.substring(0, 200));
-        return;
-      }
-      
-      const moves = chess.history();
-      console.log('[Analysis] Game has', moves.length, 'moves:', moves);
-      
-      if (moves.length === 0) {
-        console.log('[Analysis] No moves found in PGN');
-        return;
-      }
-      
-      // Reset and replay to get FEN at each position
-      chess.reset();
-      analysisQueue = [];
-      
-      for (let i = 0; i < moves.length; i++) {
-        chess.move(moves[i]);
-        const fen = chess.fen();
-        const moveNum = i + 1;
-        
-        // Only queue if we don't already have this eval
-        const existing = evalHistory.find(e => e.moveNum === moveNum);
-        if (!existing) {
-          analysisQueue.push({ fen, moveNum });
-        }
-      }
-      
-      console.log('[Analysis] Queued', analysisQueue.length, 'positions for analysis');
-      
-      // Start processing queue if not already
-      if (analysisQueue.length > 0 && !isProcessingQueue) {
-        processNextInQueue();
-      }
-    } catch (e) {
-      console.error('[Analysis] Error replaying PGN:', e);
-    }
-  }
-  
-  function processNextInQueue() {
-    if (analysisQueue.length === 0) {
-      isProcessingQueue = false;
-      console.log('[Analysis] Queue processing complete');
-      // Now analyze the current live position at full depth
-      if (lastGameState && lastGameState.fen && !lastGameState.game_over) {
-        console.log('[Analysis] Starting live analysis of current position');
-        analyzePosition(lastGameState.fen, lastGameState.move_number || 1);
-      }
-      return;
-    }
-    
-    isProcessingQueue = true;
-    const next = analysisQueue.shift();
-    console.log('[Analysis] Analyzing queued position', next.moveNum, 'remaining:', analysisQueue.length);
-    analyzePositionQueued(next.fen, next.moveNum);
-  }
-
-  // Track whether current analysis is from queue or live
-  let isQueuedAnalysis = false;
-  let queuedMoveNumber = 0;
-  
-  function initLiveStockfish() {
-    if (liveStockfish) return;
-    
-    try {
-      liveStockfish = new Worker("{{ url_for('static', filename='stockfish/stockfish.js') }}");
-      
-      liveStockfish.onmessage = function(event) {
-        const line = event.data;
-        
-        // Parse evaluation from "info" lines
-        if (line.indexOf("score cp") > 0) {
-          const cpMatch = line.match(/score cp (-?\d+)/);
-          if (cpMatch) {
-            let cp = parseInt(cpMatch[1]);
-            // Negate if it's black's turn (we want score from white's perspective)
-            if (currentAnalysisFen && currentAnalysisFen.includes(' b ')) {
-              cp = -cp;
-            }
-            lastEvalScore = cp;
-            if (!isQueuedAnalysis) {
-              updateEvalBar(cp);
-            }
-          }
-        }
-        
-        // Parse mate score
-        if (line.indexOf("score mate") > 0) {
-          const mateMatch = line.match(/score mate (-?\d+)/);
-          if (mateMatch) {
-            let mateIn = parseInt(mateMatch[1]);
-            if (currentAnalysisFen && currentAnalysisFen.includes(' b ')) {
-              mateIn = -mateIn;
-            }
-            lastEvalScore = mateIn > 0 ? 10000 : -10000;
-            if (!isQueuedAnalysis) {
-              updateEvalBar(lastEvalScore);
-              updateAnalysisDisplay(null, mateIn);
-            }
-          }
-        }
-        
-        // Parse best move - this means analysis is complete for this position
-        if (line.indexOf("bestmove ") === 0) {
-          bestMoveUci = line.split(' ')[1];
-          
-          if (isQueuedAnalysis) {
-            // Add to history and process next in queue
-            if (queuedMoveNumber > 0) {
-              addEvalToHistory(queuedMoveNumber, lastEvalScore);
-            }
-            // Process next queued position
-            processNextInQueue();
-          } else {
-            // Live analysis
-            updateAnalysisDisplay(bestMoveUci, null);
-            if (lastMoveNumber > 0) {
-              addEvalToHistory(lastMoveNumber, lastEvalScore);
-            }
-          }
-        }
-      };
-      
-      // Initialize engine
-      liveStockfish.postMessage('uci');
-    } catch (e) {
-      console.error('Failed to initialize Stockfish:', e);
-    }
-  }
-  
-  // Analyze position for queued (background) analysis - uses lower depth for speed
-  function analyzePositionQueued(fen, moveNumber) {
-    if (!liveStockfish || !fen) {
-      processNextInQueue();
-      return;
-    }
-    
-    isQueuedAnalysis = true;
-    queuedMoveNumber = moveNumber;
-    currentAnalysisFen = fen;
-    
-    liveStockfish.postMessage('position fen ' + fen);
-    liveStockfish.postMessage('go depth 10');  // Lower depth for faster replay
-  }
-  
-  // Analyze position for live (current) analysis
-  function analyzePosition(fen, moveNumber) {
-    if (!liveStockfish || !fen) return;
-    
-    // Cancel any queued analysis - live takes priority
-    isQueuedAnalysis = false;
-    currentAnalysisFen = fen;
-    lastMoveNumber = moveNumber || 0;
-    bestMoveUci = '';
-    
-    // Send position and start analysis
-    liveStockfish.postMessage('stop');  // Stop any ongoing analysis
-    liveStockfish.postMessage('position fen ' + fen);
-    liveStockfish.postMessage('go depth 15');
-  }
-  
-  function updateEvalBar(cp) {
-    const bar = document.getElementById('live-eval-bar');
-    if (!bar) return;
-    
-    // Clamp to +/- 10 pawns, then map to 0-100
-    let clampedCp = Math.max(-1000, Math.min(1000, cp));
-    let barValue = 50 - (clampedCp / 20); // +10 pawns = 0%, -10 pawns = 100%
-    bar.value = barValue;
-    
-    // Color based on who's winning
-    if (cp > 100) {
-      bar.className = 'progress is-success';
-    } else if (cp < -100) {
-      bar.className = 'progress is-danger';
-    } else {
-      bar.className = 'progress is-warning';
-    }
-  }
-  
-  function updateAnalysisDisplay(bestMove, mateIn) {
-    const container = document.getElementById('live-analysis');
-    if (!container) return;
-    
-    let evalText = '';
-    if (mateIn !== null) {
-      evalText = mateIn > 0 ? `Mate in ${mateIn}` : `Mate in ${-mateIn} (for Black)`;
-    } else {
-      const pawns = (lastEvalScore / 100).toFixed(1);
-      evalText = lastEvalScore >= 0 ? `+${pawns}` : `${pawns}`;
-    }
-    
-    let moveText = bestMove ? `Best: <strong>${bestMove}</strong>` : 'Analyzing...';
-    
-    container.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <span style="font-size: 1.5rem; font-weight: bold;">${evalText}</span>
-        <span>${moveText}</span>
-      </div>
-    `;
-  }
+  });
   
   // Update current game info from SSE game state updates
   function updateCurrentGameInfo(state) {
     const container = document.getElementById('current-game-info');
     if (!state || !state.fen) {
-      container.innerHTML = '<p class="has-text-grey">Waiting for game...</p>';
+      if (container) {
+        container.innerHTML = '<p class="has-text-grey">Waiting for game...</p>';
+      }
       return;
     }
     
-    // Store for use after queue processing completes
     lastGameState = state;
     
     const white = state.white || 'White';
@@ -385,12 +72,12 @@
     const result = state.result || '';
     const gameOver = state.game_over || false;
     
-    // Detect new game (move number reset to 1 and we had moves before)
-    if (moveNum === 1 && lastMoveNumber > 1) {
-      resetEvalHistory();
-      hasReplayedCurrentGame = false;
-      lastSeenPgn = '';
+    // Detect new game (move number reset)
+    if (moveNum === 1 && lastDisplayedMoveNumber > 1) {
+      lastDisplayedMoveNumber = 0;
     }
+    
+    lastDisplayedMoveNumber = moveNum;
     
     let statusText = '';
     if (gameOver && result) {
@@ -399,36 +86,25 @@
       statusText = `<span class="tag is-light">Move ${moveNum} - ${turn} to play</span>`;
     }
     
-    container.innerHTML = `
-      <div style="padding: 0.5rem 0;">
-        <div style="margin-bottom: 0.5rem;">
-          <strong>${white}</strong> <span style="color: var(--color-text-muted);">(W)</span>
-          vs
-          <strong>${black}</strong> <span style="color: var(--color-text-muted);">(B)</span>
+    if (container) {
+      container.innerHTML = `
+        <div style="padding: 0.5rem 0;">
+          <div style="margin-bottom: 0.5rem;">
+            <strong>${white}</strong> <span style="color: var(--color-text-muted);">(W)</span>
+            vs
+            <strong>${black}</strong> <span style="color: var(--color-text-muted);">(B)</span>
+          </div>
+          ${statusText}
         </div>
-        ${statusText}
-      </div>
-    `;
-    
-    // On first connect with an existing game, replay the PGN to populate history
-    // Check if PGN has actual moves (contains move notation like "1." or move text)
-    if (state.pgn && !hasReplayedCurrentGame) {
-      // Check if PGN contains actual moves (not just headers)
-      const hasMoves = state.pgn.match(/\d+\.\s*[KQRBNP]?[a-h]?[1-8]?x?[a-h][1-8]/);
-      if (hasMoves) {
-        hasReplayedCurrentGame = true;
-        console.log('[Analysis] Replaying existing game PGN');
-        replayPgnForAnalysis(state.pgn);
-        // Don't start live analysis yet - let queue finish first
-        // The current position will be analyzed as part of the queue
-        return;
-      }
+      `;
     }
     
-    // Trigger analysis on new position (live move)
-    // Skip if queue is still processing (don't interrupt replay)
-    if (state.fen && state.fen !== currentAnalysisFen && !gameOver && !isProcessingQueue) {
-      analyzePosition(state.fen, moveNum);
+    // Load PGN into analysis engine if we have moves
+    if (state.pgn) {
+      const hasMoves = state.pgn.match(/\d+\.\s*[KQRBNP]?[a-h]?[1-8]?x?[a-h][1-8]/);
+      if (hasMoves) {
+        analysisEngine.onGameStateUpdate(state);
+      }
     }
   }
   
@@ -437,10 +113,9 @@
     updateCurrentGameInfo(event.detail);
   });
   
-  // Initialize Stockfish and chart when page loads
-  window.addEventListener('load', function() {
-    initEvalHistoryChart();
-    initLiveStockfish();
+  // Listen for analysis position changes to sync board
+  window.addEventListener('analysisPositionChange', function(event) {
+    // Board already updated via onPositionChange callback
   });
   
   // Initial state - will be updated when SSE connects

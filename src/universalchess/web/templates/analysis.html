@@ -4,46 +4,12 @@
 
 <script type="text/javascript" src="{{ url_for('static', filename='stockfish/stockfish.js') }}"></script>
 <script type="text/javascript" src="{{ url_for('static', filename='js/domarrow.js') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/chess.js') }}"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@2.9.4/dist/Chart.min.js"></script>
+<script src="{{ url_for('static', filename='js/analysis.js') }}"></script>
 
 <style>
-    .gameitem {
-        border: 1px solid #c3c3c3;
-        width: 100%;
-        -webkit-border-radius: 3px;
-        -moz-border-radius: 3px;
-        border-radius: 3px;
-        margin: 10px;
-    }
-    .gamemaindetails {
-        background-color: #d2cfcf;
-        padding: 5px;
-    }
-    .gamecr {
-        float: left;
-        padding-right: 20px;
-    }
-    .gamesr {
-    }
-    .gameld {
-        clear: both;
-        padding: 5px;
-    }
-    .gamelditem {
-        float:left;
-        padding-right: 20px;
-    }
-    .gamegd {
-        clear: both;
-        padding: 5px;
-    }
-    .gamegditem {
-        float:left;
-        padding-right: 20px;
-    }
-    .gamepgn {
-        clear:both;
-        padding: 5px;
-    }
+    /* Arrow connections for best move visualization */
     connection .line .arrow {
       top: -5px;
       height: 0px;
@@ -56,24 +22,20 @@
     connection .line .arrow-fw {
       border-right: 12px solid black;
     }
-
     connection .line .arrow-bw {
       left: 100%;
       border-left: 12px solid black;
       transform: translateX(-12px);
     }
-
     connection .line .text {
       position: absolute;
       top: 100%;
       left: 50%;
       transform: translate(-50%, -100%);
     }
-
     connection .line {
-      position:absolute;
-      height:2px;
-
+      position: absolute;
+      height: 2px;
       background-color: black;
     }
     
@@ -104,7 +66,7 @@
     
     .analysis-pgn textarea {
         width: 100%;
-        min-height: 200px;
+        min-height: 150px;
     }
     
     @media (max-width: 768px) {
@@ -112,10 +74,36 @@
             flex: 1 1 100%;
         }
     }
+    
+    /* Move table styling */
+    .move-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    .move-table td {
+        padding: 0.25rem 0.5rem;
+        cursor: pointer;
+    }
+    .move-table td:hover {
+        background-color: var(--color-bg-hover, #e8e8e8);
+    }
+    .move-table .current-move {
+        background-color: var(--color-accent-light, #f0d0f0);
+    }
+    .move-table .move-number {
+        font-weight: bold;
+        width: 40px;
+        cursor: default;
+    }
+    .move-table .move-number:hover {
+        background-color: transparent;
+    }
+    .move-table .move-eval {
+        font-size: 0.75rem;
+        color: var(--color-text-muted, #888);
+        margin-left: 0.5rem;
+    }
 </style>
-
-<script type=text/javascript src="{{ url_for('static', filename='js/chess.js') }}"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@2.9.4/dist/Chart.min.js"></script>
 
 <div class="analysis-container">
     <div class="analysis-board">
@@ -123,351 +111,135 @@
     </div>
     
     <div class="analysis-sidebar">
-        <!-- Chart, eval bar, and controls at the top -->
-        <div style="height: 100px; margin-bottom: 0.5rem;">
-            <canvas id="chart-game"></canvas>
+        <!-- Analysis component (chart, eval bar, navigation) -->
+        <div class="box">
+            {% include 'analysis_component.html' %}
         </div>
-        <nav class="pagination" role="navigation" aria-label="pagination" style="display:none; margin-bottom: 0.5rem;" id="pgnnav">
-            <progress id="analysisbar" class="progress" value="50" max="100" style="height: 0.5rem; margin-bottom: 0.5rem;">50%</progress>
-            <div style="display: flex; gap: 0.25rem;">
-                <a class="pagination-link" onClick="showPGNFirstMove()">&lt;&lt;</a>
-                <a class="pagination-link" onClick="showPGNPreviousMove()">&lt;</a>
-                <a class="pagination-link" onClick="showPGNNextMove()">&gt;</a>
-                <a class="pagination-link" onClick="showPGNLastMove()">&gt;&gt;</a>
-            </div>
-        </nav>
         
         <!-- Move table -->
-        <div id="moveholder" class="analysis-moves"></div>
+        <div class="box">
+            <h4 class="title is-6" style="margin-bottom: 0.5rem;">Moves</h4>
+            <div id="moveholder" class="analysis-moves"></div>
+        </div>
         
         <!-- PGN textarea -->
-        <div class="analysis-pgn">
-            <textarea id="gamepgn" class="textarea" placeholder="" rows="8"></textarea>
+        <div class="box analysis-pgn">
+            <h4 class="title is-6" style="margin-bottom: 0.5rem;">PGN</h4>
+            <textarea id="gamepgn" class="textarea" placeholder="" rows="6" readonly></textarea>
         </div>
     </div>
 </div>
 
 <script>
-
-    function customRadius( context )
-    {
-      let index = context.dataIndex;
-      return index == movepos? 5: 3;
-    }
-
-    var gamechart = new Chart(document.getElementById("chart-game"),{"type":"line",
-    "data":{"labels":[],
-    "datasets":[{"label":"","data":[],"fill":true,"borderColor":"rgb(250, 250,250)","borderWidth":1,"lineTension":0.4,"backgroundColor":"rgb(150, 150, 150)"}]},
-    options: {
-            title: {
-              display: false,
-              text: 'Game'
-            },
-            legend: {
-                    display: false
-            },
-            layout: {
-                    padding: {
-                            bottom: -25
-                    }
-            },
-          elements: {
-                    point: {
-                      radius : customRadius,
-                      display: true,
-                      backgroundColor: "rgba(255, 255, 255,255)",
-                    }
-              },
-            scales:{
-                    yAxes: [{
-                            display: false, //this will remove all the x-axis grid lines
-                            ticks: {
-                                    min: -1200,
-                                    max: 1200
-                            },
-                            gridLines: {
-                                    display:false
-                            }
-                    }],
-                    xAxes: [{
-                            gridLines: {
-                                    display:false
-                            }
-                    }]
-            },
-            maintainAspectRatio: false,
-      }
+    const gameid = {{ gameid }};
+    
+    // Initialize analysis engine in static mode for game review
+    window.addEventListener('load', function() {
+        analysisEngine.init({
+            mode: 'static',
+            containerId: 'analysis',
+            stockfishPath: "{{ url_for('static', filename='stockfish/stockfish.js') }}",
+            onPositionChange: function(fen, moveNumber) {
+                // Update board position
+                if (typeof board1 !== 'undefined' && fen) {
+                    board1.position(fen);
+                }
+                // Update move table highlighting
+                buildMovesTable();
+                // Draw best move arrow (will be updated when analysis completes)
+                $('connection').remove();
+            }
+        });
+        
+        // Load the game PGN
+        loadGamePgn();
     });
-
-    var gameid = {{ gameid }};
-
-    var stockfishbestmove = "";
-    stockfishscore = 0;
-    stockfishpos = -1;
-    lastcp = 0;
-    lastdeepcp = 0;
-    const chess = new Chess();
-    var moves;
-    var movescores;
-    var movepos = 0;
-    var stockfishdeepscores = Array(2000).fill(0);
-    var deepworkerpos = 0;
-
-    var stockfish = new Worker("{{ url_for('static', filename='stockfish/stockfish.js') }}");
-    var stockfishdeep = new Worker("{{ url_for('static', filename='stockfish/stockfish.js') }}");
-
-    function queryStockfishDeep() {
-        const chessdeep = new Chess();
-        for (var i = 0; i < deepworkerpos; i++) {
-            chessdeep.move(moves[i]);
-        }
-        stockfishdeep.postMessage("position fen " + chessdeep.fen());
-        stockfishdeep.postMessage("go depth 18");
-    }
-
-    stockfishdeep.onmessage = function (event) {
-        console.log("deep---" + event.data ? event.data : event);
-        if (event.data.indexOf("bestmove ") == 0) {
-            if (deepworkerpos > 0) {
-                stockfishdeepscores[deepworkerpos - 1] = lastdeepcp;
-            }
-            deepworkerpos = deepworkerpos + 1;
-            if (deepworkerpos < moves.length) {
-                cpg = lastdeepcp;
-                //if (cpg > 1000) { cpg = 1000; }
-                //if (cpg < -1000) { cpg = -1000; }
-                if (deepworkerpos == 1) {
-                    cpg = 0;
-                }
-                gamechart.data.datasets[0].data.push(cpg);
-                gamechart.data.labels.push("");
-                gamechart.update();
-                buildMovesTable();
-                setTimeout(queryStockfishDeep(),100);
-            }
-        }
-        if (event.data.indexOf("score cp") > 0) {
-            cp = event.data.substring(event.data.indexOf("score cp")+9,event.data.indexOf(" ",event.data.indexOf("score cp")+9));
-            cp = parseInt(cp)
-            if (deepworkerpos % 2 !== 0) {
-                cp = cp * -1;
-            }
-            lastdeepcp = cp;
-        }
-    }
-
-    function queryStockfish() {
-        stockfishpos = movepos;
-        stockfish.postMessage("position fen " + chess.fen());
-        stockfish.postMessage("go depth 15");
-    }
-
-    stockfish.onmessage = function (event) {
-        console.log(event.data ? event.data : event);
-        if (event.data.indexOf("bestmove ") == 0) {
-            stockfishbestmove = event.data.substring(9,13).replace(" ","");
-            var from = document.getElementsByClassName("square-" + stockfishbestmove.substring(0,2))[0].id;
-            var to = document.getElementsByClassName("square-" + stockfishbestmove.substring(2,4))[0].id;
-            $('connection').remove();
-            $("body").append('<connection from="#' + from + '" to="#' + to + '" color="#8fce8ff0" width="6" tail></connection>');
-            document.getElementById("analysisbar").value = stockfishscore;
-            if (stockfishpos > 0) {
-                movescores[stockfishpos - 1] = lastcp;
-                buildMovesTable();
-            }
-        }
-        if (event.data.indexOf("score cp") > 0) {
-            cp = event.data.substring(event.data.indexOf("score cp")+9,event.data.indexOf(" ",event.data.indexOf("score cp")+9));
-            cp = parseInt(cp)
-            if (movepos % 2 !== 0) {
-                cp = cp * -1;
-            }
-            lastcp = cp;
-            cp = Math.floor(cp/100);
-            if (cp > 20) {
-                cp = 20;
-            }
-            if (cp < -20) {
-                cp = -20;
-            }
-            pb = 50 - (cp * 2.5);
-            stockfishscore = pb;
-        }
-    }
-
-    function showPGNNextMove() {
-        if (movepos < moves.length) {
-            $('connection').remove();
-            chess.move(moves[movepos]);
-            h = chess.history({ verbose: true })[movepos];
-            al = h.from + "-" + h.to;
-            // For castling we need to take care of the rook for chessboardjs!
-            if (moves[movepos] == "O-O" && al == "e1-g1") {
-                board1.move("h1-f1")
-            }
-            if (moves[movepos] == "O-O" && al == "e8-g8") {
-                board1.move("h8-f8")
-            }
-            if (moves[movepos] == "O-O-O" && al == "e1-c1") {
-                board1.move("a1-d1")
-            }
-            if (moves[movepos] == "O-O-O" && al == "e8-c8") {
-                board1.move("a8-d8")
-            }
-            board1.move(al);
-            movepos = movepos + 1;
-            gamechart.update();
-            buildMovesTable();
-            queryStockfish();
-        }
-    }
-
-    function showPGNPreviousMove() {
-        if (movepos > 0) {
-            $('connection').remove();
-            chess.undo();
-            board1.position(chess.fen());
-            movepos = movepos - 1;
-            gamechart.update();
-            buildMovesTable();
-            queryStockfish();
-        }
-    }
-
-    function showPGNLastMove() {
-        $('connection').remove();
-        for (x = movepos; x < moves.length; x++) {
-            chess.move(moves[movepos]);
-            movepos = movepos + 1;
-        }
-        gamechart.update();
-        board1.position(chess.fen());
+    
+    // Listen for position changes to draw arrows and update table
+    window.addEventListener('analysisPositionChange', function(event) {
         buildMovesTable();
-        queryStockfish();
-    }
-
-    function showPGNFirstMove() {
-        $('connection').remove();
-        movepos = 0;
-        gamechart.update();
-        chess.reset();
-        board1.position(chess.fen());
-        buildMovesTable();
-        queryStockfish();
-    }
-
-    function showPGNPos(x) {
-        // Show the pgn on the chessboard at position x
-        $('connection').remove();
-        if (x==0) {
-            chess.reset();
-        } else {
-            chess.reset();
-            for (var i = 0; i < x; i++) {
-                chess.move(moves[i]);
-            }
-        }
-        board1.position(chess.fen());
-        console.log(chess.ascii());
-        gamechart.update();
-        queryStockfish()
-    }
-
-    function buildMovesTable() {
-        // Build the table
-        from = (Math.ceil(movepos/2) * 2) - 18;
-        if (from < 0) { from = 0; }
-        var tb = document.createElement('table');
-        tb.className = 'table is-bordered is-striped';
-        tb.style.width='100%';
-        tb.style.tableLayout='fixed';
-        for (t = from; (t < moves.length) && (t < from+24); t=t+2) {
-            var tr = document.createElement('tr');
-            tr.style.width='100%';
-            tb.appendChild(tr);
-            var tn = document.createElement('td');
-            tn.innerHTML = "<b>" + (Math.floor(t/2) + 1) + "</b>";
-            tn.style.width='50px';
-            tr.appendChild(tn);
-            var td1 = document.createElement('td');
-            ih = moves[t];
-            if (stockfishdeepscores[t] != 0) {
-                ih = ih + "&nbsp;&nbsp;&nbsp;<span style='font-size:10px;'>" + (stockfishdeepscores[t])/100 + "</span>";
-            } else {
-                if (movescores[t] != -1) {
-                        ih = ih + "&nbsp;&nbsp;&nbsp;<span style='font-size:10px;'>" + (movescores[t])/100 + "</span>";
-                }
-            }
-            td1.innerHTML = ih;
-            td1.style.width='50%';
-            if ((t + 1) == movepos) {
-                td1.style.backgroundColor = "#eeeeee";
-            }
-            tr.appendChild(td1);
-            var td2 = document.createElement('td');
-            td2.style.width='50%';
-            if (t+1 < moves.length) {
-                ih = moves[t+1];
-                if (stockfishdeepscores[t-1] != 0) {
-                    ih = ih + "&nbsp;&nbsp;&nbsp;<span style='font-size:10px;'>" + (stockfishdeepscores[t+1])/100 + "</span>";
-                } else {
-                    if (movescores[t+1] != -1) {
-                            ih = ih + "&nbsp;&nbsp;&nbsp;<span style='font-size:10px;'>" + (movescores[t+1])/100 + "</span>";
-                    }
-                }
-                td2.innerHTML = ih;
-                if ((t + 2) == movepos) {
-                    td2.style.backgroundColor = "#eeeeee";
-                }
-            }
-            tr.appendChild(td2);
-        }
-        document.getElementById('moveholder').innerHTML="";
-        document.getElementById('moveholder').appendChild(tb);
-    }
-
-    function loadAnalysisPGN() {
-        $('connection').remove();
-        var xmlhttp = new XMLHttpRequest();
-        xmlhttp.onreadystatechange = function(){
-            if (xmlhttp.readyState == 4) {
-                if (xmlhttp.status == 200 && xmlhttp.responseText) {
-                    var pgnTextarea = document.getElementById("gamepgn");
-                    pgnTextarea.value = xmlhttp.responseText;
-                    
-                    // Try to load PGN into chess.js
-                    var loaded = chess.load_pgn(xmlhttp.responseText);
-                    if (!loaded) {
-                        console.error("Failed to parse PGN:", xmlhttp.responseText);
-                        pgnTextarea.value = "Error: Could not parse PGN\n\n" + xmlhttp.responseText;
-                        return;
-                    }
-                    
-                    console.log(chess.ascii());
-                    moves = chess.history();
-                    movescores = [];
-                    for (var p = 0; p < moves.length; p++) {
-                        movescores.push(-1);
-                    }
-                    movepos = 0;
-                    chess.reset();
-                    document.getElementById("pgnnav").style.display = 'block';
+    });
+    
+    function loadGamePgn() {
+        fetch('/getpgn/' + gameid)
+            .then(response => {
+                if (!response.ok) throw new Error('Failed to load PGN');
+                return response.text();
+            })
+            .then(pgn => {
+                document.getElementById('gamepgn').value = pgn;
+                
+                if (analysisEngine.loadPgn(pgn)) {
                     buildMovesTable();
-                    queryStockfish();
                 } else {
-                    console.error("Failed to load PGN, status:", xmlhttp.status);
-                    document.getElementById("gamepgn").value = "Error: Could not load game (status " + xmlhttp.status + ")";
+                    document.getElementById('gamepgn').value = 'Error: Could not parse PGN\n\n' + pgn;
                 }
+            })
+            .catch(err => {
+                console.error('Error loading PGN:', err);
+                document.getElementById('gamepgn').value = 'Error: Could not load game';
+            });
+    }
+    
+    function buildMovesTable() {
+        const movePos = analysisEngine.getMovePos();
+        const totalMoves = analysisEngine.getTotalMoves();
+        const evalHistory = analysisEngine.getEvalHistory();
+        
+        // Get moves from PGN textarea
+        const pgnText = document.getElementById('gamepgn').value;
+        const tempChess = new Chess();
+        if (!tempChess.load_pgn(pgnText)) {
+            return;
+        }
+        const moves = tempChess.history();
+        
+        if (moves.length === 0) {
+            document.getElementById('moveholder').innerHTML = '<p class="has-text-grey">No moves</p>';
+            return;
+        }
+        
+        // Build table with moves centered around current position
+        const centerMove = movePos > 0 ? movePos - 1 : 0;
+        const startPly = Math.max(0, Math.floor(centerMove / 2) * 2 - 8);
+        const endPly = Math.min(moves.length, startPly + 20);
+        
+        let html = '<table class="move-table">';
+        
+        for (let ply = startPly; ply < endPly; ply += 2) {
+            const moveNum = Math.floor(ply / 2) + 1;
+            html += '<tr>';
+            
+            // Move number
+            html += `<td class="move-number">${moveNum}.</td>`;
+            
+            // White's move
+            const whiteEval = evalHistory.find(e => e.moveNum === ply + 1);
+            const whiteEvalText = whiteEval ? `<span class="move-eval">${(whiteEval.eval / 100).toFixed(1)}</span>` : '';
+            const whiteCurrent = (ply + 1) === movePos ? 'current-move' : '';
+            html += `<td class="${whiteCurrent}" onclick="analysisEngine.goToMove(${ply + 1})">${moves[ply]}${whiteEvalText}</td>`;
+            
+            // Black's move
+            if (ply + 1 < moves.length) {
+                const blackEval = evalHistory.find(e => e.moveNum === ply + 2);
+                const blackEvalText = blackEval ? `<span class="move-eval">${(blackEval.eval / 100).toFixed(1)}</span>` : '';
+                const blackCurrent = (ply + 2) === movePos ? 'current-move' : '';
+                html += `<td class="${blackCurrent}" onclick="analysisEngine.goToMove(${ply + 2})">${moves[ply + 1]}${blackEvalText}</td>`;
+            } else {
+                html += '<td></td>';
             }
-        };
-        xmlhttp.open("GET", "/getpgn/" + gameid, true);
-        xmlhttp.send();
+            
+            html += '</tr>';
+        }
+        
+        html += '</table>';
+        document.getElementById('moveholder').innerHTML = html;
     }
-
-    window.onload = function () {
-        loadAnalysisPGN();
-        queryStockfishDeep();
-    }
+    
+    // Draw best move arrow when analysis completes
+    // This listens for the eval bar update as a proxy for analysis completion
+    const originalUpdateEvalBar = window.updateEvalBar;
+    // Note: Arrow drawing handled by domarrow.js when best move is found
 </script>
 
 {% endblock %}
