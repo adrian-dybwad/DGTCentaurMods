@@ -1,16 +1,21 @@
 // Universal Chess Service Worker
 // Provides offline support and caching for PWA functionality
 
-const CACHE_NAME = 'universal-chess-v1';
+// Bump this when changing static asset structure so clients refresh cleanly.
+const CACHE_NAME = 'universal-chess-v2';
 const STATIC_ASSETS = [
   '/',
   '/static/css/app.css',
   '/static/js/jquery-3.4.1.min.js',
   '/static/js/chess.js',
+  '/static/js/board.js',
+  '/static/js/game_client.js',
+  '/static/js/domarrow.js',
+  '/static/js/analysis.js',
   '/static/chessboardjs/js/chessboard-1.0.0.min.js',
-  '/static/chessboardjs/css/chessboard-1.0.0.min.css',
-  '/static/logo_mods_web.png',
-  '/static/manifest.json'
+  '/static/chessboardjs/css/chessboard-1.0.0.css',
+  '/static/manifest.json',
+  '/static/icons/icon.svg'
 ];
 
 // Install event - cache static assets
@@ -51,6 +56,7 @@ self.addEventListener('fetch', (event) => {
   // Skip API calls and real-time endpoints (always fetch fresh)
   const url = new URL(event.request.url);
   if (url.pathname.startsWith('/fen') || 
+      url.pathname.startsWith('/events') ||
       url.pathname.startsWith('/video') ||
       url.pathname.startsWith('/getgames') ||
       url.pathname.startsWith('/getpgn')) {

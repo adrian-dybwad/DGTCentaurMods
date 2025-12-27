@@ -170,9 +170,20 @@ def is_centaur_software_installed() -> bool:
 @app.context_processor
 def inject_template_globals():
     """Inject global variables into all templates."""
+    # Static asset versioning: used to bust caches (browser + service worker).
+    # Use installed /opt/universalchess/VERSION when available; fall back to a
+    # fixed development string so it doesn't change on every request.
+    static_version = "dev"
+    try:
+        version_path = pathlib.Path("/opt/universalchess/VERSION")
+        if version_path.exists():
+            static_version = version_path.read_text().strip() or static_version
+    except Exception:
+        pass
     return {
         'rodentiv_installed': is_rodentiv_installed(),
         'centaur_software_installed': is_centaur_software_installed(),
+        'static_version': static_version,
     }
 
 def verify_webdav_authentication():

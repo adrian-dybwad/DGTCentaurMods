@@ -7,20 +7,20 @@
     <meta name="theme-color" content="#aa44aa">
     
     <!-- PWA Support -->
-    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
-    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon.svg') }}">
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json', v=static_version) }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon.svg', v=static_version) }}">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     
     <title>Universal Chess</title>
     
     <!-- Stylesheets -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='chessboardjs/css/chessboard-1.0.0.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='chessboardjs/css/chessboard-1.0.0.css', v=static_version) }}">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.3/css/bulma.min.css">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css', v=static_version) }}">
     
     <!-- Favicon -->
-    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='icons/icon.svg') }}">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='icons/icon.svg', v=static_version) }}">
   </head>
   <body>
   <!--
@@ -108,7 +108,7 @@
     // Service Worker Registration
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/static/sw.js')
+        navigator.serviceWorker.register("{{ url_for('static', filename='sw.js', v=static_version) }}")
           .then(reg => console.log('Service Worker registered'))
           .catch(err => console.log('SW registration failed:', err));
       });
@@ -116,11 +116,11 @@
   </script>
 
   <!-- Core JS dependencies (loaded once to avoid duplicate execution across templates) -->
-  <script src="{{ url_for('static', filename='js/jquery-3.4.1.min.js') }}"></script>
-  <script type="text/javascript" src="{{ url_for('static', filename='chessboardjs/js/chessboard-1.0.0.min.js') }}"></script>
-  <script type="text/javascript" src="{{ url_for('static', filename='js/domarrow.js') }}"></script>
-  <script type="text/javascript" src="{{ url_for('static', filename='js/board.js') }}"></script>
-  <script type="text/javascript" src="{{ url_for('static', filename='js/game_client.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/jquery-3.4.1.min.js', v=static_version) }}"></script>
+  <script type="text/javascript" src="{{ url_for('static', filename='chessboardjs/js/chessboard-1.0.0.min.js', v=static_version) }}"></script>
+  <script type="text/javascript" src="{{ url_for('static', filename='js/domarrow.js', v=static_version) }}"></script>
+  <script type="text/javascript" src="{{ url_for('static', filename='js/board.js', v=static_version) }}"></script>
+  <script type="text/javascript" src="{{ url_for('static', filename='js/game_client.js', v=static_version) }}"></script>
 
   </body>
 </html>
