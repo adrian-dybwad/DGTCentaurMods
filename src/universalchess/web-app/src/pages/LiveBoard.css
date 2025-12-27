@@ -164,6 +164,29 @@
   color: #7a7a7a;
 }
 
+/* PGN Toggle Button */
+.pgn-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.pgn-toggle:hover .box-title {
+  color: var(--color-accent-primary, #aa44aa);
+}
+
+.pgn-toggle-icon {
+  color: #7a7a7a;
+  font-size: 0.75rem;
+  transition: transform 0.2s ease;
+}
+
 /* Responsive - tablet and below */
 @media screen and (max-width: 768px) {
   .columns {

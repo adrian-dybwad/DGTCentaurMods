@@ -1,5 +1,4 @@
 import { useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
 import { ChessBoard } from '../components/ChessBoard';
 import { Analysis } from '../components/Analysis';
 import { useGameStore } from '../stores/gameStore';
@@ -15,6 +14,7 @@ export function LiveBoard() {
   const [displayFen, setDisplayFen] = useState<string | null>(null);
   const [bestMove, setBestMove] = useState<{ from: string; to: string } | null>(null);
   const [playedMove, setPlayedMove] = useState<{ from: string; to: string } | null>(null);
+  const [pgnExpanded, setPgnExpanded] = useState(false);
 
   const handlePositionChange = useCallback((fen: string, _moveIndex: number) => {
     setDisplayFen(fen);
@@ -86,23 +86,28 @@ export function LiveBoard() {
           />
         </div>
 
-        {/* Current PGN Box */}
+        {/* Current PGN Box - Collapsible */}
         <div className="box" style={{ marginTop: '1rem' }}>
-          <h3 className="title is-5 box-title">Current PGN</h3>
-          <textarea
-            id="lastpgn"
-            className="textarea"
-            placeholder="PGN will appear here during play..."
-            rows={8}
-            readOnly
-            value={currentPgn}
-          />
+          <button
+            className="pgn-toggle"
+            onClick={() => setPgnExpanded(!pgnExpanded)}
+            aria-expanded={pgnExpanded}
+          >
+            <h3 className="title is-5 box-title" style={{ margin: 0 }}>Current PGN</h3>
+            <span className="pgn-toggle-icon">{pgnExpanded ? '▼' : '▶'}</span>
+          </button>
+          {pgnExpanded && (
+            <textarea
+              id="lastpgn"
+              className="textarea"
+              placeholder="PGN will appear here during play..."
+              rows={8}
+              readOnly
+              value={currentPgn}
+              style={{ marginTop: '0.75rem' }}
+            />
+          )}
         </div>
-
-        {/* View All Games Button */}
-        <Link to="/games" className="button is-primary is-small" style={{ marginTop: '1rem' }}>
-          View All Games
-        </Link>
       </div>
     </div>
   );
