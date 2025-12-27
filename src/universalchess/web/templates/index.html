@@ -99,13 +99,8 @@
       `;
     }
     
-    // Load PGN into analysis engine if we have moves
-    if (state.pgn) {
-      const hasMoves = state.pgn.match(/\d+\.\s*[KQRBNP]?[a-h]?[1-8]?x?[a-h][1-8]/);
-      if (hasMoves) {
-        analysisEngine.onGameStateUpdate(state);
-      }
-    }
+    // Always forward state to analysis engine - it handles PGN parsing internally
+    analysisEngine.onGameStateUpdate(state);
   }
   
   // Listen for game state updates from SSE (dispatched by liveboard.html)

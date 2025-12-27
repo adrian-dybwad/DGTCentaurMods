@@ -161,10 +161,22 @@ const analysisEngine = (function() {
     if (stockfish) return;
     
     try {
+      console.log('[Analysis] Initializing Stockfish worker');
       stockfish = new Worker(config.stockfishPath);
       
       stockfish.onmessage = function(event) {
-        handleStockfishMessage(event.data);
+        const line = event.data;
+        
+        // When Stockfish is ready, process any queued positions
+        if (line === 'uciok') {
+          console.log('[Analysis] Stockfish ready');
+          if (analysisQueue.length > 0 && !isProcessingQueue) {
+            console.log('[Analysis] Processing', analysisQueue.length, 'queued positions');
+            processNextInQueue();
+          }
+        }
+        
+        handleStockfishMessage(line);
       };
       
       stockfish.postMessage('uci');
@@ -278,7 +290,12 @@ const analysisEngine = (function() {
   // --- PGN Loading ---
   
   function loadPgn(pgn) {
-    if (!pgn || !chess) return false;
+    if (!pgn || !chess) {
+      console.log('[Analysis] loadPgn: no pgn or chess not initialized');
+      return false;
+    }
+    
+    console.log('[Analysis] loadPgn called, pgn length:', pgn.length);
     
     // Reset state
     chess.reset();
@@ -287,6 +304,7 @@ const analysisEngine = (function() {
     totalMoves = 0;
     evalHistory = [];
     analysisQueue = [];
+    isProcessingQueue = false;
     lastSeenPgn = pgn;
     
     // Clear chart
@@ -299,12 +317,19 @@ const analysisEngine = (function() {
     // Try to load the PGN
     const tempChess = new Chess();
     if (!tempChess.load_pgn(pgn)) {
-      console.error('[Analysis] Could not parse PGN');
+      console.error('[Analysis] Could not parse PGN:', pgn.substring(0, 200));
       return false;
     }
     
     moves = tempChess.history();
     totalMoves = moves.length;
+    console.log('[Analysis] Loaded', totalMoves, 'moves:', moves.slice(0, 5).join(', '), '...');
+    
+    if (totalMoves === 0) {
+      console.log('[Analysis] No moves in PGN');
+      updateMoveIndicator();
+      return true;
+    }
     
     // Queue all positions for analysis
     tempChess.reset();
@@ -312,15 +337,19 @@ const analysisEngine = (function() {
       tempChess.move(moves[i]);
       analysisQueue.push({ fen: tempChess.fen(), moveNum: i + 1 });
     }
+    console.log('[Analysis] Queued', analysisQueue.length, 'positions for analysis');
     
     // Reset to start position
     chess.reset();
     movePos = 0;
     updateMoveIndicator();
     
-    // Start batch analysis
-    if (analysisQueue.length > 0) {
+    // Start batch analysis - ensure stockfish is ready
+    if (analysisQueue.length > 0 && stockfish) {
+      console.log('[Analysis] Starting queue processing');
       processNextInQueue();
+    } else if (!stockfish) {
+      console.warn('[Analysis] Stockfish not ready, will analyze when initialized');
     }
     
     // Notify position change
