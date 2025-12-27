@@ -4,11 +4,16 @@ import { ApiSettingsDialog } from './ApiSettingsDialog';
 import { getApiUrl, isCrossOriginApi } from '../utils/api';
 import './ConnectionStatus.css';
 
+interface ConnectionStatusProps {
+  /** When true, shows only the status dot without text (for mobile) */
+  compact?: boolean;
+}
+
 /**
  * Connection status indicator - displays as a clickable tag in the navbar.
  * Clicking opens the API settings dialog to change the chess board URL.
  */
-export function ConnectionStatus() {
+export function ConnectionStatus({ compact = false }: ConnectionStatusProps) {
   const connectionStatus = useGameStore((state) => state.connectionStatus);
   const [dialogOpen, setDialogOpen] = useState(false);
 
@@ -57,15 +62,19 @@ export function ConnectionStatus() {
   return (
     <>
       <button
-        className={`tag tag-button ${getStatusClass()}`}
+        className={`tag tag-button ${getStatusClass()} ${compact ? 'tag-compact' : ''}`}
         id="connection-status"
         onClick={() => setDialogOpen(true)}
         title={`Click to change connection settings\n${showApiIndicator ? `Connected to: ${apiHost}` : 'Using local server'}`}
       >
         <span className={`status-dot ${connectionStatus}`} />
-        <span className="status-text">{getStatusText()}</span>
-        {showApiIndicator && (
-          <span className="api-host">{apiHost}</span>
+        {!compact && (
+          <>
+            <span className="status-text">{getStatusText()}</span>
+            {showApiIndicator && (
+              <span className="api-host">{apiHost}</span>
+            )}
+          </>
         )}
       </button>
 

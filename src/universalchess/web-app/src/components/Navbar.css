@@ -81,15 +81,31 @@
   white-space: nowrap;
 }
 
-.navbar-burger {
+/* Container for connection status + burger on mobile */
+.navbar-brand-right {
   display: none;
+  align-items: center;
+  margin-left: auto;
+}
+
+.navbar-burger {
+  display: block;
   cursor: pointer;
   width: 3.25rem;
   height: 3.25rem;
-  margin-left: auto;
   background: transparent;
   border: none;
   position: relative;
+}
+
+/* Hide mobile status in navbar-brand on desktop */
+.navbar-item--mobile-status {
+  display: none;
+}
+
+/* Show desktop status in navbar-end on desktop */
+.navbar-item--desktop-status {
+  display: flex;
 }
 
 .navbar-burger span {
@@ -164,8 +180,20 @@
     flex-wrap: wrap;
   }
 
-  .navbar-burger {
-    display: block;
+  /* Show the brand-right container (connection + burger) */
+  .navbar-brand-right {
+    display: flex;
+  }
+
+  /* Show compact connection status on mobile */
+  .navbar-item--mobile-status {
+    display: flex;
+    padding: 0 0.5rem;
+  }
+
+  /* Hide desktop connection status on mobile */
+  .navbar-item--desktop-status {
+    display: none;
   }
 
   .navbar-menu {
@@ -191,5 +219,16 @@
     padding: 0.75rem 1rem;
     margin: 0;
     border-radius: 0;
+  }
+}
+
+/* Desktop: hide the brand-right container since burger isn't needed */
+@media screen and (min-width: 1024px) {
+  .navbar-brand-right {
+    display: none;
+  }
+
+  .navbar-burger {
+    display: none;
   }
 }

@@ -22,16 +22,22 @@ export function Navbar() {
             <span className="brand-tagline">Your smart chess companion</span>
           </div>
         </Link>
-        <button
-          className={`navbar-burger ${menuOpen ? 'is-active' : ''}`}
-          aria-label="menu"
-          aria-expanded={menuOpen}
-          onClick={() => setMenuOpen(!menuOpen)}
-        >
-          <span aria-hidden="true" />
-          <span aria-hidden="true" />
-          <span aria-hidden="true" />
-        </button>
+        {/* Mobile: connection status and burger menu together on the right */}
+        <div className="navbar-brand-right">
+          <div className="navbar-item navbar-item--mobile-status">
+            <ConnectionStatus compact />
+          </div>
+          <button
+            className={`navbar-burger ${menuOpen ? 'is-active' : ''}`}
+            aria-label="menu"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen(!menuOpen)}
+          >
+            <span aria-hidden="true" />
+            <span aria-hidden="true" />
+            <span aria-hidden="true" />
+          </button>
+        </div>
       </div>
 
       <div className={`navbar-menu ${menuOpen ? 'is-active' : ''}`}>
@@ -73,7 +79,8 @@ export function Navbar() {
           >
             Licenses
           </Link>
-          <div className="navbar-item">
+          {/* Desktop: full connection status in navbar-end */}
+          <div className="navbar-item navbar-item--desktop-status">
             <ConnectionStatus />
           </div>
         </div>
