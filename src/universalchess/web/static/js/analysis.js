@@ -51,6 +51,7 @@ const analysisEngine = (function() {
   let lastEvalScore = 0;
   let bestMoveUci = '';
   let lastMateIn = null;
+  let currentSearchHadMate = false;
   let isQueuedAnalysis = false;
   let queuedMoveNumber = 0;
   let analysisQueue = [];
@@ -208,6 +209,11 @@ const analysisEngine = (function() {
     if (line.indexOf('score cp') > 0) {
       const cpMatch = line.match(/score cp (-?\d+)/);
       if (cpMatch) {
+        // If Stockfish already reported a mate score for this search, keep the mate
+        // display stable and ignore subsequent centipawn updates.
+        if (currentSearchHadMate) {
+          return;
+        }
         let cp = parseInt(cpMatch[1]);
         // Negate if black's turn (eval from white's perspective)
         if (currentAnalysisFen && currentAnalysisFen.includes(' b ')) {
@@ -233,6 +239,7 @@ const analysisEngine = (function() {
         }
         lastEvalScore = mateIn > 0 ? 10000 : -10000;
         lastMateIn = mateIn;
+        currentSearchHadMate = true;
         if (!isQueuedAnalysis) {
           updateEvalBar(lastEvalScore);
           updateEvalDisplay(null, mateIn);
@@ -296,6 +303,7 @@ const analysisEngine = (function() {
     isQueuedAnalysis = true;
     queuedMoveNumber = moveNumber;
     currentAnalysisFen = fen;
+    currentSearchHadMate = false;
 
     // Ensure any previous analysis is stopped before starting queued replay work.
     // Without this, Stockfish can keep running the previous `go` command and ignore
@@ -314,6 +322,7 @@ const analysisEngine = (function() {
     isQueuedAnalysis = false;
     currentAnalysisFen = fen;
     bestMoveUci = '';
+    currentSearchHadMate = false;
     
     stockfish.postMessage('stop');
     stockfish.postMessage('position fen ' + fen);
@@ -451,6 +460,8 @@ const analysisEngine = (function() {
     lastSeenPgn = '';
     latestMoveNumber = 0;
     unseenMoves = 0;
+    currentSearchHadMate = false;
+    lastMateIn = null;
     hideNewMovesToast();
     
     if (chart) {
