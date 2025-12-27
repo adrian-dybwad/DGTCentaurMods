@@ -50,6 +50,7 @@ const analysisEngine = (function() {
   let currentAnalysisFen = null;
   let lastEvalScore = 0;
   let bestMoveUci = '';
+  let lastMateIn = null;
   let isQueuedAnalysis = false;
   let queuedMoveNumber = 0;
   let analysisQueue = [];
@@ -213,8 +214,11 @@ const analysisEngine = (function() {
           cp = -cp;
         }
         lastEvalScore = cp;
+        lastMateIn = null;
         if (!isQueuedAnalysis) {
           updateEvalBar(cp);
+          // Keep the score display live-updating (used to work like this).
+          updateEvalDisplay(bestMoveUci || null, null);
         }
       }
     }
@@ -228,6 +232,7 @@ const analysisEngine = (function() {
           mateIn = -mateIn;
         }
         lastEvalScore = mateIn > 0 ? 10000 : -10000;
+        lastMateIn = mateIn;
         if (!isQueuedAnalysis) {
           updateEvalBar(lastEvalScore);
           updateEvalDisplay(null, mateIn);
@@ -261,7 +266,16 @@ const analysisEngine = (function() {
     if (analysisQueue.length === 0) {
       isProcessingQueue = false;
       debugLog('[Analysis] Queue processing complete');
-      // Analyze current position at full depth
+      // The queued replay just finished evaluating positions, including the current
+      // UI position (often the last move). The UI score/best-move should reflect
+      // that immediately. Avoid relying on analyzeCurrentPosition(), because it can
+      // be a no-op when currentAnalysisFen already equals the final queued FEN.
+      if (movePos > 0) {
+        updateEvalBar(lastEvalScore);
+        updateEvalDisplay(bestMoveUci || null, lastMateIn);
+      }
+
+      // Now analyze current position at full depth if needed (only if FEN differs).
       if (chess && movePos > 0) {
         analyzeCurrentPosition();
       }
