@@ -22,11 +22,8 @@ export function Navbar() {
             <span className="brand-tagline">Your smart chess companion</span>
           </div>
         </Link>
-        {/* Mobile: connection status and burger menu together on the right */}
+        {/* Mobile: burger menu and connection status together on the right */}
         <div className="navbar-brand-right">
-          <div className="navbar-item navbar-item--mobile-status">
-            <ConnectionStatus compact />
-          </div>
           <button
             className={`navbar-burger ${menuOpen ? 'is-active' : ''}`}
             aria-label="menu"
@@ -37,6 +34,9 @@ export function Navbar() {
             <span aria-hidden="true" />
             <span aria-hidden="true" />
           </button>
+          <div className="navbar-item navbar-item--mobile-status">
+            <ConnectionStatus compact />
+          </div>
         </div>
       </div>
 

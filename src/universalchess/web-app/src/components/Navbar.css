@@ -180,6 +180,12 @@
     flex-wrap: wrap;
   }
 
+  /* Make navbar-brand full width so brand-right can be pushed to the right */
+  .navbar-brand {
+    width: 100%;
+    justify-content: space-between;
+  }
+
   /* Show the brand-right container (connection + burger) */
   .navbar-brand-right {
     display: flex;
