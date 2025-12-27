@@ -44,25 +44,20 @@ export function LiveBoard() {
 
   const handlePositionChange = useCallback((fen: string, moveIndex: number, totalMoves: number) => {
     setDisplayFen(fen);
-    const wasAtLatest = isAtLatestMove;
-    const nowAtLatest = moveIndex === totalMoves;
-    setIsAtLatestMove(nowAtLatest);
+    setIsAtLatestMove(moveIndex === totalMoves);
     
-    // Clear arrows immediately and mark that new arrows should be delayed
+    // Clear all arrows immediately and mark that new arrows should be delayed
     // This prevents arrows appearing before piece animation completes
+    // and prevents flash of old arrows when navigating in either direction
     if (arrowDelayTimeoutRef.current) {
       clearTimeout(arrowDelayTimeoutRef.current);
     }
     setDelayedBestMove(null);
     setDelayedPlayedMove(null);
+    setBestMove(null);
+    setPlayedMove(null);
     shouldDelayArrowsRef.current = true;
-    
-    // Clear source arrows when navigating away from latest position to prevent flash
-    if (wasAtLatest && !nowAtLatest) {
-      setBestMove(null);
-      setPlayedMove(null);
-    }
-  }, [isAtLatestMove]);
+  }, []);
 
   const handleBestMoveChange = useCallback((move: { from: string; to: string } | null) => {
     setBestMove(move);
