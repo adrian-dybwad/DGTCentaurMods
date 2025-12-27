@@ -40,11 +40,7 @@ export default defineConfig({
         target: apiTarget,
         changeOrigin: true,
       },
-      // Static assets from Flask
-      '/stockfish': {
-        target: apiTarget,
-        changeOrigin: true,
-      },
+      // Static assets from Flask (stockfish is in public/ now)
       '/static': {
         target: apiTarget,
         changeOrigin: true,
