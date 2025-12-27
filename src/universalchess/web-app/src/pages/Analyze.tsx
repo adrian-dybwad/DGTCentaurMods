@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { ChessBoard } from '../components/ChessBoard';
 import { Analysis } from '../components/Analysis';
+import { Card, CardHeader } from '../components/ui';
 import './Analyze.css';
 
 /**
@@ -41,7 +42,7 @@ export function Analyze() {
 
   if (loading) {
     return (
-      <div className="analyze-page">
+      <div className="page container--lg">
         <div className="loading">Loading game...</div>
       </div>
     );
@@ -49,35 +50,34 @@ export function Analyze() {
 
   if (error) {
     return (
-      <div className="analyze-page">
+      <div className="page container--lg">
         <div className="error">{error}</div>
       </div>
     );
   }
 
   return (
-    <div className="analyze-page">
-      <h1>Game Analysis</h1>
+    <div className="page container--xl">
+      <h1 className="page-title mb-6">Game Analysis</h1>
 
       <div className="analyze-layout">
-        <div className="board-section">
+        <section className="analyze-board">
           <ChessBoard fen={currentFen} boardWidth={450} />
-        </div>
+        </section>
 
-        <div className="analysis-section">
+        <section className="analyze-panel">
           <Analysis
             pgn={pgn}
             mode="static"
             onPositionChange={handlePositionChange}
           />
-        </div>
+        </section>
       </div>
 
-      <div className="pgn-section">
-        <h3>PGN</h3>
+      <Card className="mt-6">
+        <CardHeader title="PGN" />
         <pre>{pgn}</pre>
-      </div>
+      </Card>
     </div>
   );
 }
-

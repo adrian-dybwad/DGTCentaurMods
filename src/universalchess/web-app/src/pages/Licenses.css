@@ -1,86 +1,28 @@
-.licenses-page {
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 1.5rem;
-}
-
-.licenses-page h1 {
-  color: #aa44aa;
-  margin: 0 0 0.75rem;
-}
-
-.intro {
-  color: #666;
-  margin-bottom: 2rem;
-  line-height: 1.6;
-}
-
-.licenses-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
+/**
+ * Licenses Page Styles
+ */
 
 .license-card {
-  background: #fff;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-  overflow: hidden;
+  transition: background var(--transition-fast);
+}
+
+.license-card:hover {
+  background: var(--color-bg-muted);
 }
 
 .license-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1rem 1.25rem;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.license-header:hover {
-  background: #fafafa;
-}
-
-.license-info {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.license-info h3 {
-  margin: 0;
-  font-size: 1rem;
-  color: #333;
-}
-
-.license-type {
-  padding: 0.2rem 0.6rem;
-  background: #f0f0f0;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: #666;
 }
 
 .license-header a {
-  color: #aa44aa;
-  text-decoration: none;
-  font-size: 0.875rem;
-}
-
-.license-header a:hover {
-  text-decoration: underline;
+  font-size: var(--text-sm);
 }
 
 .license-text {
-  background: #fafafa;
-  border-top: 1px solid #e0e0e0;
-  padding: 1rem 1.25rem;
-  margin: 0;
-  font-size: 0.8rem;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  white-space: pre-wrap;
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
   max-height: 300px;
-  overflow: auto;
 }
-

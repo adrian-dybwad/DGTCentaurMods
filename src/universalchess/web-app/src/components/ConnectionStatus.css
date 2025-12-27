@@ -1,21 +1,25 @@
+/**
+ * Connection Status Styles
+ */
+
 .connection-status {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.25rem 0.75rem;
-  border-radius: 20px;
-  font-size: 0.75rem;
-  font-weight: 500;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
 }
 
 .connection-status.connected {
-  background: rgba(72, 199, 116, 0.15);
-  color: #257942;
+  background: var(--color-success-light);
+  color: var(--color-success-dark);
 }
 
 .connection-status.disconnected {
-  background: rgba(241, 70, 104, 0.15);
-  color: #cc0f35;
+  background: var(--color-danger-light);
+  color: var(--color-danger-dark);
 }
 
 .status-dot {
@@ -25,12 +29,12 @@
 }
 
 .connected .status-dot {
-  background: #48c774;
+  background: var(--color-success);
   box-shadow: 0 0 6px rgba(72, 199, 116, 0.5);
 }
 
 .disconnected .status-dot {
-  background: #f14668;
+  background: var(--color-danger);
   animation: pulse 1.5s infinite;
 }
 
@@ -38,4 +42,3 @@
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
 }
-

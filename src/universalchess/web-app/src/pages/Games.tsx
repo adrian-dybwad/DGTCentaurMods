@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
+import { Button, Card, Badge } from '../components/ui';
 import type { GameRecord } from '../types/game';
 import './Games.css';
 
@@ -61,17 +62,17 @@ export function Games() {
   };
 
   return (
-    <div className="games-page">
+    <div className="page container--lg">
       <div className="page-header">
-        <h1>Game History</h1>
-        <div className="pagination">
-          <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
+        <h1 className="page-title">Game History</h1>
+        <div className="flex gap-4 items-center">
+          <Button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
             ◀ Previous
-          </button>
-          <span>Page {page}</span>
-          <button onClick={() => setPage((p) => p + 1)} disabled={games.length === 0}>
+          </Button>
+          <span className="text-muted">Page {page}</span>
+          <Button onClick={() => setPage((p) => p + 1)} disabled={games.length === 0}>
             Next ▶
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -80,18 +81,18 @@ export function Games() {
       ) : games.length === 0 ? (
         <div className="empty">No games found</div>
       ) : (
-        <div className="games-list">
+        <div className="flex flex-col gap-4">
           {games.map((game) => (
-            <div key={game.id} className="game-card">
+            <Card key={game.id}>
               <div className="game-header">
-                <div className="players">
+                <div className="game-players">
                   <strong>{game.white || 'Player'}</strong>
-                  <span className="color-indicator">(W)</span>
-                  <span className="vs">vs</span>
+                  <span className="text-muted">(W)</span>
+                  <span className="game-vs">vs</span>
                   <strong>{game.black || 'Player'}</strong>
-                  <span className="color-indicator">(B)</span>
+                  <span className="text-muted">(B)</span>
                 </div>
-                {game.result && <span className="result">{game.result}</span>}
+                {game.result && <Badge>{game.result}</Badge>}
               </div>
 
               <div className="game-meta">
@@ -102,25 +103,24 @@ export function Games() {
               </div>
 
               {expandedPgn[game.id] && (
-                <pre className="pgn-display">{expandedPgn[game.id]}</pre>
+                <pre className="game-pgn">{expandedPgn[game.id]}</pre>
               )}
 
-              <div className="game-actions">
-                <button onClick={() => togglePgn(game.id)}>
+              <div className="flex gap-2 mt-4">
+                <Button size="sm" onClick={() => togglePgn(game.id)}>
                   {expandedPgn[game.id] ? 'Hide PGN' : 'Show PGN'}
-                </button>
-                <Link to={`/analyze/${game.id}`} className="btn-primary">
-                  Analyze
+                </Button>
+                <Link to={`/analyze/${game.id}`}>
+                  <Button size="sm" variant="primary">Analyze</Button>
                 </Link>
-                <button className="btn-danger" onClick={() => deleteGame(game.id)}>
+                <Button size="sm" variant="danger" onClick={() => deleteGame(game.id)}>
                   Delete
-                </button>
+                </Button>
               </div>
-            </div>
+            </Card>
           ))}
         </div>
       )}
     </div>
   );
 }
-

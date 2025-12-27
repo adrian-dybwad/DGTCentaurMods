@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Card, Badge } from '../components/ui';
 import './Licenses.css';
 
 interface License {
@@ -13,16 +14,6 @@ const licenses: License[] = [
     name: 'Universal Chess',
     type: 'GPL-3.0',
     url: 'https://github.com/adrian-dybwad/Universal-Chess/blob/main/LICENSE',
-    text: `GNU GENERAL PUBLIC LICENSE
-Version 3, 29 June 2007
-
-Copyright (C) 2007 Free Software Foundation, Inc.
-Everyone is permitted to copy and distribute verbatim copies
-of this license document, but changing it is not allowed.
-
-...
-
-(Full GPL-3.0 text available at the URL above)`,
   },
   {
     name: 'DGTCentaur Mods (Original)',
@@ -38,30 +29,6 @@ of this license document, but changing it is not allowed.
     name: 'chess.js',
     type: 'BSD-2-Clause',
     url: 'https://github.com/jhlywa/chess.js',
-    text: `BSD 2-Clause License
-
-Copyright (c) 2021, Jeff Hlywa
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-1. Redistributions of source code must retain the above copyright notice, this
-   list of conditions and the following disclaimer.
-
-2. Redistributions in binary form must reproduce the above copyright notice,
-   this list of conditions and the following disclaimer in the documentation
-   and/or other materials provided with the distribution.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.`,
   },
   {
     name: 'Stockfish',
@@ -94,46 +61,52 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.`,
  * Licenses page showing all open source licenses.
  */
 export function Licenses() {
-  const [expanded, setExpanded] = useState<string | null>(null);
-
   return (
-    <div className="licenses-page">
-      <h1>Open Source Licenses</h1>
-      <p className="intro">
+    <div className="page container--lg">
+      <h1 className="page-title mb-4">Open Source Licenses</h1>
+      <p className="text-muted mb-6" style={{ lineHeight: 'var(--leading-relaxed)' }}>
         Universal Chess is open source software built on the shoulders of giants.
         Below are the licenses for this project and its dependencies.
       </p>
 
-      <div className="licenses-list">
+      <div className="flex flex-col gap-2">
         {licenses.map((license) => (
-          <div key={license.name} className="license-card">
-            <div
-              className="license-header"
-              onClick={() => setExpanded(expanded === license.name ? null : license.name)}
-            >
-              <div className="license-info">
-                <h3>{license.name}</h3>
-                <span className="license-type">{license.type}</span>
-              </div>
-              {license.url && (
-                <a
-                  href={license.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  View on GitHub →
-                </a>
-              )}
-            </div>
-
-            {expanded === license.name && license.text && (
-              <pre className="license-text">{license.text}</pre>
-            )}
-          </div>
+          <LicenseItem key={license.name} license={license} />
         ))}
       </div>
     </div>
   );
 }
 
+function LicenseItem({ license }: { license: License }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <Card
+      className="license-card"
+      onClick={() => license.text && setExpanded(!expanded)}
+      style={{ cursor: license.text ? 'pointer' : 'default' }}
+    >
+      <div className="license-header">
+        <div className="flex items-center gap-4">
+          <h3 style={{ margin: 0, fontSize: 'var(--text-base)' }}>{license.name}</h3>
+          <Badge>{license.type}</Badge>
+        </div>
+        {license.url && (
+          <a
+            href={license.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+          >
+            View on GitHub →
+          </a>
+        )}
+      </div>
+
+      {expanded && license.text && (
+        <pre className="license-text">{license.text}</pre>
+      )}
+    </Card>
+  );
+}

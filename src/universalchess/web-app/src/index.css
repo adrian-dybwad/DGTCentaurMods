@@ -1,46 +1,12 @@
-/* Fonts - must be first */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
+/**
+ * Main Stylesheet Entry Point
+ * 
+ * Import order matters:
+ * 1. Design tokens (CSS variables)
+ * 2. Base styles (resets, typography)
+ * 3. Component styles (reusable patterns)
+ */
 
-/* Global styles */
-:root {
-  --color-primary: #aa44aa;
-  --color-primary-dark: #993399;
-  --color-success: #48c774;
-  --color-danger: #f14668;
-  --color-warning: #ffdd57;
-  --color-bg: #f8f8f8;
-  --color-card: #ffffff;
-  --color-border: #e0e0e0;
-  --color-text: #333333;
-  --color-text-muted: #999999;
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
-}
-
-html {
-  font-size: 16px;
-}
-
-body {
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-/* Scrollbar styling */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: #f0f0f0;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #ccc;
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #999;
-}
+@import './styles/tokens.css';
+@import './styles/base.css';
+@import './styles/components.css';

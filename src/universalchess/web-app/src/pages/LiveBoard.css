@@ -1,113 +1,66 @@
-.live-board-page {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 1.5rem;
-}
+/**
+ * Live Board Page Styles
+ */
 
-.live-board-main {
+.live-layout {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 2rem;
+  gap: var(--space-8);
   align-items: start;
 }
 
-.board-section {
+.live-board {
   display: flex;
   justify-content: center;
 }
 
-.info-section {
+.live-info {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: var(--space-4);
 }
 
-.game-info-card,
-.pgn-card {
-  background: #fff;
-  border-radius: 12px;
-  padding: 1.25rem;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-}
-
-.game-info-card h3,
-.pgn-card h3 {
-  margin: 0 0 1rem;
-  font-size: 0.875rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #666;
-}
-
-.players {
+.player-info {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  font-size: 1.1rem;
+  gap: var(--space-3);
+  font-size: var(--text-lg);
 }
 
 .player {
-  font-weight: 600;
-  color: #333;
+  font-weight: var(--font-semibold);
 }
 
-.player.white::before {
+.player--white::before {
   content: '○';
-  margin-right: 0.35rem;
+  margin-right: var(--space-1);
 }
 
-.player.black::before {
+.player--black::before {
   content: '●';
-  margin-right: 0.35rem;
+  margin-right: var(--space-1);
 }
 
-.vs {
-  color: #999;
-  font-size: 0.875rem;
-}
-
-.result {
-  margin-top: 0.75rem;
-  padding: 0.5rem 1rem;
-  background: #f0f0f0;
-  border-radius: 6px;
-  font-weight: 600;
+.game-result {
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-gray-100);
+  border-radius: var(--radius-md);
+  font-weight: var(--font-semibold);
   text-align: center;
-}
-
-.no-game {
-  color: #999;
-  font-style: italic;
-}
-
-.pgn-card textarea {
-  width: 100%;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 0.85rem;
-  padding: 0.75rem;
-  border: 1px solid #e0e0e0;
-  border-radius: 6px;
-  resize: vertical;
-  background: #fafafa;
-}
-
-.analysis-section {
-  margin-top: 2rem;
 }
 
 /* Responsive */
 @media (max-width: 900px) {
-  .live-board-main {
+  .live-layout {
     grid-template-columns: 1fr;
   }
 
-  .board-section {
+  .live-board {
     order: 1;
   }
 
-  .info-section {
+  .live-info {
     order: 2;
   }
 }
-
