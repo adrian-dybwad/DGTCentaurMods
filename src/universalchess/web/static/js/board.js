@@ -18,7 +18,12 @@
   function isChessboardDomReady(boardId) {
     const boardEl = document.getElementById(boardId);
     if (!boardEl) return false;
-    return boardEl.querySelectorAll('div[class*="square-"]').length >= 64;
+    const squaresReady = boardEl.querySelectorAll('div[class*="square-"]').length >= 64;
+    if (!squaresReady) return false;
+    // chessboard.js also relies on layout. If the element isn't measurable yet,
+    // `position()` can throw internally. Guard with a size check.
+    const rect = boardEl.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
   }
 
   function assignSquareIds(boardId) {
@@ -59,7 +64,7 @@
     if (!placement) return;
 
     if (!isChessboardDomReady(boardId)) {
-      if (tries < 20) {
+      if (tries < 60) {
         setTimeout(() => updateChessboardPosition(boardId, placement, tries + 1), 50);
       }
       return;
@@ -69,7 +74,7 @@
       board.position(placement);
       ensureSquareIds(boardId, 10);
     } catch (e) {
-      if (tries < 20) {
+      if (tries < 60) {
         setTimeout(() => updateChessboardPosition(boardId, placement, tries + 1), 50);
         return;
       }
@@ -114,6 +119,8 @@
   function initAllBoards() {
     const wrappers = document.querySelectorAll('.chessboard-wrapper[data-board-id]');
     wrappers.forEach(initOneBoard);
+    // Notify dependents (SSE client, analysis) that boards exist now.
+    window.dispatchEvent(new CustomEvent('chessboardsReady'));
   }
 
   window.normalizePlacementFen = normalizePlacementFen;
@@ -123,7 +130,7 @@
   };
   window.initAllChessboards = initAllBoards;
 
-  window.addEventListener('load', () => {
+  function initWhenReady() {
     initAllBoards();
     window.addEventListener('resize', () => {
       const wrappers = document.querySelectorAll('.chessboard-wrapper[data-board-id]');
@@ -136,7 +143,14 @@
         }
       });
     });
-  });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initWhenReady);
+  } else {
+    // Script is loaded late (end of body); DOM is already ready.
+    initWhenReady();
+  }
 })();
 
 

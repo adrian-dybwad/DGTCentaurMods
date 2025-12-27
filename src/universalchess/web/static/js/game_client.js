@@ -17,6 +17,7 @@
   let es = null;
   let lastFen = null;
   let config = { boardId: 'board1', pgnTextareaId: null };
+  let pendingState = null;
 
   function setStatus(kind) {
     const el = document.getElementById('connection-status');
@@ -44,8 +45,11 @@
         ? window.normalizePlacementFen(state.fen)
         : (state.fen || '').split(' ')[0];
       if (placement && placement !== lastFen) {
-        lastFen = placement;
-        if (typeof window.updateChessboardPosition === 'function') {
+        // If the board isn't initialized yet, buffer and retry once boards exist.
+        if (!window[config.boardId] || typeof window.updateChessboardPosition !== 'function') {
+          pendingState = state;
+        } else {
+          lastFen = placement;
           window.updateChessboardPosition(config.boardId, placement);
         }
       }
@@ -90,6 +94,15 @@
       es = null;
     }
   }
+
+  // When boards finish initializing, apply any buffered state once.
+  window.addEventListener('chessboardsReady', () => {
+    if (pendingState && window[config.boardId] && typeof window.updateChessboardPosition === 'function') {
+      const s = pendingState;
+      pendingState = null;
+      applyState(s);
+    }
+  });
 
   window.gameClient = { start, stop };
 })();
