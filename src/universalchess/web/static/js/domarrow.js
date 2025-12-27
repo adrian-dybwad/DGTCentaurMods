@@ -123,6 +123,12 @@
     var fromE = document.querySelector(fromQ);
     var toQ = connectionElement.getAttribute('to');
     var toE = document.querySelector(toQ);
+    // Guard: if endpoints are not present yet (e.g., dynamic DOM updates),
+    // do not throw. The observers and subsequent repaints will retry when
+    // elements appear.
+    if (!fromE || !toE) {
+      return;
+    }
     connectedObserver.observe(fromE, {attributes:true});
     connectedObserver.observe(toE, {attributes:true});
 
