@@ -46,12 +46,29 @@ export function ApiSettingsDialog({ isOpen, onClose, onSave }: ApiSettingsDialog
     setError('');
 
     try {
-      // Try to fetch the FEN endpoint as a simple connectivity test
-      const response = await fetch(`${url}/fen`, {
+      // Determine the fetch URL
+      // If testing the default API target and we're on localhost (dev mode),
+      // use relative URL to go through Vite proxy
+      const defaultUrl = getDefaultApiUrl();
+      const isDevMode = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      const isTestingDefault = url === defaultUrl;
+      
+      let fetchUrl: string;
+      let fetchOptions: RequestInit = {
         method: 'GET',
-        mode: 'cors',
         signal: AbortSignal.timeout(5000),
-      });
+      };
+
+      if (isDevMode && isTestingDefault) {
+        // Use relative URL to go through Vite proxy
+        fetchUrl = '/fen';
+      } else {
+        // Direct fetch with CORS
+        fetchUrl = `${url}/fen`;
+        fetchOptions.mode = 'cors';
+      }
+
+      const response = await fetch(fetchUrl, fetchOptions);
 
       if (response.ok) {
         setTestResult('success');
