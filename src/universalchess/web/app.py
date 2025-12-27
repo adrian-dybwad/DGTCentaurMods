@@ -19,7 +19,7 @@
 # This and any other notices must remain intact and unaltered in any
 # distribution, modification, variant, or derivative of this software.
 
-from flask import Flask, render_template, Response, request, redirect, send_file, abort, stream_with_context
+from flask import Flask, render_template, Response, request, redirect, send_file, abort, stream_with_context, url_for
 from universalchess.db import models
 from universalchess.paths import get_current_fen, get_current_placement, get_resource_path
 from universalchess.services.game_broadcast import get_subscriber, GameState
@@ -84,6 +84,69 @@ except ImportError as e:
 app = Flask(__name__)
 app.config['UCI_UPLOAD_EXTENSIONS'] = ['.txt']
 app.config['UCI_UPLOAD_PATH'] = str(pathlib.Path(__file__).parent.resolve()) + "/../engines/"
+
+# Cache control settings
+CACHE_LONG = 86400 * 7  # 7 days for static assets that rarely change
+CACHE_SHORT = 3600      # 1 hour for assets that may change
+CACHE_NONE = 0          # No caching for dynamic content
+
+# File extensions that should be cached
+CACHEABLE_EXTENSIONS = {
+    '.js': CACHE_LONG,
+    '.css': CACHE_LONG,
+    '.woff': CACHE_LONG,
+    '.woff2': CACHE_LONG,
+    '.ttf': CACHE_LONG,
+    '.eot': CACHE_LONG,
+    '.png': CACHE_LONG,
+    '.jpg': CACHE_LONG,
+    '.jpeg': CACHE_LONG,
+    '.gif': CACHE_LONG,
+    '.svg': CACHE_LONG,
+    '.ico': CACHE_LONG,
+    '.bmp': CACHE_LONG,
+    '.webp': CACHE_LONG,
+}
+
+
+@app.after_request
+def add_cache_headers(response):
+    """Add appropriate cache headers based on content type and path."""
+    # Skip if Cache-Control already set (e.g., SSE, dynamic endpoints)
+    if 'Cache-Control' in response.headers:
+        return response
+    
+    path = request.path
+    
+    # Static files - cache based on extension
+    if path.startswith('/static/'):
+        ext = os.path.splitext(path)[1].lower()
+        max_age = CACHEABLE_EXTENSIONS.get(ext, CACHE_SHORT)
+        response.headers['Cache-Control'] = f'public, max-age={max_age}'
+        return response
+    
+    # Piece SVGs - cache long (they're generated but don't change)
+    if path.startswith('/pieces/') and path.endswith('.svg'):
+        response.headers['Cache-Control'] = f'public, max-age={CACHE_LONG}'
+        return response
+    
+    # Dynamic content - no cache
+    # FEN, events, and other API endpoints
+    if path in ('/fen', '/events', '/placement') or path.startswith('/api/'):
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
+    
+    # HTML pages - short cache with revalidation
+    if response.content_type and 'text/html' in response.content_type:
+        response.headers['Cache-Control'] = 'no-cache, must-revalidate'
+        return response
+    
+    # Default - short cache
+    response.headers['Cache-Control'] = f'public, max-age={CACHE_SHORT}'
+    return response
+
 
 # System paths for conditional features
 ENGINES_DIR = "/opt/universalchess/engines"
