@@ -1,0 +1,41 @@
+.connection-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.connection-status.connected {
+  background: rgba(72, 199, 116, 0.15);
+  color: #257942;
+}
+
+.connection-status.disconnected {
+  background: rgba(241, 70, 104, 0.15);
+  color: #cc0f35;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.connected .status-dot {
+  background: #48c774;
+  box-shadow: 0 0 6px rgba(72, 199, 116, 0.5);
+}
+
+.disconnected .status-dot {
+  background: #f14668;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+

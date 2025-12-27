@@ -1,0 +1,84 @@
+.support-page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.support-page h1 {
+  color: #aa44aa;
+  margin: 0 0 1.5rem;
+}
+
+.support-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 1rem;
+  margin-bottom: 3rem;
+}
+
+.support-card {
+  display: flex;
+  flex-direction: column;
+  padding: 1.5rem;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.support-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.card-icon {
+  font-size: 2rem;
+  margin-bottom: 0.75rem;
+}
+
+.support-card h3 {
+  margin: 0 0 0.5rem;
+  color: #333;
+  font-size: 1.1rem;
+}
+
+.support-card p {
+  margin: 0;
+  color: #666;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.attribution {
+  background: #fafafa;
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.attribution h2 {
+  color: #333;
+  font-size: 1.1rem;
+  margin: 0 0 1rem;
+}
+
+.attribution p {
+  color: #666;
+  line-height: 1.6;
+  margin: 0 0 0.75rem;
+}
+
+.attribution p:last-child {
+  margin-bottom: 0;
+}
+
+.attribution a {
+  color: #aa44aa;
+  text-decoration: none;
+}
+
+.attribution a:hover {
+  text-decoration: underline;
+}
+

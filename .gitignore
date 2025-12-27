@@ -17,3 +17,7 @@ __pycache__
 # Ignore all build output directories (meson, cmake, ninja, etc.)
 # The project scripts are now in scripts/, not build/
 **/build/
+
+# React web-app
+**/web-app/node_modules/
+**/web-app/dist/

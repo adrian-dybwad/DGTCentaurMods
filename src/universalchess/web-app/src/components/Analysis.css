@@ -1,0 +1,121 @@
+.analysis-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem;
+  background: #fafafa;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+}
+
+.analysis-eval {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.eval-bar-container {
+  width: 24px;
+  height: 100px;
+  background: linear-gradient(to top, #333 50%, #fff 50%);
+  border: 1px solid #999;
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+}
+
+.eval-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #fff;
+  transition: height 0.3s ease;
+}
+
+.eval-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.eval-score {
+  font-size: 1.5rem;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  color: #333;
+}
+
+.eval-best-move {
+  font-size: 0.875rem;
+  color: #666;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.analysis-chart {
+  height: 150px;
+}
+
+.analysis-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.analysis-nav button {
+  padding: 0.5rem 1rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background 0.2s;
+}
+
+.analysis-nav button:hover:not(:disabled) {
+  background: #f0f0f0;
+}
+
+.analysis-nav button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.move-indicator {
+  padding: 0 1rem;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  color: #666;
+}
+
+.new-move-toast {
+  position: fixed;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #aa44aa;
+  color: #fff;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.analysis-status {
+  text-align: center;
+  color: #999;
+  font-size: 0.875rem;
+}
+
