@@ -259,7 +259,9 @@ const analysisEngine = (function() {
         processNextInQueue();
       } else {
         // Live/current analysis
-        updateEvalDisplay(bestMoveUci, null);
+        // If this search found a mate, keep displaying Mx rather than converting
+        // 10000cp into a misleading +/-100.0 score when bestmove arrives.
+        updateEvalDisplay(bestMoveUci, lastMateIn);
         if (movePos > 0) {
           addEvalToHistory(movePos, lastEvalScore);
         }
