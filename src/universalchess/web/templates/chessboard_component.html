@@ -7,25 +7,19 @@
 {% set board_id = board_id|default('board1') %}
 {% set board_width = board_width|default(600) %}
 
-<div id="chessboard-container" class="chessboard-wrapper">
-    <style>
-        .chessboard-wrapper {
-            max-width: 100%;
-        }
-        #{{ board_id }} {
-            width: 100%;
-            max-width: {{ board_width }}px;
-        }
-        /* Original gray tones matching DGT board */
-        .white-1e1d7 { background-color: #e5e5e5; color: #131313 }
-        .black-3c85d { background-color: #b2b2b2; color: #131313 }
-    </style>
-    <div
-      id="{{ board_id }}"
-      class="chessboard-wrapper"
-      data-board-id="{{ board_id }}"
-      data-fen="{{ fen|default('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR') }}"
-      data-piece-theme="{{ url_for('piece_svg', piece_code='wK')|replace('wK.svg', '{piece}.svg') }}"
-    ></div>
-</div>
+<style>
+    #{{ board_id }} {
+        width: {{ board_width }}px;
+        max-width: 100%;
+    }
+    /* Original gray tones matching DGT board */
+    .white-1e1d7 { background-color: #e5e5e5; color: #131313 }
+    .black-3c85d { background-color: #b2b2b2; color: #131313 }
+</style>
+<div
+  id="{{ board_id }}"
+  data-board-id="{{ board_id }}"
+  data-fen="{{ fen|default('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR') }}"
+  data-piece-theme="{{ url_for('piece_svg', piece_code='wK')|replace('wK.svg', '{piece}.svg') }}"
+></div>
 

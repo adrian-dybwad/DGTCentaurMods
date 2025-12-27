@@ -132,8 +132,8 @@
   }
 
   function initAllBoards() {
-    const wrappers = document.querySelectorAll('.chessboard-wrapper[data-board-id]');
-    wrappers.forEach(initOneBoard);
+    const wrappers = document.querySelectorAll('[data-board-id]');
+    wrappers.forEach(w => initOneBoard(w, 0));
     // Notify dependents (SSE client, analysis) that boards exist now.
     window.dispatchEvent(new CustomEvent('chessboardsReady'));
   }
@@ -152,7 +152,7 @@
 
   function verifyBoardsRendered(attempt) {
     const tries = typeof attempt === 'number' ? attempt : 0;
-    const wrappers = document.querySelectorAll('.chessboard-wrapper[data-board-id]');
+    const wrappers = document.querySelectorAll('[data-board-id]');
     let allGood = true;
 
     wrappers.forEach(w => {
@@ -204,7 +204,7 @@
     initAllBoards();
     verifyBoardsRendered(0);
     window.addEventListener('resize', () => {
-      const wrappers = document.querySelectorAll('.chessboard-wrapper[data-board-id]');
+      const wrappers = document.querySelectorAll('[data-board-id]');
       wrappers.forEach(w => {
         const boardId = w.getAttribute('data-board-id');
         const board = boardId ? window[boardId] : null;
