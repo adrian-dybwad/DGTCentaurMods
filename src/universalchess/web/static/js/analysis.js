@@ -716,7 +716,8 @@ const analysisEngine = (function() {
     render();
 
     if (config.onPositionChange && chess) {
-      config.onPositionChange(chess.fen(), movePos);
+      // chessboard.js expects placement-only, not full FEN.
+      config.onPositionChange(chess.fen().split(' ')[0], movePos);
     }
 
     // Ensure square ids exist after board updates (see chessboard_component.html).

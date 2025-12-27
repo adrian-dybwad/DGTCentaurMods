@@ -63,7 +63,12 @@ def get_socket_path() -> Path:
 @dataclass
 class GameState:
     """Current game state for broadcasting."""
+    # NOTE: `fen` is the piece-placement field only (8 ranks with `/`).
+    # chessboard.js expects placement-only; full FEN (turn/castling/etc) can crash it.
     fen: str
+    # Full FEN (optional). When not provided and `fen` looks like a full FEN,
+    # __post_init__ will normalize `fen` to placement-only and store the full value here.
+    fen_full: Optional[str] = None
     pgn: str = ""
     turn: str = "w"
     move_number: int = 1
@@ -77,6 +82,13 @@ class GameState:
     def __post_init__(self):
         if self.timestamp == 0.0:
             self.timestamp = time.time()
+
+        # Normalize FEN for web display: chessboard.js expects placement-only.
+        # If a full FEN is provided in `fen`, split it and preserve the full value.
+        if self.fen and " " in self.fen:
+            if self.fen_full is None:
+                self.fen_full = self.fen
+            self.fen = self.fen.split(" ", 1)[0]
     
     def to_json(self) -> str:
         """Serialize to JSON string."""

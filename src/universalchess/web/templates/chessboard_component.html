@@ -25,7 +25,8 @@
 <script src="{{ url_for('static', filename='js/jquery-3.4.1.min.js') }}"></script>
 <script type="text/javascript" src="{{ url_for('static', filename='chessboardjs/js/chessboard-1.0.0.min.js') }}"></script>
 <script>
-var {{ board_id }}Fen = '{{ fen|default("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1") }}';
+{# chessboard.js expects placement-only; full FEN can crash it #}
+var {{ board_id }}Fen = '{{ fen|default("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR") }}';
 var {{ board_id }}Config = {
     position: {{ board_id }}Fen,
     pieceTheme: "{{ url_for('piece_svg', piece_code='wK') }}".replace("wK.svg", "{piece}.svg")
