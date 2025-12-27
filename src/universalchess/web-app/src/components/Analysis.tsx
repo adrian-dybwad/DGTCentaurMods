@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -12,7 +12,7 @@ import {
   Filler,
 } from 'chart.js';
 import { Chess } from 'chess.js';
-import { getStockfishService, StockfishService } from '../services/stockfish';
+import { getStockfishService } from '../services/stockfish';
 import './Analysis.css';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
@@ -41,20 +41,39 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
   const [bestMove, setBestMove] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [newMovesToast, setNewMovesToast] = useState(0);
+  const [sfReady, setSfReady] = useState(false);
   
-  const stockfishRef = useRef<StockfishService | null>(null);
-  const analysisQueueRef = useRef<number[]>([]);
-  const isProcessingRef = useRef(false);
   const chartRef = useRef<ChartJS<'line'> | null>(null);
   const lastPgnRef = useRef('');
+  const queueRef = useRef<number[]>([]);
+  const processingRef = useRef(false);
 
   // Total moves in the game
-  const totalMoves = moves.length - 1;  // moves[0] is start position
+  const totalMoves = moves.length > 0 ? moves.length - 1 : 0;  // moves[0] is start position
+
+  // Initialize Stockfish once
+  useEffect(() => {
+    const sf = getStockfishService();
+    sf.init()
+      .then(() => {
+        console.log('[Analysis] Stockfish ready');
+        setSfReady(true);
+      })
+      .catch((e) => {
+        console.error('[Analysis] Failed to initialize Stockfish:', e);
+      });
+
+    return () => {
+      sf.stop();
+    };
+  }, []);
 
   // Parse PGN and build move history
   useEffect(() => {
     if (!pgn || pgn === lastPgnRef.current) return;
     lastPgnRef.current = pgn;
+
+    console.log('[Analysis] Parsing PGN, length:', pgn.length);
 
     const chess = new Chess();
     const newMoves: MoveData[] = [
@@ -75,6 +94,7 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
           mate: null,
         });
       }
+      console.log('[Analysis] Parsed', newMoves.length - 1, 'moves');
     } catch (e) {
       console.error('[Analysis] Failed to parse PGN:', e);
     }
@@ -82,123 +102,123 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
     const prevLength = moves.length;
     setMoves(newMoves);
 
-    // Queue all positions for analysis
-    analysisQueueRef.current = [];
+    // Build analysis queue
+    queueRef.current = [];
     for (let i = 1; i < newMoves.length; i++) {
-      analysisQueueRef.current.push(i);
+      queueRef.current.push(i);
     }
+    console.log('[Analysis] Queue:', queueRef.current.length, 'positions');
 
     // Handle position based on mode
     if (mode === 'live') {
       if (movePos > 0 && movePos < prevLength - 1 && newMoves.length > prevLength) {
-        // User was reviewing history, show toast
         setNewMovesToast(newMoves.length - 1 - movePos);
       } else {
-        // Jump to latest
         setMovePos(newMoves.length - 1);
       }
     } else if (mode === 'static' && movePos === 0) {
-      // Static mode: jump to end on initial load
       setMovePos(newMoves.length - 1);
     }
-
-    // Start queue processing
-    processQueue();
   }, [pgn, mode]);
 
-  // Initialize Stockfish
+  // Process queue when Stockfish is ready and we have moves
   useEffect(() => {
-    const sf = getStockfishService();
-    stockfishRef.current = sf;
-    sf.init().catch((e) => {
-      console.error('[Analysis] Failed to initialize Stockfish:', e);
-    });
+    if (!sfReady || queueRef.current.length === 0 || processingRef.current) return;
 
-    return () => {
-      sf.stop();
-    };
-  }, []);
-
-  // Process analysis queue
-  const processQueue = useCallback(async () => {
-    if (isProcessingRef.current || !stockfishRef.current) return;
-    if (analysisQueueRef.current.length === 0) {
-      setAnalyzing(false);
-      return;
-    }
-
-    isProcessingRef.current = true;
-    setAnalyzing(true);
-
-    const index = analysisQueueRef.current.shift()!;
-    
-    setMoves((prev) => {
-      const move = prev[index];
-      if (!move || move.eval !== null) {
-        // Already analyzed or doesn't exist
-        isProcessingRef.current = false;
-        setTimeout(processQueue, 0);
-        return prev;
+    const processNext = async () => {
+      if (queueRef.current.length === 0) {
+        processingRef.current = false;
+        setAnalyzing(false);
+        console.log('[Analysis] Queue complete');
+        return;
       }
 
-      stockfishRef.current!.analyze(move.fen, 10)
-        .then((result) => {
-          setMoves((current) => {
-            const updated = [...current];
-            if (updated[index]) {
-              // Negate if black's turn (eval from white's perspective)
-              let cp = result.score ?? 0;
-              if (move.fen.includes(' b ')) {
-                cp = -cp;
-              }
-              updated[index] = { 
-                ...updated[index], 
-                eval: result.mate !== null ? (result.mate > 0 ? 10000 : -10000) : cp,
-                mate: result.mate,
-              };
+      processingRef.current = true;
+      setAnalyzing(true);
+
+      const index = queueRef.current.shift()!;
+      
+      // Get the move from current state
+      setMoves((currentMoves) => {
+        const move = currentMoves[index];
+        if (!move) {
+          // Move doesn't exist, skip
+          setTimeout(processNext, 0);
+          return currentMoves;
+        }
+
+        if (move.eval !== null) {
+          // Already analyzed, skip
+          setTimeout(processNext, 0);
+          return currentMoves;
+        }
+
+        // Analyze this position
+        const sf = getStockfishService();
+        sf.analyze(move.fen, 10)
+          .then((result) => {
+            let cp = result.score ?? 0;
+            // Negate if black's turn (eval from white's perspective)
+            if (move.fen.includes(' b ')) {
+              cp = -cp;
             }
-            return updated;
+            
+            setMoves((prev) => {
+              const updated = [...prev];
+              if (updated[index]) {
+                updated[index] = {
+                  ...updated[index],
+                  eval: result.mate !== null ? (result.mate > 0 ? 10000 : -10000) : cp,
+                  mate: result.mate,
+                };
+              }
+              return updated;
+            });
+
+            // Process next in queue
+            setTimeout(processNext, 0);
+          })
+          .catch((e) => {
+            console.error('[Analysis] Analysis failed for move', index, e);
+            setTimeout(processNext, 0);
           });
-          
-          isProcessingRef.current = false;
-          processQueue();
-        })
-        .catch(() => {
-          isProcessingRef.current = false;
-          processQueue();
-        });
 
-      return prev;
-    });
-  }, []);
+        return currentMoves;
+      });
+    };
 
-  // Analyze current position at higher depth
+    console.log('[Analysis] Starting queue processing');
+    processNext();
+  }, [sfReady, moves.length]);
+
+  // Analyze current position at higher depth when movePos changes
   useEffect(() => {
-    if (movePos <= 0 || !stockfishRef.current) return;
+    if (!sfReady || movePos <= 0) return;
+    
     const move = moves[movePos];
     if (!move) return;
 
-    stockfishRef.current.analyze(move.fen, 16)
+    const sf = getStockfishService();
+    sf.analyze(move.fen, 16)
       .then((result) => {
         let cp = result.score ?? 0;
         if (move.fen.includes(' b ')) {
           cp = -cp;
         }
-        setCurrentEval({ 
-          cp: result.mate !== null ? (result.mate > 0 ? 10000 : -10000) : cp, 
-          mate: result.mate 
+        setCurrentEval({
+          cp: result.mate !== null ? (result.mate > 0 ? 10000 : -10000) : cp,
+          mate: result.mate,
         });
         setBestMove(result.bestMove);
       })
       .catch(() => {
         // Keep previous eval
       });
-  }, [movePos, moves]);
+  }, [sfReady, movePos, moves]);
 
   // Notify parent of position change
   useEffect(() => {
     if (onPositionChange && movePos >= 0 && moves[movePos]) {
-      // Pass placement-only FEN for chessboard.js
       onPositionChange(moves[movePos].fen.split(' ')[0], movePos);
     }
   }, [movePos, moves, onPositionChange]);
@@ -239,7 +259,7 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
       effectiveCp = currentEval.mate > 0 ? 10000 : -10000;
     }
     const clampedCp = Math.max(-1000, Math.min(1000, effectiveCp));
-    return 50 - (clampedCp / 20);  // 50 is center
+    return 50 - (clampedCp / 20);
   })();
 
   // Eval bar class
@@ -253,7 +273,7 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
     return 'progress is-warning';
   })();
 
-  // Chart data - only include analyzed positions
+  // Chart data
   const chartData = {
     labels: moves.slice(1).map((_, i) => i + 1),
     datasets: [
@@ -269,7 +289,7 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
         tension: 0.4,
         backgroundColor: 'rgba(150, 150, 150, 0.3)',
         pointRadius: moves.slice(1).map((_, i) => i + 1 === movePos ? 6 : 3),
-        pointBackgroundColor: moves.slice(1).map((_, i) => 
+        pointBackgroundColor: moves.slice(1).map((_, i) =>
           i + 1 === movePos ? '#aa44aa' : 'rgba(255, 255, 255, 1)'
         ),
         spanGaps: true,
@@ -322,8 +342,8 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
     <div className="analysis-widget">
       {/* Eval display and best move */}
       <div className="analysis-eval-display">
-        <span 
-          className="eval-score" 
+        <span
+          className="eval-score"
           style={{ color: evalDisplay.color || undefined }}
         >
           {movePos > 0 ? evalDisplay.text : '0.0'}
@@ -332,24 +352,24 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
           {bestMove ? (
             <>Best: <strong>{bestMove}</strong></>
           ) : (
-            analyzing ? 'Analyzing...' : 'Waiting...'
+            analyzing ? 'Analyzing...' : (sfReady ? 'Waiting...' : 'Loading Stockfish...')
           )}
         </span>
       </div>
 
       {/* Eval bar - horizontal progress bar */}
-      <progress 
+      <progress
         className={evalBarClass}
-        value={evalBarValue} 
+        value={evalBarValue}
         max={100}
       />
 
       {/* Chart */}
       <div className="analysis-chart">
-        <Line 
+        <Line
           ref={chartRef as any}
-          data={chartData} 
-          options={chartOptions as any} 
+          data={chartData}
+          options={chartOptions as any}
         />
       </div>
 
