@@ -17,7 +17,8 @@
 }
 
 .dialog {
-  background: var(--color-bg-primary);
+  /* Use chess board dark square color as background */
+  background: var(--color-square-dark, #b2b2b2);
   border-radius: 12px;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
   max-width: 480px;
@@ -31,27 +32,27 @@
   align-items: center;
   justify-content: space-between;
   padding: 1rem 1.5rem;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.15);
 }
 
 .dialog-header h3 {
   margin: 0;
   font-size: 1.25rem;
-  color: var(--color-text-primary);
+  color: #1a1a1a;
 }
 
 .dialog-close {
   background: none;
   border: none;
   font-size: 1.5rem;
-  color: var(--color-text-secondary);
+  color: #4a4a4a;
   cursor: pointer;
   padding: 0;
   line-height: 1;
 }
 
 .dialog-close:hover {
-  color: var(--color-text-primary);
+  color: #1a1a1a;
 }
 
 .dialog-body {
@@ -59,16 +60,17 @@
 }
 
 .dialog-description {
-  color: var(--color-text-secondary);
+  color: #363636;
   margin-bottom: 1.5rem;
   line-height: 1.6;
 }
 
 .dialog-description code {
-  background: var(--color-bg-secondary);
+  background: rgba(0, 0, 0, 0.1);
   padding: 0.2em 0.4em;
   border-radius: 4px;
   font-family: monospace;
+  color: #1a1a1a;
 }
 
 .form-group {
@@ -79,7 +81,7 @@
   display: block;
   margin-bottom: 0.5rem;
   font-weight: 500;
-  color: var(--color-text-primary);
+  color: #1a1a1a;
 }
 
 .input-with-button {
@@ -90,17 +92,17 @@
 .input-with-button input {
   flex: 1;
   padding: 0.75rem 1rem;
-  border: 2px solid var(--color-border);
+  border: 2px solid rgba(0, 0, 0, 0.2);
   border-radius: 8px;
   font-size: 1rem;
-  background: var(--color-bg-primary);
-  color: var(--color-text-primary);
+  background: #fff;
+  color: #1a1a1a;
   transition: border-color 0.2s;
 }
 
 .input-with-button input:focus {
   outline: none;
-  border-color: var(--color-accent-primary);
+  border-color: var(--color-accent-primary, #aa44aa);
 }
 
 .input-with-button input.is-success {
@@ -126,11 +128,11 @@
 }
 
 .dialog-info {
-  background: var(--color-bg-secondary);
+  background: rgba(0, 0, 0, 0.1);
   padding: 0.75rem 1rem;
   border-radius: 8px;
   font-size: 0.875rem;
-  color: var(--color-text-secondary);
+  color: #363636;
   margin-top: 1rem;
 }
 
@@ -139,8 +141,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 1rem 1.5rem;
-  border-top: 1px solid var(--color-border);
-  background: var(--color-bg-secondary);
+  border-top: 1px solid rgba(0, 0, 0, 0.15);
+  background: rgba(0, 0, 0, 0.08);
   border-radius: 0 0 12px 12px;
 }
 
@@ -161,32 +163,32 @@
 }
 
 .dialog .btn-primary {
-  background: var(--color-accent-primary);
+  background: var(--color-accent-primary, #aa44aa);
   color: white;
 }
 
 .dialog .btn-primary:hover {
-  background: var(--color-accent-secondary);
+  background: var(--color-accent-secondary, #8a3490);
 }
 
 .dialog .btn-secondary {
-  background: var(--color-bg-primary);
-  color: var(--color-text-primary);
-  border: 1px solid var(--color-border);
+  background: #fff;
+  color: #1a1a1a;
+  border: 1px solid rgba(0, 0, 0, 0.2);
 }
 
 .dialog .btn-secondary:hover {
-  background: var(--color-bg-secondary);
+  background: #f5f5f5;
 }
 
 .dialog .btn-ghost {
   background: transparent;
-  color: var(--color-text-secondary);
+  color: #363636;
 }
 
 .dialog .btn-ghost:hover {
-  color: var(--color-text-primary);
-  background: var(--color-bg-secondary);
+  color: #1a1a1a;
+  background: rgba(0, 0, 0, 0.1);
 }
 
 .dialog .btn:disabled {

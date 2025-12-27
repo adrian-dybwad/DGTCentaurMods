@@ -4,10 +4,9 @@
 
 .tag {
   align-items: center;
-  /* Use chess board dark square color as background */
-  background-color: var(--color-square-dark, #b2b2b2);
+  background-color: #f5f5f5;
   border-radius: 4px;
-  color: #363636;
+  color: #4a4a4a;
   display: inline-flex;
   font-size: 0.75rem;
   height: 2em;
@@ -23,12 +22,11 @@
 .tag-button {
   border: none;
   cursor: pointer;
-  transition: opacity 0.2s, transform 0.1s, background-color 0.2s;
+  transition: opacity 0.2s, transform 0.1s;
 }
 
 .tag-button:hover {
-  opacity: 0.85;
-  background-color: #a0a0a0;
+  opacity: 0.9;
 }
 
 .tag-button:active {
@@ -48,15 +46,30 @@
   height: 10px;
 }
 
-/* Status colors - all use the same dark square background,
-   status is indicated by the colored dot */
-.tag.is-success,
-.tag.is-warning,
-.tag.is-danger,
-.tag.is-light,
-.tag.is-info {
-  background-color: var(--color-square-dark, #b2b2b2);
+/* Status colors - background indicates connection state */
+.tag.is-success {
+  background-color: #48c774;
+  color: #fff;
+}
+
+.tag.is-warning {
+  background-color: #ffdd57;
+  color: rgba(0, 0, 0, 0.7);
+}
+
+.tag.is-danger {
+  background-color: #f14668;
+  color: #fff;
+}
+
+.tag.is-light {
+  background-color: #f5f5f5;
   color: #363636;
+}
+
+.tag.is-info {
+  background-color: #3e8ed0;
+  color: #fff;
 }
 
 .status-dot {
@@ -67,17 +80,17 @@
 }
 
 .status-dot.connected {
-  background-color: #48c774;
-  box-shadow: 0 0 4px rgba(72, 199, 116, 0.5);
+  background-color: #fff;
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.5);
 }
 
 .status-dot.reconnecting {
-  background-color: #ffdd57;
+  background-color: rgba(0, 0, 0, 0.4);
   animation: pulse 1.5s ease-in-out infinite;
 }
 
 .status-dot.disconnected {
-  background-color: #f14668;
+  background-color: #fff;
 }
 
 @keyframes pulse {
