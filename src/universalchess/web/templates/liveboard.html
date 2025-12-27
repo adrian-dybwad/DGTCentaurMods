@@ -21,8 +21,9 @@ function initGameEventSource() {
             
             // Update board position
             if (state.fen && state.fen !== board1Fen) {
-                board1Fen = state.fen;
-                board1.position(state.fen);
+                // chessboard.js expects placement-only; server may send full FEN.
+                board1Fen = state.fen.split(' ')[0];
+                board1.position(board1Fen);
             }
             
             // Update PGN textarea if it exists
@@ -50,8 +51,9 @@ function getLiveFen() {
         .then(response => response.text())
         .then(fen => {
             if (fen && fen !== board1Fen) {
-                board1Fen = fen;
-                board1.position(fen);
+                // /fen returns placement-only, but normalize defensively.
+                board1Fen = fen.split(' ')[0];
+                board1.position(board1Fen);
             }
         })
         .catch(() => {});
