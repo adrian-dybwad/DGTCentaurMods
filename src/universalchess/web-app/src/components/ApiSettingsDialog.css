@@ -122,8 +122,9 @@
 
 .form-success {
   display: block;
-  color: #48c774;
+  color: #257942;
   font-size: 0.875rem;
+  font-weight: 500;
   margin-top: 0.5rem;
 }
 
