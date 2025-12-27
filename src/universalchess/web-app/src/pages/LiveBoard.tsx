@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { ChessBoard } from '../components/ChessBoard';
 import { Analysis } from '../components/Analysis';
-import { useGameState } from '../hooks/useGameState';
+import { useGameStore } from '../stores/gameStore';
 import './LiveBoard.css';
 
 /**
@@ -10,11 +10,25 @@ import './LiveBoard.css';
  * Layout matches original: 2/3 board, 1/3 widgets stacked.
  */
 export function LiveBoard() {
-  const { gameState } = useGameState();
+  // Use store directly - SSE connection is managed by GameStateProvider
+  const gameState = useGameStore((state) => state.gameState);
   const [displayFen, setDisplayFen] = useState<string | null>(null);
+  const [bestMove, setBestMove] = useState<{ from: string; to: string } | null>(null);
+  const [playedMove, setPlayedMove] = useState<{ from: string; to: string } | null>(null);
 
   const handlePositionChange = useCallback((fen: string, _moveIndex: number) => {
     setDisplayFen(fen);
+    // Clear arrows when position changes - new analysis will provide them
+    setBestMove(null);
+    setPlayedMove(null);
+  }, []);
+
+  const handleBestMoveChange = useCallback((move: { from: string; to: string } | null) => {
+    setBestMove(move);
+  }, []);
+
+  const handlePlayedMoveChange = useCallback((move: { from: string; to: string } | null) => {
+    setPlayedMove(move);
   }, []);
 
   const currentFen = displayFen || gameState?.fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
@@ -32,7 +46,7 @@ export function LiveBoard() {
     <div className="columns">
       {/* Left column: Board */}
       <div className="column is-8">
-        <ChessBoard fen={currentFen} boardWidth={500} />
+        <ChessBoard fen={currentFen} maxBoardWidth={700} showBestMove={bestMove} showPlayedMove={playedMove} />
       </div>
 
       {/* Right column: Widgets */}
@@ -67,6 +81,8 @@ export function LiveBoard() {
             pgn={currentPgn}
             mode="live"
             onPositionChange={handlePositionChange}
+            onBestMoveChange={handleBestMoveChange}
+            onPlayedMoveChange={handlePlayedMoveChange}
           />
         </div>
 

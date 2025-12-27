@@ -1,6 +1,6 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 
-type ButtonVariant = 'default' | 'primary' | 'danger';
+type ButtonVariant = 'default' | 'primary' | 'secondary' | 'success' | 'danger';
 type ButtonSize = 'sm' | 'md' | 'lg';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -13,6 +13,8 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 const variantClasses: Record<ButtonVariant, string> = {
   default: 'btn',
   primary: 'btn btn--primary',
+  secondary: 'btn btn--secondary',
+  success: 'btn btn--success',
   danger: 'btn btn--danger',
 };
 
@@ -46,4 +48,3 @@ export function Button({
     </button>
   );
 }
-

@@ -461,8 +461,15 @@ def create_engine_player(
     Returns:
         Configured EnginePlayer instance.
     """
+    # Get display name from engine manager if available
+    try:
+        from universalchess.managers.engine_manager import ENGINES
+        display_name = ENGINES[engine_name].display_name if engine_name in ENGINES else engine_name
+    except ImportError:
+        display_name = engine_name
+    
     config = EnginePlayerConfig(
-        name=f"{engine_name} ({elo_section})",
+        name=f"{display_name} ({elo_section})",
         color=color,
         time_limit_seconds=time_limit,
         engine_name=engine_name,

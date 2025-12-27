@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { ChessBoard } from '../components/ChessBoard';
 import { Analysis } from '../components/Analysis';
+import { MoveTable } from '../components/MoveTable';
 import { Card, CardHeader } from '../components/ui';
 import './Analyze.css';
 
@@ -12,8 +13,15 @@ export function Analyze() {
   const { gameId } = useParams<{ gameId: string }>();
   const [pgn, setPgn] = useState('');
   const [currentFen, setCurrentFen] = useState('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR');
+  const [bestMove, setBestMove] = useState<{ from: string; to: string } | null>(null);
+  const [playedMove, setPlayedMove] = useState<{ from: string; to: string } | null>(null);
+  const [currentMoveIndex, setCurrentMoveIndex] = useState(0);
+  const [evalHistory, setEvalHistory] = useState<(number | null)[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Ref to allow MoveTable to navigate Analysis
+  const goToMoveRef = useRef<((index: number) => void) | null>(null);
 
   useEffect(() => {
     if (!gameId) return;
@@ -38,6 +46,28 @@ export function Analyze() {
 
   const handlePositionChange = useCallback((fen: string, _moveIndex: number) => {
     setCurrentFen(fen);
+    // Clear arrows when position changes - new analysis will provide them
+    setBestMove(null);
+    setPlayedMove(null);
+  }, []);
+
+  const handleBestMoveChange = useCallback((move: { from: string; to: string } | null) => {
+    setBestMove(move);
+  }, []);
+
+  const handlePlayedMoveChange = useCallback((move: { from: string; to: string } | null) => {
+    setPlayedMove(move);
+  }, []);
+
+  const handleMoveDataChange = useCallback((moveIndex: number, evals: (number | null)[]) => {
+    setCurrentMoveIndex(moveIndex);
+    setEvalHistory(evals);
+  }, []);
+
+  const handleMoveTableClick = useCallback((moveIndex: number) => {
+    if (goToMoveRef.current) {
+      goToMoveRef.current(moveIndex);
+    }
   }, []);
 
   if (loading) {
@@ -62,7 +92,7 @@ export function Analyze() {
 
       <div className="analyze-layout">
         <section className="analyze-board">
-          <ChessBoard fen={currentFen} boardWidth={450} />
+          <ChessBoard fen={currentFen} maxBoardWidth={600} showBestMove={bestMove} showPlayedMove={playedMove} />
         </section>
 
         <section className="analyze-panel">
@@ -70,7 +100,22 @@ export function Analyze() {
             pgn={pgn}
             mode="static"
             onPositionChange={handlePositionChange}
+            onBestMoveChange={handleBestMoveChange}
+            onPlayedMoveChange={handlePlayedMoveChange}
+            onMoveDataChange={handleMoveDataChange}
+            goToMoveRef={goToMoveRef}
           />
+          
+          {/* Move table */}
+          <Card className="mt-4">
+            <CardHeader title="Moves" />
+            <MoveTable
+              pgn={pgn}
+              currentMoveIndex={currentMoveIndex}
+              evalHistory={evalHistory}
+              onMoveClick={handleMoveTableClick}
+            />
+          </Card>
         </section>
       </div>
 

@@ -21,6 +21,13 @@ interface AnalysisProps {
   pgn: string;
   mode: 'live' | 'static';
   onPositionChange?: (fen: string, moveIndex: number) => void;
+  onBestMoveChange?: (bestMove: { from: string; to: string } | null) => void;
+  /** Called with the actual move played (next in history), or null if at end/start */
+  onPlayedMoveChange?: (playedMove: { from: string; to: string } | null) => void;
+  /** Called with current move index and eval history when they change */
+  onMoveDataChange?: (moveIndex: number, evalHistory: (number | null)[]) => void;
+  /** Ref to expose goToMove function for external navigation */
+  goToMoveRef?: React.MutableRefObject<((index: number) => void) | null>;
 }
 
 interface MoveData {
@@ -28,13 +35,25 @@ interface MoveData {
   san: string;
   eval: number | null;  // centipawns, null if not analyzed
   mate: number | null;  // mate in N, null if not mate
+  uci: string | null;   // UCI notation of the move (e.g., "e2e4"), null for start position
 }
 
 /**
  * Analysis component matching the original Flask template design.
  * Features: eval score, best move, horizontal eval bar, chart, navigation.
  */
-export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
+/**
+ * Parse UCI move string (e.g., "e2e4") into from/to squares.
+ */
+function parseUciMove(uci: string | null): { from: string; to: string } | null {
+  if (!uci || uci.length < 4) return null;
+  const from = uci.substring(0, 2);
+  const to = uci.substring(2, 4);
+  if (!/^[a-h][1-8]$/.test(from) || !/^[a-h][1-8]$/.test(to)) return null;
+  return { from, to };
+}
+
+export function Analysis({ pgn, mode, onPositionChange, onBestMoveChange, onPlayedMoveChange, onMoveDataChange, goToMoveRef }: AnalysisProps) {
   const [moves, setMoves] = useState<MoveData[]>([]);
   const [movePos, setMovePos] = useState(0);  // 0 = start, 1 = after first move, etc.
   const [currentEval, setCurrentEval] = useState<{ cp: number; mate: number | null }>({ cp: 0, mate: null });
@@ -77,7 +96,7 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
 
     const chess = new Chess();
     const newMoves: MoveData[] = [
-      { fen: chess.fen(), san: 'Start', eval: null, mate: null },
+      { fen: chess.fen(), san: 'Start', eval: null, mate: null, uci: null },
     ];
 
     try {
@@ -87,11 +106,14 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
       chess.reset();
       for (const move of history) {
         chess.move(move.san);
+        // Build UCI notation from "from" and "to" squares, plus promotion if any
+        const uci = move.from + move.to + (move.promotion || '');
         newMoves.push({
           fen: chess.fen(),
           san: move.san,
           eval: null,
           mate: null,
+          uci: uci,
         });
       }
       console.log('[Analysis] Parsed', newMoves.length - 1, 'moves');
@@ -212,10 +234,8 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
   }, [sfReady, moves.length]);
 
   // Analyze current position at higher depth when movePos changes
-  // BUT only if the queue is done processing (to avoid overwriting pendingResolve)
   useEffect(() => {
-    if (!sfReady || movePos <= 0) return;
-    if (processingRef.current) return;  // Queue is still processing
+    if (!sfReady || movePos < 0) return;
     
     const move = moves[movePos];
     if (!move) return;
@@ -245,7 +265,7 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
       .catch(() => {
         // Keep previous eval
       });
-  }, [sfReady, movePos, moves, analyzing]);  // Re-run when analyzing changes (queue finishes)
+  }, [sfReady, movePos, moves]);
 
   // Notify parent of position change
   useEffect(() => {
@@ -253,6 +273,55 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
       onPositionChange(moves[movePos].fen.split(' ')[0], movePos);
     }
   }, [movePos, moves, onPositionChange]);
+
+  // Notify parent of best move change
+  useEffect(() => {
+    if (onBestMoveChange) {
+      onBestMoveChange(parseUciMove(bestMove));
+    }
+  }, [bestMove, onBestMoveChange]);
+
+  // Notify parent of played move (the next move in history, if any)
+  useEffect(() => {
+    if (onPlayedMoveChange) {
+      // If we're not at the end of the game, the next move is the "played move"
+      const nextMove = moves[movePos + 1];
+      if (nextMove && nextMove.uci) {
+        onPlayedMoveChange(parseUciMove(nextMove.uci));
+      } else {
+        onPlayedMoveChange(null);
+      }
+    }
+  }, [movePos, moves, onPlayedMoveChange]);
+
+  // Notify parent of move data changes (for move table)
+  useEffect(() => {
+    if (onMoveDataChange) {
+      // Build eval history array (index 0 unused, index 1 = first move, etc.)
+      const evalHistory: (number | null)[] = [null]; // index 0 is start position
+      for (let i = 1; i < moves.length; i++) {
+        evalHistory.push(moves[i].eval);
+      }
+      onMoveDataChange(movePos, evalHistory);
+    }
+  }, [movePos, moves, onMoveDataChange]);
+
+  // Expose goToMove via ref for external navigation (e.g., from MoveTable)
+  useEffect(() => {
+    if (goToMoveRef) {
+      goToMoveRef.current = (index: number) => {
+        if (index >= 0 && index <= totalMoves) {
+          setMovePos(index);
+          setNewMovesToast(0);
+        }
+      };
+    }
+    return () => {
+      if (goToMoveRef) {
+        goToMoveRef.current = null;
+      }
+    };
+  }, [goToMoveRef, totalMoves]);
 
   // Navigation
   const goFirst = () => setMovePos(0);

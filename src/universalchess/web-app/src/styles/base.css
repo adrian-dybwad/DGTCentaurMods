@@ -136,6 +136,24 @@ pre {
   }
 }
 
+/* Responsive padding - tablet */
+@media screen and (max-width: 768px) {
+  .section {
+    padding: 2rem 1rem;
+  }
+}
+
+/* Responsive padding - mobile */
+@media screen and (max-width: 480px) {
+  .section {
+    padding: 1rem 0.5rem;
+  }
+
+  .footer {
+    padding: 2rem 0.5rem 4rem;
+  }
+}
+
 /* Footer - matches Bulma */
 .footer {
   background-color: #fafafa;

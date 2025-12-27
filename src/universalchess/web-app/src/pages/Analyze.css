@@ -5,7 +5,7 @@
 .analyze-layout {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: var(--space-8);
+  gap: var(--space-8, 2rem);
   align-items: start;
 }
 
@@ -18,9 +18,21 @@
   min-width: 0;
 }
 
-/* Responsive */
+/* Responsive - tablet */
 @media (max-width: 900px) {
   .analyze-layout {
     grid-template-columns: 1fr;
+    gap: var(--space-4, 1rem);
+  }
+}
+
+/* Responsive - mobile */
+@media (max-width: 480px) {
+  .analyze-layout {
+    gap: var(--space-2, 0.5rem);
+  }
+
+  .page-title {
+    font-size: 1.25rem;
   }
 }

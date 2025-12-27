@@ -1,0 +1,68 @@
+/**
+ * Move Table Styles
+ */
+
+.move-table-container {
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.move-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.move-table td {
+  padding: 0.25rem 0.5rem;
+}
+
+.move-table .move-number {
+  font-weight: 600;
+  width: 40px;
+  color: var(--color-gray-500, #6b7280);
+  cursor: default;
+  text-align: right;
+  padding-right: 0.75rem;
+}
+
+.move-table .move-cell {
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background-color 0.15s ease;
+}
+
+.move-table .move-cell:hover {
+  background-color: var(--color-gray-100, #f3f4f6);
+}
+
+.move-table .move-cell.current-move {
+  background-color: var(--color-primary-light, #f0d0f0);
+  font-weight: 600;
+}
+
+.move-table .move-eval {
+  font-size: 0.7rem;
+  color: var(--color-gray-400, #9ca3af);
+  margin-left: 0.5rem;
+}
+
+/* Scrollbar styling */
+.move-table-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.move-table-container::-webkit-scrollbar-track {
+  background: var(--color-gray-100, #f3f4f6);
+  border-radius: 3px;
+}
+
+.move-table-container::-webkit-scrollbar-thumb {
+  background: var(--color-gray-300, #d1d5db);
+  border-radius: 3px;
+}
+
+.move-table-container::-webkit-scrollbar-thumb:hover {
+  background: var(--color-gray-400, #9ca3af);
+}
+

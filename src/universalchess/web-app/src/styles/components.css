@@ -109,6 +109,27 @@
   border-color: var(--color-primary-hover);
 }
 
+.btn--secondary {
+  background: var(--color-gray-100);
+  border-color: var(--color-gray-300);
+  color: var(--color-text);
+}
+
+.btn--secondary:hover {
+  background: var(--color-gray-200);
+}
+
+.btn--success {
+  background: var(--color-success);
+  border-color: var(--color-success);
+  color: var(--color-white);
+}
+
+.btn--success:hover {
+  background: var(--color-success-dark);
+  border-color: var(--color-success-dark);
+}
+
 .btn--danger {
   color: var(--color-danger-dark);
   border-color: var(--color-danger);

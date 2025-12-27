@@ -1208,6 +1208,13 @@ def _start_game_mode(
         LichessPlayer, LichessPlayerConfig, LichessGameMode
     )
     from universalchess.players.settings import PlayerSettings
+    from universalchess.managers.engine_manager import ENGINES
+
+    def get_engine_display_name(engine_name: str) -> str:
+        """Get the display name for an engine, falling back to the raw name."""
+        if engine_name in ENGINES:
+            return ENGINES[engine_name].display_name
+        return engine_name
 
     def create_player(ps: PlayerSettings, color: chess.Color):
         """Create a player based on PlayerSettings and color.
@@ -1224,8 +1231,11 @@ def _start_game_mode(
             )
             return HumanPlayer(config)
         elif ps.type == 'engine':
+            engine_display = get_engine_display_name(ps.engine)
+            # Use custom name if provided, otherwise use engine display name
+            name = ps.name if ps.name else f"{engine_display} ({ps.elo})"
             config = EnginePlayerConfig(
-                name=f"{ps.engine} ({ps.elo})",
+                name=name,
                 color=color,
                 engine_name=ps.engine,
                 elo_section=ps.elo,
@@ -1242,8 +1252,11 @@ def _start_game_mode(
         elif ps.type == 'hand_brain':
             mode = HandBrainMode.NORMAL if ps.hand_brain_mode == 'normal' else HandBrainMode.REVERSE
             mode_str = 'N' if mode == HandBrainMode.NORMAL else 'R'
+            engine_display = get_engine_display_name(ps.engine)
+            # Use custom name if provided, otherwise use H+B format with engine display name
+            name = ps.name if ps.name else f"H+B {mode_str} ({engine_display})"
             config = HandBrainConfig(
-                name=f"H+B {mode_str} ({ps.engine})",
+                name=name,
                 color=color,
                 mode=mode,
                 engine_name=ps.engine,

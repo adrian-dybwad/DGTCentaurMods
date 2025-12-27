@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
 import { Navbar } from './components/Navbar';
+import { GameStateProvider } from './components/GameStateProvider';
 import { LiveBoard } from './pages/LiveBoard';
 import { Games } from './pages/Games';
 import { Analyze } from './pages/Analyze';
@@ -15,8 +16,9 @@ import './App.css';
 function App() {
   return (
     <BrowserRouter>
-      <div className="app">
-        <Navbar />
+      <GameStateProvider>
+        <div className="app">
+          <Navbar />
         
         <section className="section">
           <div className="container">
@@ -46,7 +48,8 @@ function App() {
             </p>
           </div>
         </footer>
-      </div>
+        </div>
+      </GameStateProvider>
     </BrowserRouter>
   );
 }

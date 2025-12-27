@@ -44,6 +44,7 @@
   --color-text: var(--color-gray-600);
   --color-text-muted: var(--color-gray-400);
   --color-text-light: var(--color-gray-500);
+  --color-text-lighter: var(--color-gray-400);
   
   /* Border */
   --color-border: var(--color-gray-200);

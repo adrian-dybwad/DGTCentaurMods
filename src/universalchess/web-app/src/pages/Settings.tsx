@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Button, Card, Input, Select, Toggle, Badge } from '../components/ui';
+import { Button, Card, CardHeader, Input, Select, Toggle, Badge } from '../components/ui';
 import type { EngineDefinition } from '../types/game';
 import './Settings.css';
 
@@ -9,70 +9,292 @@ interface SettingsData {
   };
 }
 
-type SettingsTab = 'general' | 'players' | 'display' | 'sound' | 'engines' | 'system';
+type SettingsTab = 'players' | 'game' | 'display' | 'accounts' | 'engines' | 'sound' | 'system';
 
 const tabs: { id: SettingsTab; label: string; icon: string }[] = [
-  { id: 'general', label: 'General', icon: '⚙️' },
   { id: 'players', label: 'Players', icon: '👤' },
+  { id: 'game', label: 'Game', icon: '⏱️' },
   { id: 'display', label: 'Display', icon: '🖥️' },
-  { id: 'sound', label: 'Sound', icon: '🔊' },
+  { id: 'accounts', label: 'Accounts', icon: '🌐' },
   { id: 'engines', label: 'Engines', icon: '🤖' },
+  { id: 'sound', label: 'Sound', icon: '🔊' },
   { id: 'system', label: 'System', icon: '🔧' },
 ];
 
+const playerTypeOptions = [
+  { value: 'human', label: 'Human' },
+  { value: 'engine', label: 'Engine' },
+  { value: 'hand_brain', label: 'Hand + Brain' },
+  { value: 'lichess', label: 'Lichess' },
+];
+
+const handBrainModeOptions = [
+  { value: 'normal', label: 'Normal (Engine = Brain)' },
+  { value: 'reverse', label: 'Reverse (Human = Brain)' },
+];
+
+const timeControlOptions = [
+  { value: '0', label: 'Untimed' },
+  { value: '1', label: '1 min (Bullet)' },
+  { value: '3', label: '3 min (Blitz)' },
+  { value: '5', label: '5 min (Blitz)' },
+  { value: '10', label: '10 min (Rapid)' },
+  { value: '15', label: '15 min (Rapid)' },
+  { value: '30', label: '30 min (Classical)' },
+  { value: '60', label: '60 min (Classical)' },
+  { value: '90', label: '90 min (Classical)' },
+];
+
+interface PlayerSettings {
+  type: string;
+  name: string;
+  engine: string;
+  elo: string;
+  hand_brain_mode: string;
+}
+
+interface FormSettings {
+  player1: PlayerSettings;
+  player2: PlayerSettings;
+  game: {
+    time_control: string;
+    analysis_mode: boolean;
+    analysis_engine: string;
+    show_board: boolean;
+    show_clock: boolean;
+    show_analysis: boolean;
+    show_graph: boolean;
+    led_brightness: number;
+  };
+  lichess: {
+    api_token: string;
+    range: string;
+  };
+  sound: {
+    enabled: boolean;
+    key_press: boolean;
+    game_events: boolean;
+    piece_events: boolean;
+    errors: boolean;
+  };
+  system: {
+    developer_mode: boolean;
+    database_uri: string;
+  };
+}
+
+const defaultFormSettings: FormSettings = {
+  player1: { type: 'human', name: '', engine: 'stockfish', elo: 'Default', hand_brain_mode: 'normal' },
+  player2: { type: 'engine', name: '', engine: 'stockfish', elo: 'Default', hand_brain_mode: 'normal' },
+  game: {
+    time_control: '0',
+    analysis_mode: true,
+    analysis_engine: 'stockfish',
+    show_board: true,
+    show_clock: true,
+    show_analysis: true,
+    show_graph: true,
+    led_brightness: 5,
+  },
+  lichess: { api_token: '', range: '' },
+  sound: { enabled: true, key_press: true, game_events: true, piece_events: true, errors: true },
+  system: { developer_mode: false, database_uri: '' },
+};
+
 /**
- * Settings page with tabbed navigation.
+ * Settings page with tabbed navigation matching the Flask version.
  */
 export function Settings() {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('general');
-  const [settings, setSettings] = useState<SettingsData>({});
+  const [activeTab, setActiveTab] = useState<SettingsTab>('players');
+  const [, setRawSettings] = useState<SettingsData>({});
+  const [formSettings, setFormSettings] = useState<FormSettings>(defaultFormSettings);
+  const [originalSettings, setOriginalSettings] = useState<FormSettings>(defaultFormSettings);
   const [engines, setEngines] = useState<EngineDefinition[]>([]);
+  const [installedEngines, setInstalledEngines] = useState<EngineDefinition[]>([]);
+  const [engineLevels, setEngineLevels] = useState<{ [key: string]: string[] }>({});
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [installingEngine, setInstallingEngine] = useState<string | null>(null);
 
+  // Load settings and engines on mount
   useEffect(() => {
     Promise.all([
-      fetch('/api/settings/all').then((r) => r.json()),
+      fetch('/api/settings').then((r) => r.json()),
       fetch('/api/engines/all').then((r) => r.json()),
     ])
       .then(([settingsData, enginesData]) => {
-        setSettings(settingsData);
+        setRawSettings(settingsData);
         setEngines(enginesData);
+        setInstalledEngines(enginesData.filter((e: EngineDefinition) => e.installed));
+        
+        // Parse raw settings into form state
+        const parsed = parseRawSettings(settingsData);
+        setFormSettings(parsed);
+        setOriginalSettings(parsed);
         setLoading(false);
       })
       .catch((e) => {
         console.error('Failed to load settings:', e);
+        setLoadError('Could not connect to the Universal Chess backend. Make sure the board is running and accessible.');
         setLoading(false);
       });
   }, []);
 
-  const saveSetting = useCallback(async (section: string, key: string, value: string) => {
+  // Load engine levels when engine changes
+  const loadEngineLevels = useCallback(async (engineName: string) => {
+    if (engineLevels[engineName]) return engineLevels[engineName];
+    
+    try {
+      const response = await fetch(`/api/engines/${engineName}/levels`);
+      const levels = await response.json();
+      setEngineLevels((prev) => ({ ...prev, [engineName]: levels }));
+      return levels;
+    } catch {
+      return ['Default'];
+    }
+  }, [engineLevels]);
+
+  // Load levels for selected engines
+  useEffect(() => {
+    if (formSettings.player1.engine) loadEngineLevels(formSettings.player1.engine);
+    if (formSettings.player2.engine) loadEngineLevels(formSettings.player2.engine);
+    if (formSettings.game.analysis_engine) loadEngineLevels(formSettings.game.analysis_engine);
+  }, [formSettings.player1.engine, formSettings.player2.engine, formSettings.game.analysis_engine, loadEngineLevels]);
+
+  const parseRawSettings = (data: SettingsData): FormSettings => {
+    return {
+      player1: {
+        type: data.PlayerOne?.type || 'human',
+        name: data.PlayerOne?.name || '',
+        engine: data.PlayerOne?.engine || 'stockfish',
+        elo: data.PlayerOne?.elo || 'Default',
+        hand_brain_mode: data.PlayerOne?.hand_brain_mode || 'normal',
+      },
+      player2: {
+        type: data.PlayerTwo?.type || 'engine',
+        name: data.PlayerTwo?.name || '',
+        engine: data.PlayerTwo?.engine || 'stockfish',
+        elo: data.PlayerTwo?.elo || 'Default',
+        hand_brain_mode: data.PlayerTwo?.hand_brain_mode || 'normal',
+      },
+      game: {
+        time_control: data.game?.time_control || '0',
+        analysis_mode: data.game?.analysis_mode !== 'false',
+        analysis_engine: data.game?.analysis_engine || 'stockfish',
+        show_board: data.game?.show_board !== 'false',
+        show_clock: data.game?.show_clock !== 'false',
+        show_analysis: data.game?.show_analysis !== 'false',
+        show_graph: data.game?.show_graph !== 'false',
+        led_brightness: parseInt(data.game?.led_brightness || '5'),
+      },
+      lichess: {
+        api_token: data.lichess?.api_token || '',
+        range: data.lichess?.range || '',
+      },
+      sound: {
+        enabled: data.sound?.sound !== 'off',
+        key_press: data.sound?.key_press !== 'off',
+        game_events: data.sound?.game_event !== 'off',
+        piece_events: data.sound?.piece_event !== 'off',
+        errors: data.sound?.error !== 'off',
+      },
+      system: {
+        developer_mode: data.system?.developer === 'True' || data.system?.developer === 'true',
+        database_uri: data.DATABASE?.database_uri || '',
+      },
+    };
+  };
+
+  const updateFormSettings = <T extends keyof FormSettings>(
+    section: T,
+    updates: Partial<FormSettings[T]>
+  ) => {
+    setFormSettings((prev) => ({
+      ...prev,
+      [section]: { ...prev[section], ...updates },
+    }));
+    setHasChanges(true);
+  };
+
+  const saveSettings = async () => {
     setSaving(true);
     try {
-      await fetch(`/api/settings/${section}/${key}`, {
+      const payload = {
+        PlayerOne: formSettings.player1,
+        PlayerTwo: formSettings.player2,
+        game: {
+          ...formSettings.game,
+          time_control: parseInt(formSettings.game.time_control),
+        },
+        lichess: formSettings.lichess,
+        sound: {
+          sound: formSettings.sound.enabled ? 'on' : 'off',
+          key_press: formSettings.sound.key_press ? 'on' : 'off',
+          game_event: formSettings.sound.game_events ? 'on' : 'off',
+          piece_event: formSettings.sound.piece_events ? 'on' : 'off',
+          error: formSettings.sound.errors ? 'on' : 'off',
+        },
+        system: { developer: formSettings.system.developer_mode },
+        DATABASE: { database_uri: formSettings.system.database_uri },
+      };
+
+      await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ value }),
+        body: JSON.stringify(payload),
       });
-      setSettings((prev) => ({
-        ...prev,
-        [section]: { ...prev[section], [key]: value },
-      }));
+      
+      setOriginalSettings(formSettings);
+      setHasChanges(false);
     } catch (e) {
-      console.error('Failed to save setting:', e);
+      console.error('Failed to save settings:', e);
     } finally {
       setSaving(false);
     }
-  }, []);
+  };
+
+  const saveAndApply = async () => {
+    await saveSettings();
+    try {
+      await fetch('/api/settings/apply', { method: 'POST' });
+    } catch (e) {
+      console.error('Failed to apply settings:', e);
+    }
+  };
+
+  const discardChanges = () => {
+    setFormSettings(originalSettings);
+    setHasChanges(false);
+  };
 
   const toggleEngine = useCallback(async (engineName: string, install: boolean) => {
+    setInstallingEngine(engineName);
     const endpoint = install ? 'install' : 'uninstall';
     try {
       await fetch(`/api/engines/${endpoint}/${engineName}`, { method: 'POST' });
-      const enginesData = await fetch('/api/engines/all').then((r) => r.json());
-      setEngines(enginesData);
+      // Poll for completion
+      const checkStatus = async () => {
+        const response = await fetch('/api/engines/all');
+        const enginesData = await response.json();
+        const engine = enginesData.find((e: EngineDefinition) => e.name === engineName);
+        if (engine && engine.installed === install) {
+          setEngines(enginesData);
+          setInstalledEngines(enginesData.filter((e: EngineDefinition) => e.installed));
+          setInstallingEngine(null);
+        } else if (install) {
+          setTimeout(checkStatus, 2000);
+        } else {
+          setEngines(enginesData);
+          setInstalledEngines(enginesData.filter((e: EngineDefinition) => e.installed));
+          setInstallingEngine(null);
+        }
+      };
+      setTimeout(checkStatus, 1000);
     } catch (e) {
       console.error(`Failed to ${endpoint} engine:`, e);
+      setInstallingEngine(null);
     }
   }, []);
 
@@ -83,6 +305,35 @@ export function Settings() {
       </div>
     );
   }
+
+  if (loadError) {
+    return (
+      <div className="page container--lg">
+        <Card>
+          <h2 className="page-title">Settings</h2>
+          <div className="error mt-6">
+            <p>{loadError}</p>
+            <p className="mt-4" style={{ fontSize: 'var(--text-sm)' }}>
+              If you're developing locally, configure the API URL in <code>vite.config.ts</code> proxy settings
+              or run the <code>run-react</code> script with the <code>--api</code> flag.
+            </p>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  const showHandBrainExplanation = 
+    formSettings.player1.type === 'hand_brain' || 
+    formSettings.player2.type === 'hand_brain';
+
+  const engineOptions = installedEngines.map((e) => ({ value: e.name, label: e.display_name }));
+
+  // Helper to get display name for an engine
+  const getEngineDisplayName = (engineName: string): string => {
+    const engine = installedEngines.find((e) => e.name === engineName);
+    return engine?.display_name || engineName;
+  };
 
   return (
     <div className="settings-layout">
@@ -100,174 +351,545 @@ export function Settings() {
       </aside>
 
       <main className="settings-content">
-        <Card>
-          {saving && <Badge variant="primary">Saving...</Badge>}
+        {/* PLAYERS TAB */}
+        {activeTab === 'players' && (
+          <section>
+            <Card>
+              <h2 className="page-title">Player Settings</h2>
+              <p className="text-muted mb-6">Configure player names, types, and engine preferences</p>
 
-          {activeTab === 'general' && (
-            <section>
-              <h2 className="page-title">General Settings</h2>
-              <FormRow label="Lichess Token">
+              {/* Player 1 */}
+              <div className="settings-group">
+                <h3 className="settings-group-title">Player 1 (White by default)</h3>
+                
+                <FormRow label="Player Type" help="Human, Engine, Hand+Brain, or Lichess">
+                  <Select
+                    value={formSettings.player1.type}
+                    options={playerTypeOptions}
+                    onChange={(e) => updateFormSettings('player1', { type: e.target.value })}
+                  />
+                </FormRow>
+
+                <FormRow label="Player Name" help="Optional name for PGN headers">
+                  <Input
+                    value={formSettings.player1.name}
+                    placeholder={
+                      formSettings.player1.type === 'engine' || formSettings.player1.type === 'hand_brain'
+                        ? getEngineDisplayName(formSettings.player1.engine)
+                        : 'Player 1'
+                    }
+                    onChange={(e) => updateFormSettings('player1', { name: e.target.value })}
+                  />
+                </FormRow>
+
+                {(formSettings.player1.type === 'engine' || formSettings.player1.type === 'hand_brain') && (
+                  <>
+                    <FormRow label="Engine" help="Chess engine to use">
+                      <Select
+                        value={formSettings.player1.engine}
+                        options={engineOptions}
+                        onChange={(e) => updateFormSettings('player1', { engine: e.target.value, elo: 'Default' })}
+                      />
+                    </FormRow>
+
+                    <FormRow label="ELO / Style" help="Engine strength or personality">
+                      <Select
+                        value={formSettings.player1.elo}
+                        options={(engineLevels[formSettings.player1.engine] || ['Default']).map((l) => ({ value: l, label: l }))}
+                        onChange={(e) => updateFormSettings('player1', { elo: e.target.value })}
+                      />
+                    </FormRow>
+                  </>
+                )}
+
+                {formSettings.player1.type === 'hand_brain' && (
+                  <FormRow label="Hand+Brain Mode" help="How the human and engine collaborate">
+                    <Select
+                      value={formSettings.player1.hand_brain_mode}
+                      options={handBrainModeOptions}
+                      onChange={(e) => updateFormSettings('player1', { hand_brain_mode: e.target.value })}
+                    />
+                  </FormRow>
+                )}
+
+                {formSettings.player1.type === 'human' && (
+                  <p className="text-muted" style={{ fontSize: '0.875rem', marginTop: '0.5rem' }}>
+                    Hints will use <strong>{getEngineDisplayName(formSettings.game.analysis_engine || 'stockfish')}</strong> (configured in Game Settings → Analysis Engine)
+                  </p>
+                )}
+              </div>
+
+              {/* Player 2 */}
+              <div className="settings-group mt-8">
+                <h3 className="settings-group-title">Player 2 (Black by default)</h3>
+                
+                <FormRow label="Player Type" help="Human, Engine, Hand+Brain, or Lichess">
+                  <Select
+                    value={formSettings.player2.type}
+                    options={playerTypeOptions}
+                    onChange={(e) => updateFormSettings('player2', { type: e.target.value })}
+                  />
+                </FormRow>
+
+                <FormRow label="Player Name" help="Optional name for PGN headers">
+                  <Input
+                    value={formSettings.player2.name}
+                    placeholder={
+                      formSettings.player2.type === 'engine' || formSettings.player2.type === 'hand_brain'
+                        ? getEngineDisplayName(formSettings.player2.engine)
+                        : 'Player 2'
+                    }
+                    onChange={(e) => updateFormSettings('player2', { name: e.target.value })}
+                  />
+                </FormRow>
+
+                {(formSettings.player2.type === 'engine' || formSettings.player2.type === 'hand_brain') && (
+                  <>
+                    <FormRow label="Engine" help="Chess engine to use">
+                      <Select
+                        value={formSettings.player2.engine}
+                        options={engineOptions}
+                        onChange={(e) => updateFormSettings('player2', { engine: e.target.value, elo: 'Default' })}
+                      />
+                    </FormRow>
+
+                    <FormRow label="ELO / Style" help="Engine strength or personality">
+                      <Select
+                        value={formSettings.player2.elo}
+                        options={(engineLevels[formSettings.player2.engine] || ['Default']).map((l) => ({ value: l, label: l }))}
+                        onChange={(e) => updateFormSettings('player2', { elo: e.target.value })}
+                      />
+                    </FormRow>
+                  </>
+                )}
+
+                {formSettings.player2.type === 'hand_brain' && (
+                  <FormRow label="Hand+Brain Mode" help="How the human and engine collaborate">
+                    <Select
+                      value={formSettings.player2.hand_brain_mode}
+                      options={handBrainModeOptions}
+                      onChange={(e) => updateFormSettings('player2', { hand_brain_mode: e.target.value })}
+                    />
+                  </FormRow>
+                )}
+
+                {formSettings.player2.type === 'human' && (
+                  <p className="text-muted" style={{ fontSize: '0.875rem', marginTop: '0.5rem' }}>
+                    Hints will use <strong>{getEngineDisplayName(formSettings.game.analysis_engine || 'stockfish')}</strong> (configured in Game Settings → Analysis Engine)
+                  </p>
+                )}
+              </div>
+            </Card>
+
+            {/* Hand+Brain Explanation */}
+            {showHandBrainExplanation && (
+              <Card variant="muted" className="mt-6">
+                <h3 className="settings-group-title">What is Hand+Brain?</h3>
+                <p className="text-muted mb-4">
+                  Hand+Brain is a collaborative chess variant where a human and engine work together as a team.
+                  One partner is the "Brain" (chooses WHICH piece type to move) and the other is the "Hand" (chooses WHERE to move it).
+                </p>
+                <div className="grid grid--2 gap-4">
+                  <div className="hb-mode-card hb-normal">
+                    <strong>Normal Mode</strong>
+                    <p>
+                      <strong>Engine = Brain:</strong> The engine suggests a piece type (e.g., "Knight").<br />
+                      <strong>Human = Hand:</strong> You choose any legal move using that piece type.<br />
+                      <em>Great for learning strategy from the engine's piece selection.</em>
+                    </p>
+                  </div>
+                  <div className="hb-mode-card hb-reverse">
+                    <strong>Reverse Mode</strong>
+                    <p>
+                      <strong>Human = Brain:</strong> You lift and replace a piece to select its type.<br />
+                      <strong>Engine = Hand:</strong> The engine finds the best move with that piece, shown via LEDs.<br />
+                      <em>Great for practicing piece coordination while engine handles tactics.</em>
+                    </p>
+                  </div>
+                </div>
+              </Card>
+            )}
+          </section>
+        )}
+
+        {/* GAME TAB */}
+        {activeTab === 'game' && (
+          <section>
+            <Card>
+              <h2 className="page-title">Game Settings</h2>
+              <p className="text-muted mb-6">Time controls and game behavior</p>
+
+              <div className="settings-group">
+                <h3 className="settings-group-title">Time Control</h3>
+                <FormRow label="Time per Player" help="Minutes per player (0 = untimed)">
+                  <Select
+                    value={formSettings.game.time_control}
+                    options={timeControlOptions}
+                    onChange={(e) => updateFormSettings('game', { time_control: e.target.value })}
+                  />
+                </FormRow>
+              </div>
+
+              <div className="settings-group mt-8">
+                <h3 className="settings-group-title">Analysis</h3>
+                <Toggle
+                  label="Live Analysis"
+                  help="Show engine evaluation during play"
+                  checked={formSettings.game.analysis_mode}
+                  onChange={(v) => updateFormSettings('game', { analysis_mode: v })}
+                />
+                <FormRow label="Analysis Engine" help="Engine used for position analysis">
+                  <Select
+                    value={formSettings.game.analysis_engine}
+                    options={engineOptions}
+                    onChange={(e) => updateFormSettings('game', { analysis_engine: e.target.value })}
+                  />
+                </FormRow>
+              </div>
+            </Card>
+          </section>
+        )}
+
+        {/* DISPLAY TAB */}
+        {activeTab === 'display' && (
+          <section>
+            <Card>
+              <h2 className="page-title">Display Settings</h2>
+              <p className="text-muted mb-6">Control what appears on the e-paper display and LEDs</p>
+
+              <div className="settings-group">
+                <h3 className="settings-group-title">E-Paper Display</h3>
+                <Toggle
+                  label="Show Board"
+                  help="Display chess board on screen"
+                  checked={formSettings.game.show_board}
+                  onChange={(v) => updateFormSettings('game', { show_board: v })}
+                />
+                <Toggle
+                  label="Show Clock"
+                  help="Display game clock and turn indicator"
+                  checked={formSettings.game.show_clock}
+                  onChange={(v) => updateFormSettings('game', { show_clock: v })}
+                />
+                <Toggle
+                  label="Show Analysis"
+                  help="Display engine analysis widget"
+                  checked={formSettings.game.show_analysis}
+                  onChange={(v) => updateFormSettings('game', { show_analysis: v })}
+                />
+                <Toggle
+                  label="Show Evaluation Graph"
+                  help="Display evaluation history graph"
+                  checked={formSettings.game.show_graph}
+                  onChange={(v) => updateFormSettings('game', { show_graph: v })}
+                />
+              </div>
+
+              <div className="settings-group mt-8">
+                <h3 className="settings-group-title">LEDs</h3>
+                <FormRow label="LED Brightness" help={`Level: ${formSettings.game.led_brightness}`}>
+                  <input
+                    type="range"
+                    className="range-slider"
+                    min="1"
+                    max="10"
+                    value={formSettings.game.led_brightness}
+                    onChange={(e) => updateFormSettings('game', { led_brightness: parseInt(e.target.value) })}
+                  />
+                </FormRow>
+              </div>
+            </Card>
+          </section>
+        )}
+
+        {/* ACCOUNTS TAB */}
+        {activeTab === 'accounts' && (
+          <section>
+            <h2 className="page-title">Accounts</h2>
+            <p className="text-muted mb-6">Connect external services and accounts</p>
+
+            <Card className="mb-4">
+              <CardHeader title="Lichess" />
+              <p className="text-muted mb-4" style={{ fontSize: '0.875rem' }}>
+                Connect to Lichess for online play against other players.
+              </p>
+
+              <FormRow 
+                label="API Token" 
+                help={
+                  <>
+                    <a href="https://lichess.org/account/oauth/token" target="_blank" rel="noopener noreferrer">
+                      Get a token
+                    </a>{' '}
+                    with challenge:write and board:play permissions
+                  </>
+                }
+              >
                 <Input
                   type="password"
-                  value={settings.lichess?.token || ''}
-                  onChange={(e) => saveSetting('lichess', 'token', e.target.value)}
+                  value={formSettings.lichess.api_token}
+                  placeholder="lip_xxxxxxxx"
+                  onChange={(e) => updateFormSettings('lichess', { api_token: e.target.value })}
                 />
               </FormRow>
-            </section>
-          )}
-
-          {activeTab === 'players' && (
-            <section>
-              <h2 className="page-title">Player Settings</h2>
-              <FormRow label="Default Player 1 Type">
-                <Select
-                  value={settings.players?.player1_type || 'human'}
-                  options={[
-                    { value: 'human', label: 'Human' },
-                    { value: 'engine', label: 'Engine' },
-                    { value: 'lichess', label: 'Lichess' },
-                    { value: 'hand_brain', label: 'Hand + Brain' },
-                  ]}
-                  onChange={(e) => saveSetting('players', 'player1_type', e.target.value)}
+              <FormRow label="Rating Range" help="Preferred opponent rating range for matchmaking">
+                <Input
+                  value={formSettings.lichess.range}
+                  placeholder="1000-1600"
+                  onChange={(e) => updateFormSettings('lichess', { range: e.target.value })}
                 />
               </FormRow>
-              <FormRow label="Default Player 2 Type">
-                <Select
-                  value={settings.players?.player2_type || 'engine'}
-                  options={[
-                    { value: 'human', label: 'Human' },
-                    { value: 'engine', label: 'Engine' },
-                    { value: 'lichess', label: 'Lichess' },
-                    { value: 'hand_brain', label: 'Hand + Brain' },
-                  ]}
-                  onChange={(e) => saveSetting('players', 'player2_type', e.target.value)}
-                />
-              </FormRow>
-            </section>
-          )}
+            </Card>
+          </section>
+        )}
 
-          {activeTab === 'display' && (
-            <section>
-              <h2 className="page-title">Display Settings</h2>
-              <Toggle
-                label="Show Coordinates"
-                checked={settings.display?.show_coordinates === 'true'}
-                onChange={(v) => saveSetting('display', 'show_coordinates', v ? 'true' : 'false')}
-              />
-              <Toggle
-                label="Flip Board for Black"
-                checked={settings.display?.flip_board === 'true'}
-                onChange={(v) => saveSetting('display', 'flip_board', v ? 'true' : 'false')}
-              />
-            </section>
-          )}
+        {/* ENGINES TAB */}
+        {activeTab === 'engines' && (
+          <section>
+            <h2 className="page-title">Chess Engines</h2>
+            <p className="text-muted mb-6">Install and manage chess engines for play and analysis</p>
 
-          {activeTab === 'sound' && (
-            <section>
+            {installingEngine && (
+              <Card variant="muted" className="mb-6">
+                <div className="flex items-center gap-4">
+                  <div className="spinner" />
+                  <span>Installing {installingEngine}... This may take several minutes.</span>
+                </div>
+              </Card>
+            )}
+
+            <EnginesList
+              engines={engines}
+              installingEngine={installingEngine}
+              onToggle={toggleEngine}
+            />
+          </section>
+        )}
+
+        {/* SOUND TAB */}
+        {activeTab === 'sound' && (
+          <section>
+            <Card>
               <h2 className="page-title">Sound Settings</h2>
+              <p className="text-muted mb-6">Audio feedback configuration</p>
+
               <Toggle
-                label="Sound Effects (Master)"
-                checked={settings.sound?.enabled !== 'false'}
-                onChange={(v) => saveSetting('sound', 'enabled', v ? 'true' : 'false')}
+                label="Sound Enabled"
+                help="Master switch for all sound effects"
+                checked={formSettings.sound.enabled}
+                onChange={(v) => updateFormSettings('sound', { enabled: v })}
               />
               <Toggle
                 label="Key Press"
-                checked={settings.sound?.key_press !== 'false'}
-                onChange={(v) => saveSetting('sound', 'key_press', v ? 'true' : 'false')}
+                help="Beep when buttons are pressed"
+                checked={formSettings.sound.key_press}
+                onChange={(v) => updateFormSettings('sound', { key_press: v })}
               />
               <Toggle
                 label="Game Events"
-                checked={settings.sound?.game_events !== 'false'}
-                onChange={(v) => saveSetting('sound', 'game_events', v ? 'true' : 'false')}
+                help="Beep for check, checkmate, and other game events"
+                checked={formSettings.sound.game_events}
+                onChange={(v) => updateFormSettings('sound', { game_events: v })}
               />
               <Toggle
                 label="Piece Events"
-                checked={settings.sound?.piece_events !== 'false'}
-                onChange={(v) => saveSetting('sound', 'piece_events', v ? 'true' : 'false')}
+                help="Beep when pieces are lifted or placed"
+                checked={formSettings.sound.piece_events}
+                onChange={(v) => updateFormSettings('sound', { piece_events: v })}
               />
               <Toggle
                 label="Errors"
-                checked={settings.sound?.errors !== 'false'}
-                onChange={(v) => saveSetting('sound', 'errors', v ? 'true' : 'false')}
+                help="Beep on error conditions"
+                checked={formSettings.sound.errors}
+                onChange={(v) => updateFormSettings('sound', { errors: v })}
               />
-            </section>
-          )}
+            </Card>
+          </section>
+        )}
 
-          {activeTab === 'engines' && (
-            <section>
-              <h2 className="page-title">Chess Engines</h2>
-              <div className="grid grid--auto-fit mt-6">
-                {engines.map((engine) => (
-                  <EngineCard
-                    key={engine.name}
-                    engine={engine}
-                    onToggle={toggleEngine}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
-
-          {activeTab === 'system' && (
-            <section>
+        {/* SYSTEM TAB */}
+        {activeTab === 'system' && (
+          <section>
+            <Card>
               <h2 className="page-title">System Settings</h2>
-              <Toggle
-                label="Developer Mode"
-                checked={settings.system?.developer_mode === 'true'}
-                onChange={(v) => saveSetting('system', 'developer_mode', v ? 'true' : 'false')}
-              />
-              <p className="form-help">
-                Enables debug logging. View logs with: <code>journalctl -u universal-chess -f</code>
-              </p>
-            </section>
-          )}
-        </Card>
+              <p className="text-muted mb-6">Advanced configuration for developers and power users</p>
+
+              <div className="settings-group">
+                <h3 className="settings-group-title">Developer Mode</h3>
+                <Toggle
+                  label="Enable Developer Mode"
+                  help={
+                    <>
+                      Enables verbose debug logging. View logs with:{' '}
+                      <code>journalctl -u universal-chess -f</code>
+                    </>
+                  }
+                  checked={formSettings.system.developer_mode}
+                  onChange={(v) => updateFormSettings('system', { developer_mode: v })}
+                />
+              </div>
+
+              <div className="settings-group mt-8">
+                <h3 className="settings-group-title">Game Database</h3>
+                <p className="text-muted mb-4">
+                  Universal Chess stores all your games in a database. By default, it uses SQLite at{' '}
+                  <code>/opt/universalchess/db/centaur.db</code>.
+                </p>
+                <FormRow label="Database URI" help="Leave empty for default SQLite. Supports any SQLAlchemy-compatible URI.">
+                  <Input
+                    value={formSettings.system.database_uri}
+                    placeholder="(default SQLite)"
+                    onChange={(e) => updateFormSettings('system', { database_uri: e.target.value })}
+                  />
+                </FormRow>
+                <Card variant="muted" className="mt-4">
+                  <strong>Supported Database URIs:</strong>
+                  <ul className="mt-2 ml-4 list-disc text-muted">
+                    <li><code>sqlite:///path/to/games.db</code> - Local SQLite file</li>
+                    <li><code>postgresql://user:pass@host:5432/dbname</code> - PostgreSQL</li>
+                    <li><code>mysql://user:pass@host:3306/dbname</code> - MySQL/MariaDB</li>
+                  </ul>
+                </Card>
+              </div>
+            </Card>
+          </section>
+        )}
       </main>
+
+      {/* Apply Settings Bar */}
+      {hasChanges && (
+        <div className="apply-settings-bar">
+          <span className="changes-text">Unsaved changes</span>
+          <div className="apply-settings-buttons">
+            <Button variant="secondary" onClick={discardChanges}>Discard</Button>
+            <Button variant="primary" onClick={saveSettings} disabled={saving}>
+              {saving ? 'Saving...' : 'Save Changes'}
+            </Button>
+            <Button variant="success" onClick={saveAndApply} disabled={saving}>
+              Save & Apply
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// Helper components
+// Helper Components
 
-function FormRow({ label, children }: { label: string; children: React.ReactNode }) {
+function FormRow({ 
+  label, 
+  help, 
+  children 
+}: { 
+  label: string; 
+  help?: React.ReactNode; 
+  children: React.ReactNode 
+}) {
   return (
     <div className="form-row">
-      <label className="form-label">{label}</label>
-      {children}
+      <div className="form-row-info">
+        <label className="form-label">{label}</label>
+        {help && <div className="form-help">{help}</div>}
+      </div>
+      <div className="form-row-control">{children}</div>
+    </div>
+  );
+}
+
+function EnginesList({
+  engines,
+  installingEngine,
+  onToggle,
+}: {
+  engines: EngineDefinition[];
+  installingEngine: string | null;
+  onToggle: (name: string, install: boolean) => void;
+}) {
+  // Group engines by tier
+  const tiers = {
+    top: { title: 'Top Tier Engines (3300+ ELO)', engines: [] as EngineDefinition[] },
+    strong: { title: 'Strong Engines (2900-3200 ELO)', engines: [] as EngineDefinition[] },
+    specialty: { title: 'Specialty & Personality Engines', engines: [] as EngineDefinition[] },
+  };
+
+  engines.forEach((engine) => {
+    if (['stockfish', 'berserk', 'koivisto', 'ethereal'].includes(engine.name)) {
+      tiers.top.engines.push(engine);
+    } else if (['demolito', 'weiss', 'arasan', 'smallbrain'].includes(engine.name)) {
+      tiers.strong.engines.push(engine);
+    } else {
+      tiers.specialty.engines.push(engine);
+    }
+  });
+
+  return (
+    <div className="engines-list">
+      {Object.values(tiers).map((tier) => {
+        if (tier.engines.length === 0) return null;
+        return (
+          <Card key={tier.title} className="mb-6">
+            <h3 className="settings-group-title">{tier.title}</h3>
+            <div className="engines-grid">
+              {tier.engines.map((engine) => (
+                <EngineCard
+                  key={engine.name}
+                  engine={engine}
+                  isInstalling={installingEngine === engine.name}
+                  onToggle={onToggle}
+                />
+              ))}
+            </div>
+          </Card>
+        );
+      })}
     </div>
   );
 }
 
 function EngineCard({
   engine,
+  isInstalling,
   onToggle,
 }: {
   engine: EngineDefinition;
+  isInstalling: boolean;
   onToggle: (name: string, install: boolean) => void;
 }) {
+  const isSystem = engine.name === 'stockfish'; // Stockfish is a system package
+
   return (
-    <Card variant="muted">
-      <div className="flex justify-between items-center mb-4">
-        <h3 style={{ margin: 0, fontSize: 'var(--text-base)' }}>{engine.display_name}</h3>
-        <Badge variant={engine.installed ? 'success' : 'default'}>
-          {engine.installed ? '✓ Installed' : 'Not installed'}
-        </Badge>
+    <div className="engine-card">
+      <div className="engine-card-header">
+        <div className="engine-card-title">
+          <strong>{engine.display_name}</strong>
+          {isSystem ? (
+            <Badge variant="success">System Package</Badge>
+          ) : engine.installed ? (
+            <Badge variant="success">Installed</Badge>
+          ) : (
+            <Badge variant="default">Not Installed</Badge>
+          )}
+        </div>
       </div>
-      <p className="text-muted" style={{ fontSize: 'var(--text-sm)', marginBottom: 'var(--space-3)' }}>
-        {engine.summary}
-      </p>
-      {engine.install_time && (
-        <p className="text-muted" style={{ fontSize: 'var(--text-xs)', marginBottom: 'var(--space-4)' }}>
-          Install time: {engine.install_time}
+      <p className="engine-summary">{engine.summary}</p>
+      <p className="engine-description">{engine.description}</p>
+      {!isSystem && !engine.installed && engine.install_time && (
+        <p className="engine-install-time">
+          Estimated install time: {engine.install_time}
+          {engine.has_prebuilt && ' (pre-built available)'}
         </p>
       )}
-      <Button
-        variant={engine.installed ? 'danger' : 'primary'}
-        block
-        onClick={() => onToggle(engine.name, !engine.installed)}
-      >
-        {engine.installed ? 'Uninstall' : 'Install'}
-      </Button>
-    </Card>
+      {!isSystem && (
+        <Button
+          variant={engine.installed ? 'danger' : 'primary'}
+          size="sm"
+          disabled={isInstalling}
+          onClick={() => onToggle(engine.name, !engine.installed)}
+        >
+          {isInstalling ? 'Installing...' : engine.installed ? 'Uninstall' : 'Install'}
+        </Button>
+      )}
+    </div>
   );
 }
