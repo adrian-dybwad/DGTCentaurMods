@@ -42,7 +42,7 @@ function App() {
                 GitHub
               </a>
               {' • '}
-              <Link to="/licenses">License</Link>
+              <Link to="/licenses">Licenses</Link>
               {' • '}
               <Link to="/support">Support</Link>
             </p>
