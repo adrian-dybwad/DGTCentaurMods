@@ -27,6 +27,12 @@
   line-height: var(--leading-relaxed);
 }
 
+.license-copyright {
+  margin: var(--space-2) 0 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
 .license-text {
   margin-top: var(--space-4);
   padding-top: var(--space-4);

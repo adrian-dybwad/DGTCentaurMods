@@ -6,6 +6,7 @@ interface License {
   name: string;
   type: string;
   description: string;
+  copyright?: string;
   url?: string;
   text?: string;
 }
@@ -15,54 +16,63 @@ const licenses: License[] = [
     name: 'Universal Chess',
     type: 'GPL-3.0',
     description: 'The main project. Universal Chess provides a modern web interface and enhanced software for DGT smart chess boards, enabling play against engines, online opponents, and game analysis.',
+    copyright: 'Universal Chess Contributors',
     url: 'https://github.com/adrian-dybwad/Universal-Chess/blob/main/LICENSE',
   },
   {
     name: 'DGTCentaur Mods (Original)',
     type: 'GPL-3.0',
     description: 'The original open source project that Universal Chess is built upon. DGTCentaur Mods pioneered custom software for the DGT Centaur chess board.',
+    copyright: 'Ed Nekebno and Contributors',
     url: 'https://github.com/EdNekebno/DGTCentaur',
   },
   {
     name: 'react-chessboard',
     type: 'MIT',
     description: 'Renders the interactive chess board in the web interface. Provides drag-and-drop piece movement, board orientation, custom arrows, and smooth animations.',
+    copyright: 'Clariity',
     url: 'https://github.com/Clariity/react-chessboard',
   },
   {
     name: 'chess.js',
     type: 'BSD-2-Clause',
     description: 'Handles chess game logic in the frontend. Validates moves, parses PGN notation, tracks game state, and provides move history navigation.',
+    copyright: '2021 Jeff Hlywa',
     url: 'https://github.com/jhlywa/chess.js',
   },
   {
     name: 'Stockfish',
     type: 'GPL-3.0',
     description: 'The default chess engine for play and analysis. Stockfish is the strongest open source chess engine, providing move evaluation, best move suggestions, and opponent play.',
+    copyright: 'Stockfish Authors',
     url: 'https://github.com/official-stockfish/Stockfish',
   },
   {
     name: 'React',
     type: 'MIT',
     description: 'The UI framework powering the web interface. React enables the component-based architecture, reactive state management, and efficient DOM updates.',
+    copyright: 'Meta Platforms, Inc.',
     url: 'https://github.com/facebook/react',
   },
   {
     name: 'Vite',
     type: 'MIT',
     description: 'The build tool and development server. Vite provides fast hot module replacement during development and optimized production builds.',
+    copyright: 'Evan You and Vite Contributors',
     url: 'https://github.com/vitejs/vite',
   },
   {
     name: 'Chart.js',
     type: 'MIT',
     description: 'Renders the evaluation graph showing position advantage over time. Displays engine evaluation history as an interactive chart during game review.',
+    copyright: 'Chart.js Contributors',
     url: 'https://github.com/chartjs/Chart.js',
   },
   {
     name: 'Zustand',
     type: 'MIT',
     description: 'Manages global application state. Zustand handles game state synchronization, connection status, and settings across all components.',
+    copyright: 'Poimandres',
     url: 'https://github.com/pmndrs/zustand',
   },
 ];
@@ -115,6 +125,10 @@ function LicenseItem({ license }: { license: License }) {
       </div>
 
       <p className="license-description">{license.description}</p>
+
+      {license.copyright && (
+        <p className="license-copyright">Copyright: {license.copyright}</p>
+      )}
 
       {expanded && license.text && (
         <pre className="license-text">{license.text}</pre>
