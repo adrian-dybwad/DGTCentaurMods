@@ -37,6 +37,25 @@ const analysisEngine = (function() {
     debug: false,           // Enables verbose console logging
   };
   
+  /**
+   * The single source of truth for the analysis UI.
+   *
+   * All Stockfish message handlers update this state. The UI is updated ONLY by render().
+   * This prevents multiple paths from overwriting each other (cp vs mate vs bestmove).
+   */
+  let analysisState = {
+    evalKind: null,  // 'cp' | 'mate' | null
+    cp: 0,           // centipawns from White's perspective (only when evalKind='cp')
+    mateIn: null,    // integer ply-to-mate, positive for White mate, negative for Black mate
+    bestMove: null,  // UCI string like 'e2e4'
+  };
+
+  /**
+   * Tracks whether the current search has already produced a mate score.
+   * If true, ignore subsequent cp updates for the same search.
+   */
+  let currentSearchHadMate = false;
+
   // State
   let chess = null;           // Chess.js instance for game state
   let moves = [];             // Array of SAN moves
@@ -50,8 +69,6 @@ const analysisEngine = (function() {
   let currentAnalysisFen = null;
   let lastEvalScore = 0;
   let bestMoveUci = '';
-  let lastMateIn = null;
-  let currentSearchHadMate = false;
   let isQueuedAnalysis = false;
   let queuedMoveNumber = 0;
   let analysisQueue = [];
@@ -67,6 +84,58 @@ const analysisEngine = (function() {
   function debugLog(...args) {
     if (config.debug) {
       console.log(...args);
+    }
+  }
+
+  function setAnalysisState(patch) {
+    analysisState = Object.assign({}, analysisState, patch);
+  }
+
+  function resetAnalysisStateForNewSearch() {
+    currentSearchHadMate = false;
+    setAnalysisState({ evalKind: null, cp: 0, mateIn: null, bestMove: null });
+  }
+
+  function render() {
+    const bar = document.getElementById(config.containerId + '-eval-bar');
+    const scoreEl = document.getElementById(config.containerId + '-eval-score');
+    const moveEl = document.getElementById(config.containerId + '-best-move');
+
+    if (scoreEl) {
+      if (analysisState.evalKind === 'mate' && analysisState.mateIn !== null) {
+        const m = analysisState.mateIn;
+        scoreEl.textContent = m > 0 ? 'M' + m : 'M' + (-m);
+        scoreEl.style.color = m > 0 ? 'var(--color-success, green)' : 'var(--color-danger, red)';
+      } else {
+        const pawns = (analysisState.cp / 100).toFixed(1);
+        scoreEl.textContent = analysisState.cp >= 0 ? '+' + pawns : pawns;
+        scoreEl.style.color = '';
+      }
+    }
+
+    if (moveEl) {
+      moveEl.innerHTML = analysisState.bestMove
+        ? 'Best: <strong>' + analysisState.bestMove + '</strong>'
+        : 'Analyzing...';
+    }
+
+    if (bar) {
+      // Clamp to +/- 10 pawns for the bar. Treat mate as huge score in the mate direction.
+      let effectiveCp = analysisState.cp;
+      if (analysisState.evalKind === 'mate' && analysisState.mateIn !== null) {
+        effectiveCp = analysisState.mateIn > 0 ? 10000 : -10000;
+      }
+      let clampedCp = Math.max(-1000, Math.min(1000, effectiveCp));
+      let barValue = 50 - (clampedCp / 20);
+      bar.value = barValue;
+
+      if (effectiveCp > 100) {
+        bar.className = 'progress is-success';
+      } else if (effectiveCp < -100) {
+        bar.className = 'progress is-danger';
+      } else {
+        bar.className = 'progress is-warning';
+      }
     }
   }
 
@@ -92,6 +161,10 @@ const analysisEngine = (function() {
       pendingGameState = null;
       onGameStateUpdate(state);
     }
+
+    // Ensure UI is in a sane initial state.
+    resetAnalysisStateForNewSearch();
+    render();
     
     // Set up SSE listener for live mode
     if (config.mode === 'live') {
@@ -220,11 +293,11 @@ const analysisEngine = (function() {
           cp = -cp;
         }
         lastEvalScore = cp;
-        lastMateIn = null;
-        if (!isQueuedAnalysis) {
-          updateEvalBar(cp);
-          // Keep the score display live-updating (used to work like this).
-          updateEvalDisplay(bestMoveUci || null, null);
+        setAnalysisState({ evalKind: 'cp', cp: cp, mateIn: null });
+        // During queued replay, avoid updating the UI for intermediate positions.
+        // Only render when analyzing the currently displayed move (or when not queued).
+        if (!isQueuedAnalysis || queuedMoveNumber === movePos) {
+          render();
         }
       }
     }
@@ -238,11 +311,10 @@ const analysisEngine = (function() {
           mateIn = -mateIn;
         }
         lastEvalScore = mateIn > 0 ? 10000 : -10000;
-        lastMateIn = mateIn;
         currentSearchHadMate = true;
-        if (!isQueuedAnalysis) {
-          updateEvalBar(lastEvalScore);
-          updateEvalDisplay(null, mateIn);
+        setAnalysisState({ evalKind: 'mate', mateIn: mateIn });
+        if (!isQueuedAnalysis || queuedMoveNumber === movePos) {
+          render();
         }
       }
     }
@@ -250,6 +322,7 @@ const analysisEngine = (function() {
     // Parse best move - analysis complete for this position
     if (line.indexOf('bestmove ') === 0) {
       bestMoveUci = line.split(' ')[1];
+      setAnalysisState({ bestMove: bestMoveUci });
       
       if (isQueuedAnalysis) {
         // Batch analysis - add to history and continue queue
@@ -259,9 +332,8 @@ const analysisEngine = (function() {
         processNextInQueue();
       } else {
         // Live/current analysis
-        // If this search found a mate, keep displaying Mx rather than converting
-        // 10000cp into a misleading +/-100.0 score when bestmove arrives.
-        updateEvalDisplay(bestMoveUci, lastMateIn);
+        // Render once more at completion to ensure bestmove is visible.
+        render();
         if (movePos > 0) {
           addEvalToHistory(movePos, lastEvalScore);
         }
@@ -275,13 +347,9 @@ const analysisEngine = (function() {
     if (analysisQueue.length === 0) {
       isProcessingQueue = false;
       debugLog('[Analysis] Queue processing complete');
-      // The queued replay just finished evaluating positions, including the current
-      // UI position (often the last move). The UI score/best-move should reflect
-      // that immediately. Avoid relying on analyzeCurrentPosition(), because it can
-      // be a no-op when currentAnalysisFen already equals the final queued FEN.
-      if (movePos > 0) {
-        updateEvalBar(lastEvalScore);
-        updateEvalDisplay(bestMoveUci || null, lastMateIn);
+      // If the queued replay ended on the currently displayed move, render it once.
+      if (movePos > 0 && queuedMoveNumber === movePos) {
+        render();
       }
 
       // Now analyze current position at full depth if needed (only if FEN differs).
@@ -306,6 +374,8 @@ const analysisEngine = (function() {
     queuedMoveNumber = moveNumber;
     currentAnalysisFen = fen;
     currentSearchHadMate = false;
+    // Best move will be recomputed for this position.
+    setAnalysisState({ bestMove: null });
 
     // Ensure any previous analysis is stopped before starting queued replay work.
     // Without this, Stockfish can keep running the previous `go` command and ignore
@@ -325,10 +395,12 @@ const analysisEngine = (function() {
     currentAnalysisFen = fen;
     bestMoveUci = '';
     currentSearchHadMate = false;
+    resetAnalysisStateForNewSearch();
     
     stockfish.postMessage('stop');
     stockfish.postMessage('position fen ' + fen);
     stockfish.postMessage('go depth ' + config.liveDepth);
+    render();
   }
   
   // --- PGN Loading ---
@@ -463,7 +535,8 @@ const analysisEngine = (function() {
     latestMoveNumber = 0;
     unseenMoves = 0;
     currentSearchHadMate = false;
-    lastMateIn = null;
+    resetAnalysisStateForNewSearch();
+    render();
     hideNewMovesToast();
     
     if (chart) {
@@ -546,44 +619,8 @@ const analysisEngine = (function() {
     }
   }
   
-  function updateEvalBar(cp) {
-    const bar = document.getElementById(config.containerId + '-eval-bar');
-    if (!bar) return;
-    
-    // Clamp to +/- 10 pawns, map to 0-100
-    let clampedCp = Math.max(-1000, Math.min(1000, cp));
-    let barValue = 50 - (clampedCp / 20);
-    bar.value = barValue;
-    
-    // Color based on who's winning
-    if (cp > 100) {
-      bar.className = 'progress is-success';
-    } else if (cp < -100) {
-      bar.className = 'progress is-danger';
-    } else {
-      bar.className = 'progress is-warning';
-    }
-  }
-  
-  function updateEvalDisplay(bestMove, mateIn) {
-    const scoreEl = document.getElementById(config.containerId + '-eval-score');
-    const moveEl = document.getElementById(config.containerId + '-best-move');
-    
-    if (scoreEl) {
-      if (mateIn !== null) {
-        scoreEl.textContent = mateIn > 0 ? 'M' + mateIn : 'M' + (-mateIn);
-        scoreEl.style.color = mateIn > 0 ? 'var(--color-success, green)' : 'var(--color-danger, red)';
-      } else {
-        const pawns = (lastEvalScore / 100).toFixed(1);
-        scoreEl.textContent = lastEvalScore >= 0 ? '+' + pawns : pawns;
-        scoreEl.style.color = '';
-      }
-    }
-    
-    if (moveEl) {
-      moveEl.innerHTML = bestMove ? 'Best: <strong>' + bestMove + '</strong>' : 'Analyzing...';
-    }
-  }
+  // NOTE: Eval UI rendering is centralized in render(). Avoid adding additional
+  // UI update paths here as it reintroduces the overwriting bugs this refactor fixes.
   
   function addEvalToHistory(moveNum, evalCp) {
     const clampedEval = Math.max(-500, Math.min(500, evalCp));
