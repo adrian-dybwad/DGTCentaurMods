@@ -342,29 +342,34 @@ const analysisEngine = (function() {
       resetForNewGame();
     }
     
-    // Check for new moves
-    if (newMoveNumber > latestMoveNumber) {
-      const moveDiff = newMoveNumber - latestMoveNumber;
+    // Initial load: if we have a PGN but haven't loaded it yet
+    if (state.pgn && lastSeenPgn === '' && totalMoves === 0) {
+      console.log('[Analysis] Initial PGN load, move_number:', newMoveNumber);
       latestMoveNumber = newMoveNumber;
-      
-      // If we're not at the latest position, show toast
-      if (movePos < totalMoves || totalMoves === 0) {
-        // First PGN load or we're behind
-        if (state.pgn && state.pgn !== lastSeenPgn) {
-          loadPgn(state.pgn);
-          // Go to last move
-          goToMove(totalMoves);
-        }
-      } else if (movePos === totalMoves && state.pgn !== lastSeenPgn) {
-        // We're at the end, just update
-        loadPgn(state.pgn);
+      if (loadPgn(state.pgn)) {
+        // Go to the last move to show current position
         goToMove(totalMoves);
       }
+      return;
+    }
+    
+    // Check for new moves (game in progress)
+    if (newMoveNumber > latestMoveNumber) {
+      latestMoveNumber = newMoveNumber;
       
-      // If user is reviewing history, show unseen moves toast
-      if (movePos < totalMoves) {
-        unseenMoves = totalMoves - movePos;
-        showNewMovesToast(unseenMoves);
+      // Load updated PGN if changed
+      if (state.pgn && state.pgn !== lastSeenPgn) {
+        const wasAtEnd = movePos === totalMoves;
+        loadPgn(state.pgn);
+        
+        if (wasAtEnd) {
+          // User was following along, keep them at the end
+          goToMove(totalMoves);
+        } else {
+          // User is reviewing history, show toast for unseen moves
+          unseenMoves = totalMoves - movePos;
+          showNewMovesToast(unseenMoves);
+        }
       }
     }
   }
