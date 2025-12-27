@@ -344,9 +344,10 @@ export function Settings() {
             key={tab.id}
             className={`sidebar-item ${activeTab === tab.id ? 'active' : ''}`}
             onClick={() => setActiveTab(tab.id)}
+            title={tab.label}
           >
             <span className="sidebar-icon">{tab.icon}</span>
-            {tab.label}
+            <span className="sidebar-label">{tab.label}</span>
           </button>
         ))}
       </aside>

@@ -11,8 +11,22 @@
   gap: var(--space-8);
   max-width: var(--container-xl);
   margin: 0 auto;
-  padding: var(--space-6);
+  padding: 3rem 1.5rem;
   min-height: calc(100vh - 120px);
+}
+
+/* Responsive padding - tablet */
+@media screen and (max-width: 768px) {
+  .settings-layout {
+    padding: 2rem 1rem;
+  }
+}
+
+/* Responsive padding - mobile */
+@media screen and (max-width: 480px) {
+  .settings-layout {
+    padding: 1rem 0.5rem;
+  }
 }
 
 .settings-sidebar {
@@ -311,25 +325,37 @@
   grid-template-columns: repeat(2, 1fr);
 }
 
-/* Responsive */
+/* Responsive - tablet */
 @media (max-width: 768px) {
   .settings-layout {
-    grid-template-columns: 1fr;
-    padding: var(--space-4);
-    padding-bottom: 100px; /* Space for sticky bar */
+    grid-template-columns: 48px 1fr;
+    /* padding is set in earlier 768px block - just add bottom for sticky bar */
+    padding-bottom: 100px;
+    gap: var(--space-4);
   }
 
   .settings-sidebar {
-    flex-direction: row;
-    overflow-x: auto;
-    padding-bottom: var(--space-2);
-    gap: var(--space-2);
-    position: static;
+    /* Keep vertical layout, just make it compact */
+    flex-direction: column;
+    gap: var(--space-1);
+    position: sticky;
+    top: 80px;
   }
 
   .sidebar-item {
-    white-space: nowrap;
-    padding: var(--space-2) var(--space-3);
+    /* Icon-only buttons on mobile */
+    justify-content: center;
+    padding: var(--space-2);
+    gap: 0;
+  }
+
+  /* Hide text labels on mobile, show only icons */
+  .sidebar-item .sidebar-label {
+    display: none;
+  }
+
+  .sidebar-icon {
+    font-size: var(--text-xl);
   }
 
   .form-row {
@@ -350,5 +376,14 @@
     flex-direction: column;
     gap: var(--space-3);
     text-align: center;
+  }
+}
+
+/* Responsive - mobile */
+@media (max-width: 480px) {
+  .settings-layout {
+    /* padding is set in earlier 480px block - just ensure grid and bottom padding */
+    padding-bottom: 100px;
+    gap: var(--space-3);
   }
 }
