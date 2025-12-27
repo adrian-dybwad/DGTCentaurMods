@@ -85,6 +85,20 @@ app = Flask(__name__)
 app.config['UCI_UPLOAD_EXTENSIONS'] = ['.txt']
 app.config['UCI_UPLOAD_PATH'] = str(pathlib.Path(__file__).parent.resolve()) + "/../engines/"
 
+# React app static files directory (built during deb package build)
+# In production: /opt/universalchess/web/react-app
+# In development: ../web-app/dist (relative to this file)
+REACT_APP_DIR = pathlib.Path(__file__).parent.parent / "web" / "react-app"
+REACT_DEV_DIR = pathlib.Path(__file__).parent.parent / "web-app" / "dist"
+
+def get_react_app_dir():
+    """Get the React app directory, preferring production path."""
+    if REACT_APP_DIR.exists():
+        return REACT_APP_DIR
+    if REACT_DEV_DIR.exists():
+        return REACT_DEV_DIR
+    return None
+
 # Cache control settings
 CACHE_LONG = 86400 * 7  # 7 days for static assets that rarely change
 CACHE_SHORT = 3600      # 1 hour for assets that may change
@@ -1226,7 +1240,116 @@ def handle_preflight():
 
 @app.route("/", methods=["GET"])
 def index():
+    """Serve React app if available, otherwise fall back to legacy."""
+    react_dir = get_react_app_dir()
+    if react_dir:
+        return send_file(react_dir / "index.html")
+    # Fall back to legacy
     return render_template('index.html', fen=get_current_placement())
+
+
+@app.route("/assets/<path:filename>")
+def react_assets(filename):
+    """Serve React app static assets (JS, CSS, etc.)."""
+    react_dir = get_react_app_dir()
+    if react_dir:
+        asset_path = react_dir / "assets" / filename
+        if asset_path.exists():
+            return send_file(asset_path)
+    abort(404)
+
+
+@app.route("/icons/<path:filename>")
+def react_icons(filename):
+    """Serve React app icons."""
+    react_dir = get_react_app_dir()
+    if react_dir:
+        icon_path = react_dir / "icons" / filename
+        if icon_path.exists():
+            return send_file(icon_path)
+    abort(404)
+
+
+@app.route("/stockfish/<path:filename>")
+def react_stockfish(filename):
+    """Serve Stockfish WASM files for React app analysis."""
+    react_dir = get_react_app_dir()
+    if react_dir:
+        sf_path = react_dir / "stockfish" / filename
+        if sf_path.exists():
+            return send_file(sf_path)
+    abort(404)
+
+
+@app.route("/manifest.json")
+def react_manifest():
+    """Serve React app PWA manifest."""
+    react_dir = get_react_app_dir()
+    if react_dir:
+        manifest_path = react_dir / "manifest.json"
+        if manifest_path.exists():
+            return send_file(manifest_path)
+    abort(404)
+
+
+@app.route("/sw.js")
+def react_service_worker():
+    """Serve React app service worker."""
+    react_dir = get_react_app_dir()
+    if react_dir:
+        sw_path = react_dir / "sw.js"
+        if sw_path.exists():
+            return send_file(sw_path)
+    abort(404)
+
+
+# Legacy UI routes - serve the old Flask templates
+@app.route("/legacy")
+@app.route("/legacy/")
+def legacy_index():
+    """Legacy UI index page."""
+    return render_template('index.html', fen=get_current_placement())
+
+
+@app.route("/legacy/pgn")
+def legacy_pgn():
+    """Legacy UI games page."""
+    return render_template('pgn.html')
+
+
+@app.route("/legacy/configure")
+def legacy_configure():
+    """Legacy UI configure page."""
+    return render_template('configure.html')
+
+
+@app.route("/legacy/support")
+def legacy_support():
+    """Legacy UI support page."""
+    return render_template('support.html')
+
+
+@app.route("/legacy/license")
+def legacy_license():
+    """Legacy UI license page."""
+    gpl3_path = pathlib.Path(__file__).parent.parent.parent.parent / "LICENSE"
+    apache2_path = pathlib.Path(__file__).parent.parent.parent.parent / "licenses" / "Apache-2.0.txt"
+    gpl3_text = gpl3_path.read_text() if gpl3_path.exists() else "GPL-3.0 license file not found."
+    apache2_text = apache2_path.read_text() if apache2_path.exists() else "Apache-2.0 license file not found."
+    return render_template('license.html', gpl3_text=gpl3_text, apache2_text=apache2_text)
+
+
+@app.route("/legacy/analyse/<gameid>")
+def legacy_analyse(gameid):
+    """Legacy UI analyse page."""
+    return render_template('analyse.html', game_id=gameid)
+
+
+@app.route("/legacy/rodentivtuner")
+def legacy_rodentivtuner():
+    """Legacy UI Rodent IV tuner page."""
+    return render_template('rodentivtuner.html')
+
 
 @app.route("/fen")
 def fen():
@@ -1968,3 +2091,24 @@ def sse_events():
             "X-Accel-Buffering": "no",  # Disable nginx buffering
         }
     )
+
+
+# React Router catch-all - must be last to avoid interfering with API routes
+# This handles client-side routing in the React app (e.g., /live, /games, /settings)
+@app.route("/<path:path>")
+def react_catch_all(path):
+    """Serve React app for client-side routing.
+    
+    This catches any path not matched by other routes and serves the React
+    index.html, allowing React Router to handle the route.
+    """
+    react_dir = get_react_app_dir()
+    if react_dir:
+        # Check if it's a file that exists in the React build
+        requested_file = react_dir / path
+        if requested_file.exists() and requested_file.is_file():
+            return send_file(requested_file)
+        # Otherwise serve index.html for client-side routing
+        return send_file(react_dir / "index.html")
+    # No React app, 404
+    abort(404)

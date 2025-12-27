@@ -184,6 +184,42 @@ function createVersionFile {
     echo "${VERSION}" > "${STAGE_DIR}${INSTALLDIR}/VERSION"
 }
 
+function buildReactApp {
+    echo "::: Building React web app"
+    
+    local web_app_dir="${REPO_ROOT}/src/universalchess/web-app"
+    local react_dist="${STAGE_DIR}${INSTALLDIR}/web/react-app"
+    
+    if [ ! -d "${web_app_dir}" ]; then
+        echo "WARNING: React app directory not found: ${web_app_dir}" >&2
+        return 0
+    fi
+    
+    # Check if npm is available
+    if ! command -v npm &> /dev/null; then
+        echo "WARNING: npm not found, skipping React build" >&2
+        return 0
+    fi
+    
+    # Install dependencies and build
+    (
+        cd "${web_app_dir}"
+        echo "::: Installing npm dependencies..."
+        npm ci --silent 2>/dev/null || npm install --silent
+        echo "::: Building React app for production..."
+        npm run build
+    )
+    
+    # Copy the built React app to the staging directory
+    if [ -d "${web_app_dir}/dist" ]; then
+        mkdir -p "${react_dist}"
+        cp -r "${web_app_dir}/dist/"* "${react_dist}/"
+        echo "::: React app built and staged at ${react_dist}"
+    else
+        echo "WARNING: React build output not found at ${web_app_dir}/dist" >&2
+    fi
+}
+
 function build {
     echo "::: Building ${DEB_PACKAGE_NAME} version ${VERSION}"
     mkdir -p "${RELEASES_DIR}"
@@ -207,6 +243,7 @@ function main {
     stage
     removeDev
     createVersionFile
+    buildReactApp
     setPermissions
     prepareEngines
     buildLc0

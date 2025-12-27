@@ -274,17 +274,12 @@ export function Analysis({ pgn, mode, onPositionChange, onBestMoveChange, onPlay
     }
   }, [movePos, moves, onPositionChange]);
 
-  // Store callbacks in refs to avoid effect re-runs when callbacks change
-  const onBestMoveChangeRef = useRef(onBestMoveChange);
-  onBestMoveChangeRef.current = onBestMoveChange;
-  
   // Notify parent of best move change
   useEffect(() => {
-    console.log('[Analysis] Best move changed:', bestMove);
-    if (onBestMoveChangeRef.current) {
-      onBestMoveChangeRef.current(parseUciMove(bestMove));
+    if (onBestMoveChange) {
+      onBestMoveChange(parseUciMove(bestMove));
     }
-  }, [bestMove]);
+  }, [bestMove, onBestMoveChange]);
 
   // Notify parent of played move (the next move in history, if any)
   useEffect(() => {

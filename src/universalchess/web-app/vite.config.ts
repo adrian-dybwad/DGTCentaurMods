@@ -9,9 +9,15 @@ export default defineConfig(({ mode }) => {
   // API target from VITE_API_URL environment variable or default
   // For local dev, run: VITE_API_URL=http://localhost:5000 npm run dev
   // Or use: ./scripts/run-react.sh --api http://localhost:5000
-  const apiTarget = env.VITE_API_URL || process.env.VITE_API_URL || 'http://dgt.local'
+  // For production builds (served by Flask), leave empty to use relative paths
+  const isProduction = mode === 'production'
+  const apiTarget = isProduction 
+    ? ''  // Empty = use relative paths (same origin as Flask)
+    : (env.VITE_API_URL || process.env.VITE_API_URL || 'http://dgt.local')
   
-  console.log(`[Vite] Proxying API calls to: ${apiTarget}`)
+  if (!isProduction) {
+    console.log(`[Vite] Proxying API calls to: ${apiTarget}`)
+  }
   
   return {
     plugins: [react()],
