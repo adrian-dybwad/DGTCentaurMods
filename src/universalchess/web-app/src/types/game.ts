@@ -1,15 +1,18 @@
 /**
  * Game state received from SSE /events endpoint.
+ * Property names match the snake_case JSON from Python backend.
  */
 export interface GameState {
   fen: string;
   fen_full: string;
   pgn: string;
   move_number: number;
+  turn: 'w' | 'b';
   white: string;
   black: string;
   result: string | null;
   game_id: number | null;
+  game_over: boolean;
 }
 
 /**
@@ -48,3 +51,7 @@ export interface EngineDefinition {
   install_time: string | null;
 }
 
+/**
+ * Connection status for SSE.
+ */
+export type ConnectionStatus = 'connected' | 'reconnecting' | 'disconnected';

@@ -1,66 +1,177 @@
 /**
- * Live Board Page Styles
+ * LiveBoard page - matches original Bulma columns layout
  */
 
-.live-layout {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: var(--space-8);
-  align-items: start;
+/* Bulma-style columns grid */
+.columns {
+  display: flex;
+  flex-wrap: wrap;
+  margin: -0.75rem;
 }
 
-.live-board {
-  display: flex;
-  justify-content: center;
+.column {
+  display: block;
+  flex: 1 1 0%;
+  padding: 0.75rem;
 }
 
-.live-info {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
+.column.is-8 {
+  flex: none;
+  width: 66.6667%;
 }
 
-.player-info {
-  display: flex;
+.column.is-4 {
+  flex: none;
+  width: 33.3333%;
+}
+
+/* Box styling - matches Bulma's .box */
+.box {
+  background-color: white;
+  border-radius: 6px;
+  box-shadow: 0 0.5em 1em -0.125em rgba(10, 10, 10, 0.1),
+              0 0 0 1px rgba(10, 10, 10, 0.02);
+  color: #4a4a4a;
+  padding: 1.25rem;
+}
+
+/* Title styling */
+.title {
+  color: #363636;
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.25;
+  word-break: break-word;
+}
+
+.title.is-5 {
+  font-size: 1.25rem;
+}
+
+.box-title {
+  color: var(--color-accent-secondary, #8a3490);
+  margin-bottom: 0.75rem;
+}
+
+/* Current game info */
+.current-game-info {
+  padding: 0.5rem 0;
+}
+
+.players-line {
+  margin-bottom: 0.5rem;
+}
+
+/* Textarea styling - matches Bulma */
+.textarea {
+  appearance: none;
   align-items: center;
-  gap: var(--space-3);
-  font-size: var(--text-lg);
+  border: 1px solid #dbdbdb;
+  border-radius: 4px;
+  box-shadow: inset 0 0.0625em 0.125em rgba(10, 10, 10, 0.05);
+  display: inline-flex;
+  font-size: 1rem;
+  height: auto;
+  justify-content: flex-start;
+  line-height: 1.5;
+  padding: calc(0.5em - 1px) calc(0.75em - 1px);
+  width: 100%;
+  max-width: 100%;
+  min-width: 100%;
+  resize: vertical;
+  background-color: white;
+  color: #363636;
+  font-family: inherit;
 }
 
-.player {
-  font-weight: var(--font-semibold);
+.textarea:focus {
+  border-color: #aa44aa;
+  box-shadow: 0 0 0 0.125em rgba(170, 68, 170, 0.25);
+  outline: none;
 }
 
-.player--white::before {
-  content: '○';
-  margin-right: var(--space-1);
+.textarea[readonly] {
+  background-color: #f5f5f5;
+  border-color: #f5f5f5;
+  cursor: not-allowed;
 }
 
-.player--black::before {
-  content: '●';
-  margin-right: var(--space-1);
-}
-
-.game-result {
-  margin-top: var(--space-3);
-  padding: var(--space-2) var(--space-4);
-  background: var(--color-gray-100);
-  border-radius: var(--radius-md);
-  font-weight: var(--font-semibold);
+/* Button styling - matches Bulma */
+.button {
+  appearance: none;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  box-shadow: none;
+  display: inline-flex;
+  font-size: 1rem;
+  height: 2.5em;
+  justify-content: center;
+  line-height: 1.5;
+  padding: calc(0.5em - 1px) 1em;
+  position: relative;
   text-align: center;
+  white-space: nowrap;
+  cursor: pointer;
+  text-decoration: none;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.button.is-primary {
+  background-color: #aa44aa;
+  border-color: transparent;
+  color: #fff;
+}
+
+.button.is-primary:hover {
+  background-color: #8a3490;
+}
+
+.button.is-small {
+  font-size: 0.75rem;
+  height: 2em;
+  padding: calc(0.375em - 1px) 0.75em;
+}
+
+/* Tag styling - Bulma compatible */
+.tag {
+  align-items: center;
+  background-color: #f5f5f5;
+  border-radius: 4px;
+  color: #4a4a4a;
+  display: inline-flex;
+  font-size: 0.75rem;
+  height: 2em;
+  justify-content: center;
+  line-height: 1.5;
+  padding-left: 0.75em;
+  padding-right: 0.75em;
+  white-space: nowrap;
+}
+
+.tag.is-light {
+  background-color: #f5f5f5;
+  color: #363636;
+}
+
+.tag.is-info {
+  background-color: #3e8ed0;
+  color: #fff;
+}
+
+.text-muted {
+  color: #7a7a7a;
 }
 
 /* Responsive */
-@media (max-width: 900px) {
-  .live-layout {
-    grid-template-columns: 1fr;
+@media screen and (max-width: 768px) {
+  .columns {
+    flex-direction: column;
   }
 
-  .live-board {
-    order: 1;
-  }
-
-  .live-info {
-    order: 2;
+  .column.is-8,
+  .column.is-4 {
+    width: 100%;
   }
 }

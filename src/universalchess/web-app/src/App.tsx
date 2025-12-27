@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
 import { Navbar } from './components/Navbar';
 import { LiveBoard } from './pages/LiveBoard';
 import { Games } from './pages/Games';
@@ -8,28 +8,43 @@ import { Licenses } from './pages/Licenses';
 import { Support } from './pages/Support';
 import './App.css';
 
+/**
+ * Main application component.
+ * Layout matches original Flask template structure with Bulma classes.
+ */
 function App() {
   return (
     <BrowserRouter>
       <div className="app">
         <Navbar />
-        <main className="main-content">
-          <Routes>
-            <Route path="/" element={<LiveBoard />} />
-            <Route path="/games" element={<Games />} />
-            <Route path="/analyze/:gameId" element={<Analyze />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/licenses" element={<Licenses />} />
-            <Route path="/support" element={<Support />} />
-          </Routes>
-        </main>
+        
+        <section className="section">
+          <div className="container">
+            <Routes>
+              <Route path="/" element={<LiveBoard />} />
+              <Route path="/games" element={<Games />} />
+              <Route path="/analyze/:gameId" element={<Analyze />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="/licenses" element={<Licenses />} />
+              <Route path="/support" element={<Support />} />
+            </Routes>
+          </div>
+        </section>
+
         <footer className="footer">
-          <p>
-            Universal Chess — Open source chess board enhancements.{' '}
-            <a href="https://github.com/adrian-dybwad/Universal-Chess" target="_blank" rel="noopener noreferrer">
-              GitHub
-            </a>
-          </p>
+          <div className="content has-text-centered">
+            <p>
+              <strong>Universal Chess</strong> &mdash; Open source software for smart chess boards
+              <br />
+              <a href="https://github.com/adrian-dybwad/Universal-Chess" target="_blank" rel="noopener noreferrer">
+                GitHub
+              </a>
+              {' • '}
+              <Link to="/licenses">License</Link>
+              {' • '}
+              <Link to="/support">Support</Link>
+            </p>
+          </div>
         </footer>
       </div>
     </BrowserRouter>

@@ -1,44 +1,70 @@
 /**
- * Connection Status Styles
+ * Connection status tag - matches Bulma's .tag styling
  */
 
-.connection-status {
-  display: flex;
+.tag {
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-full);
-  font-size: var(--text-xs);
-  font-weight: var(--font-medium);
+  background-color: #f5f5f5;
+  border-radius: 4px;
+  color: #4a4a4a;
+  display: inline-flex;
+  font-size: 0.75rem;
+  height: 2em;
+  justify-content: center;
+  line-height: 1.5;
+  padding-left: 0.75em;
+  padding-right: 0.75em;
+  white-space: nowrap;
+  gap: 0.4em;
 }
 
-.connection-status.connected {
-  background: var(--color-success-light);
-  color: var(--color-success-dark);
+.tag.is-success {
+  background-color: #48c774;
+  color: #fff;
 }
 
-.connection-status.disconnected {
-  background: var(--color-danger-light);
-  color: var(--color-danger-dark);
+.tag.is-warning {
+  background-color: #ffdd57;
+  color: rgba(0, 0, 0, 0.7);
+}
+
+.tag.is-danger {
+  background-color: #f14668;
+  color: #fff;
+}
+
+.tag.is-light {
+  background-color: #f5f5f5;
+  color: #363636;
+}
+
+.tag.is-info {
+  background-color: #3e8ed0;
+  color: #fff;
 }
 
 .status-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  flex-shrink: 0;
 }
 
-.connected .status-dot {
-  background: var(--color-success);
-  box-shadow: 0 0 6px rgba(72, 199, 116, 0.5);
+.status-dot.connected {
+  background-color: #fff;
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.5);
 }
 
-.disconnected .status-dot {
-  background: var(--color-danger);
-  animation: pulse 1.5s infinite;
+.status-dot.reconnecting {
+  background-color: rgba(0, 0, 0, 0.4);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.status-dot.disconnected {
+  background-color: #fff;
 }
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  50% { opacity: 0.4; }
 }

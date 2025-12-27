@@ -8,18 +8,19 @@ import type { GameState } from '../types/game';
  */
 export function useGameState() {
   const eventSourceRef = useRef<EventSource | null>(null);
-  const { setGameState, setConnected, connected, gameState } = useGameStore();
+  const { setGameState, setConnectionStatus, connectionStatus, gameState } = useGameStore();
 
   const connect = useCallback(() => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
     }
 
+    setConnectionStatus('reconnecting');
     const es = new EventSource('/events');
     eventSourceRef.current = es;
 
     es.onopen = () => {
-      setConnected(true);
+      setConnectionStatus('connected');
     };
 
     es.onmessage = (event) => {
@@ -32,24 +33,23 @@ export function useGameState() {
     };
 
     es.onerror = () => {
-      setConnected(false);
+      setConnectionStatus('reconnecting');
       // EventSource auto-reconnects, but we track status
     };
-  }, [setGameState, setConnected]);
+  }, [setGameState, setConnectionStatus]);
 
   const disconnect = useCallback(() => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
-    setConnected(false);
-  }, [setConnected]);
+    setConnectionStatus('disconnected');
+  }, [setConnectionStatus]);
 
   useEffect(() => {
     connect();
     return () => disconnect();
   }, [connect, disconnect]);
 
-  return { gameState, connected, reconnect: connect };
+  return { gameState, connectionStatus, reconnect: connect };
 }
-

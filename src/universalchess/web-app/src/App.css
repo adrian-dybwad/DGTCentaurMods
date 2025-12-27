@@ -1,5 +1,5 @@
 /**
- * App Layout Styles
+ * App-level styles
  */
 
 .app {
@@ -8,20 +8,18 @@
   min-height: 100vh;
 }
 
-.main-content {
+.section {
   flex: 1;
-  padding-top: var(--space-4);
 }
 
-.footer {
-  text-align: center;
-  padding: var(--space-6);
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-  border-top: 1px solid var(--color-border);
-  margin-top: var(--space-8);
+.footer strong {
+  color: #363636;
 }
 
 .footer a {
-  color: var(--color-primary);
+  color: #aa44aa;
+}
+
+.footer a:hover {
+  color: #8a3490;
 }

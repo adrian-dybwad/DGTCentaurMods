@@ -2,16 +2,42 @@ import { useGameStore } from '../stores/gameStore';
 import './ConnectionStatus.css';
 
 /**
- * Connection status indicator for the navbar.
+ * Connection status indicator - displays as a tag in the navbar.
+ * Matches the original .tag.is-success style from Bulma.
  */
 export function ConnectionStatus() {
-  const connected = useGameStore((state) => state.connected);
+  const connectionStatus = useGameStore((state) => state.connectionStatus);
+
+  const getStatusClass = () => {
+    switch (connectionStatus) {
+      case 'connected':
+        return 'is-success';
+      case 'reconnecting':
+        return 'is-warning';
+      case 'disconnected':
+        return 'is-danger';
+      default:
+        return 'is-light';
+    }
+  };
+
+  const getStatusText = () => {
+    switch (connectionStatus) {
+      case 'connected':
+        return 'Connected';
+      case 'reconnecting':
+        return 'Reconnecting...';
+      case 'disconnected':
+        return 'Offline';
+      default:
+        return 'Unknown';
+    }
+  };
 
   return (
-    <div className={`connection-status ${connected ? 'connected' : 'disconnected'}`}>
-      <span className="status-dot" />
-      <span className="status-text">{connected ? 'Connected' : 'Offline'}</span>
-    </div>
+    <span className={`tag ${getStatusClass()}`} id="connection-status">
+      <span className={`status-dot ${connectionStatus}`} />
+      {getStatusText()}
+    </span>
   );
 }
-

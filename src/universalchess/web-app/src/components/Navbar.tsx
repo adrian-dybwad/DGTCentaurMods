@@ -3,66 +3,81 @@ import { Link, useLocation } from 'react-router-dom';
 import { ConnectionStatus } from './ConnectionStatus';
 import './Navbar.css';
 
-interface NavItem {
-  path: string;
-  label: string;
-  icon: string;
-}
-
-const navItems: NavItem[] = [
-  { path: '/', label: 'Live Board', icon: '♟' },
-  { path: '/games', label: 'Games', icon: '📋' },
-  { path: '/settings', label: 'Settings', icon: '⚙️' },
-  { path: '/licenses', label: 'Licenses', icon: '📜' },
-  { path: '/support', label: 'Support', icon: '💬' },
-];
-
 /**
- * Main navigation bar.
+ * Main navigation bar - matches the original Bulma-based navbar.
  */
 export function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const location = useLocation();
 
+  const isActive = (path: string) => location.pathname === path;
+
   return (
-    <nav className="navbar">
+    <nav className="navbar" role="navigation" aria-label="main navigation">
       <div className="navbar-brand">
-        <Link to="/" className="navbar-logo">
-          <span className="logo-icon">♞</span>
-          <span className="logo-text">Universal Chess</span>
+        <Link to="/" className="navbar-item navbar-logo-item">
+          <img src="/logo" alt="" className="navbar-logo-img" />
+          <div className="brand-text">
+            <span className="brand-title">Universal Chess</span>
+            <span className="brand-tagline">Your smart chess companion</span>
+          </div>
         </Link>
         <button
           className={`navbar-burger ${menuOpen ? 'is-active' : ''}`}
-          onClick={() => setMenuOpen(!menuOpen)}
           aria-label="menu"
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen(!menuOpen)}
         >
-          <span />
-          <span />
-          <span />
+          <span aria-hidden="true" />
+          <span aria-hidden="true" />
+          <span aria-hidden="true" />
         </button>
       </div>
 
       <div className={`navbar-menu ${menuOpen ? 'is-active' : ''}`}>
         <div className="navbar-start">
-          {navItems.map((item) => (
-            <Link
-              key={item.path}
-              to={item.path}
-              className={`navbar-item ${location.pathname === item.path ? 'is-active' : ''}`}
-              onClick={() => setMenuOpen(false)}
-            >
-              <span className="nav-icon">{item.icon}</span>
-              {item.label}
-            </Link>
-          ))}
+          <Link
+            to="/"
+            className={`navbar-item ${isActive('/') ? 'is-active' : ''}`}
+            onClick={() => setMenuOpen(false)}
+          >
+            Live Board
+          </Link>
+          <Link
+            to="/games"
+            className={`navbar-item ${isActive('/games') ? 'is-active' : ''}`}
+            onClick={() => setMenuOpen(false)}
+          >
+            Games
+          </Link>
+          <Link
+            to="/settings"
+            className={`navbar-item ${isActive('/settings') ? 'is-active' : ''}`}
+            onClick={() => setMenuOpen(false)}
+          >
+            Settings
+          </Link>
         </div>
         <div className="navbar-end">
-          <ConnectionStatus />
+          <Link
+            to="/support"
+            className={`navbar-item ${isActive('/support') ? 'is-active' : ''}`}
+            onClick={() => setMenuOpen(false)}
+          >
+            Support
+          </Link>
+          <Link
+            to="/licenses"
+            className={`navbar-item ${isActive('/licenses') ? 'is-active' : ''}`}
+            onClick={() => setMenuOpen(false)}
+          >
+            Licenses
+          </Link>
+          <div className="navbar-item">
+            <ConnectionStatus />
+          </div>
         </div>
       </div>
-
-      <p className="navbar-tagline">Connect, play, and analyze chess on your smart chess board</p>
     </nav>
   );
 }
-

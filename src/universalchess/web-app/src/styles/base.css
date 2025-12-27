@@ -108,3 +108,58 @@ pre {
   color: var(--color-primary-hover);
 }
 
+/* ==========================================================================
+   Bulma-Compatible Utility Classes
+   ========================================================================== */
+
+/* Section and Container - matches Bulma */
+.section {
+  padding: 3rem 1.5rem;
+}
+
+.container {
+  flex-grow: 1;
+  margin: 0 auto;
+  position: relative;
+  width: auto;
+}
+
+@media screen and (min-width: 1024px) {
+  .container {
+    max-width: 960px;
+  }
+}
+
+@media screen and (min-width: 1216px) {
+  .container {
+    max-width: 1152px;
+  }
+}
+
+/* Footer - matches Bulma */
+.footer {
+  background-color: #fafafa;
+  padding: 3rem 1.5rem 6rem;
+}
+
+.footer .content {
+  text-align: center;
+}
+
+.content.has-text-centered {
+  text-align: center;
+}
+
+/* Text utilities */
+.has-text-grey {
+  color: #7a7a7a;
+}
+
+.has-text-centered {
+  text-align: center;
+}
+
+.has-text-danger {
+  color: #f14668;
+}
+

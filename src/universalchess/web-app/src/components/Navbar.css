@@ -1,176 +1,195 @@
 /**
- * Navbar Styles
+ * Navbar Styles - Matches original Bulma-based navbar with purple theme
  */
 
 .navbar {
   position: sticky;
   top: 0;
-  z-index: var(--z-sticky);
-  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 50%, var(--color-primary) 100%);
-  background-size: 200% 200%;
-  box-shadow: var(--shadow-md);
-  padding: var(--space-3) var(--space-6);
+  z-index: 100;
+  background: 
+    linear-gradient(135deg, 
+      rgba(255,255,255,0.1) 0%, 
+      rgba(255,255,255,0.05) 50%, 
+      rgba(0,0,0,0.1) 100%),
+    linear-gradient(135deg, #aa44aa 0%, #8a3490 50%, #6a2475 100%);
+  box-shadow: 
+    0 4px 12px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255,255,255,0.2),
+    inset 0 -1px 0 rgba(0,0,0,0.2);
+  padding: 0;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  min-height: 3.25rem;
+  display: flex;
+  align-items: stretch;
+}
+
+/* Subtle texture overlay */
+.navbar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  opacity: 0.03;
+  pointer-events: none;
 }
 
 .navbar-brand {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: stretch;
+  flex-shrink: 0;
+  min-height: 3.25rem;
 }
 
-.navbar-logo {
+.navbar-logo-item {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  text-decoration: none;
-  color: var(--color-white);
-}
-
-.navbar-logo:hover {
+  padding: 0.5rem 1rem;
   text-decoration: none;
 }
 
-.logo-icon {
-  font-size: var(--text-3xl);
+.navbar-logo-item:hover {
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.1);
 }
 
-.logo-text {
-  font-size: var(--text-xl);
-  font-weight: var(--font-bold);
+.navbar-logo-img {
+  max-height: 40px;
+  margin-right: 0.75rem;
+  border-radius: 4px;
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.brand-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #fff;
   white-space: nowrap;
-  letter-spacing: -0.02em;
+}
+
+.brand-tagline {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 400;
+  white-space: nowrap;
 }
 
 .navbar-burger {
   display: none;
+  cursor: pointer;
+  width: 3.25rem;
+  height: 3.25rem;
+  margin-left: auto;
   background: transparent;
   border: none;
-  cursor: pointer;
-  padding: var(--space-2);
-  flex-direction: column;
-  gap: 4px;
+  position: relative;
 }
 
 .navbar-burger span {
   display: block;
-  width: 20px;
-  height: 2px;
-  background: var(--color-white);
-  transition: transform var(--transition-fast);
+  background-color: #fff;
+  height: 1px;
+  width: 16px;
+  position: absolute;
+  left: calc(50% - 8px);
+  transition: all 0.15s ease-out;
 }
+
+.navbar-burger span:nth-child(1) { top: calc(50% - 6px); }
+.navbar-burger span:nth-child(2) { top: calc(50% - 1px); }
+.navbar-burger span:nth-child(3) { top: calc(50% + 4px); }
 
 .navbar-burger.is-active span:nth-child(1) {
-  transform: rotate(45deg) translate(4px, 4px);
+  transform: translateY(5px) rotate(45deg);
 }
-
 .navbar-burger.is-active span:nth-child(2) {
   opacity: 0;
 }
-
 .navbar-burger.is-active span:nth-child(3) {
-  transform: rotate(-45deg) translate(4px, -4px);
+  transform: translateY(-5px) rotate(-45deg);
 }
 
 .navbar-menu {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex: 1;
-  margin-left: var(--space-8);
+  align-items: stretch;
+  flex-grow: 1;
+  background: transparent;
 }
 
 .navbar-start {
   display: flex;
-  gap: var(--space-2);
+  align-items: stretch;
+  justify-content: flex-start;
+  margin-right: auto;
+}
+
+.navbar-end {
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  margin-left: auto;
 }
 
 .navbar-item {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
+  padding: 0.5rem 0.75rem;
+  color: #fff;
   text-decoration: none;
-  color: rgba(255, 255, 255, 0.85);
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
-  transition: background var(--transition-fast), color var(--transition-fast);
+  font-weight: 500;
+  transition: background 0.15s ease;
+  border-radius: 0.25rem;
+  margin: 0 2px;
 }
 
 .navbar-item:hover {
   background: rgba(255, 255, 255, 0.15);
-  color: var(--color-white);
   text-decoration: none;
 }
 
 .navbar-item.is-active {
   background: rgba(255, 255, 255, 0.2);
-  color: var(--color-white);
 }
 
-.nav-icon {
-  font-size: var(--text-base);
-}
-
-.navbar-end {
-  display: flex;
-  align-items: center;
-}
-
-.navbar-tagline {
-  display: none;
-  color: rgba(255, 255, 255, 0.7);
-  font-size: var(--text-xs);
-  text-align: center;
-  margin-top: var(--space-2);
-}
-
-/* Mobile */
-@media (max-width: 768px) {
+/* Mobile responsive */
+@media screen and (max-width: 1023px) {
   .navbar {
-    padding: var(--space-2) var(--space-4);
+    flex-wrap: wrap;
   }
 
   .navbar-burger {
-    display: flex;
+    display: block;
   }
 
   .navbar-menu {
     display: none;
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
+    flex-basis: 100%;
     flex-direction: column;
-    background: var(--color-primary);
-    padding: var(--space-4);
-    gap: var(--space-2);
-    margin-left: 0;
+    background: linear-gradient(135deg, #aa44aa 0%, #8a3490 100%);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    padding: 0.5rem 0;
   }
 
   .navbar-menu.is-active {
     display: flex;
   }
 
-  .navbar-start {
+  .navbar-start,
+  .navbar-end {
     flex-direction: column;
-    width: 100%;
+    align-items: stretch;
   }
 
   .navbar-item {
-    width: 100%;
-    padding: var(--space-3) var(--space-4);
-  }
-
-  .navbar-end {
-    margin-top: var(--space-2);
-    padding-top: var(--space-2);
-    border-top: 1px solid rgba(255, 255, 255, 0.2);
-    width: 100%;
-    justify-content: center;
-  }
-
-  .navbar-tagline {
-    display: block;
+    padding: 0.75rem 1rem;
+    margin: 0;
+    border-radius: 0;
   }
 }
