@@ -138,66 +138,63 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
 
       const index = queueRef.current.shift()!;
       
-      // Get the move from current state
-      setMoves((currentMoves) => {
-        const move = currentMoves[index];
-        if (!move) {
-          // Move doesn't exist, skip
-          setTimeout(processNext, 0);
-          return currentMoves;
-        }
+      // Get move data synchronously first
+      const move = moves[index];
+      if (!move) {
+        setTimeout(processNext, 0);
+        return;
+      }
 
-        if (move.eval !== null) {
-          // Already analyzed, skip
-          setTimeout(processNext, 0);
-          return currentMoves;
-        }
+      if (move.eval !== null) {
+        // Already analyzed, skip
+        setTimeout(processNext, 0);
+        return;
+      }
 
-        // Analyze this position
-        const sf = getStockfishService();
-        sf.analyze(move.fen, 10)
-          .then((result) => {
-            // Stockfish returns score from side-to-move's perspective.
-            // We want all scores from White's perspective for consistent chart.
-            const isBlackToMove = move.fen.includes(' b ');
-            
-            let cp = result.score ?? 0;
-            let mate = result.mate;
-            
-            if (isBlackToMove) {
-              cp = -cp;
-              if (mate !== null) {
-                mate = -mate;
-              }
+      // Capture the FEN before async operation
+      const fenToAnalyze = move.fen;
+      const isBlackToMove = fenToAnalyze.includes(' b ');
+
+      // Analyze this position
+      const sf = getStockfishService();
+      sf.analyze(fenToAnalyze, 10)
+        .then((result) => {
+          // Stockfish returns score from side-to-move's perspective.
+          // We want all scores from White's perspective for consistent chart.
+          let cp = result.score ?? 0;
+          let mate = result.mate;
+          
+          if (isBlackToMove) {
+            cp = -cp;
+            if (mate !== null) {
+              mate = -mate;
             }
-            
-            // For chart: use large values for mate, otherwise centipawns
-            const evalValue = mate !== null ? (mate > 0 ? 10000 : -10000) : cp;
-            
-            console.log(`[Analysis] Move ${index}: cp=${cp}, mate=${mate}, eval=${evalValue}`);
-            
-            setMoves((prev) => {
-              const updated = [...prev];
-              if (updated[index]) {
-                updated[index] = {
-                  ...updated[index],
-                  eval: evalValue,
-                  mate: mate,
-                };
-              }
-              return updated;
-            });
-
-            // Process next in queue
-            setTimeout(processNext, 0);
-          })
-          .catch((e) => {
-            console.error('[Analysis] Analysis failed for move', index, e);
-            setTimeout(processNext, 0);
+          }
+          
+          // For chart: use large values for mate, otherwise centipawns
+          const evalValue = mate !== null ? (mate > 0 ? 10000 : -10000) : cp;
+          
+          console.log(`[Analysis] Move ${index}: fen=${fenToAnalyze.split(' ')[0].slice(-8)}... black=${isBlackToMove}, raw=${result.score}, cp=${cp}, eval=${evalValue}`);
+          
+          setMoves((prev) => {
+            const updated = [...prev];
+            if (updated[index]) {
+              updated[index] = {
+                ...updated[index],
+                eval: evalValue,
+                mate: mate,
+              };
+            }
+            return updated;
           });
 
-        return currentMoves;
-      });
+          // Process next in queue
+          setTimeout(processNext, 0);
+        })
+        .catch((e) => {
+          console.error('[Analysis] Analysis failed for move', index, e);
+          setTimeout(processNext, 0);
+        });
     };
 
     console.log('[Analysis] Starting queue processing');
@@ -303,6 +300,14 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
     if (m.eval === null) return 0;  // Show 0 for unanalyzed instead of null (avoids gaps)
     return Math.max(-500, Math.min(500, m.eval));
   });
+  
+  // Debug: log chart data when moves change
+  useEffect(() => {
+    if (analyzedMoves.length > 0) {
+      const evalSummary = analyzedMoves.map((m, i) => `${i+1}:${m.eval}`).join(', ');
+      console.log('[Analysis] Chart evals:', evalSummary);
+    }
+  }, [moves]);
 
   const chartData = {
     labels: chartLabels,
