@@ -135,7 +135,12 @@ export function ApiSettingsDialog({ isOpen, onClose, onSave }: ApiSettingsDialog
           </div>
 
           <div className="dialog-info">
-            <strong>Current origin:</strong> {window.location.origin}
+            <div><strong>API URL in use:</strong> {getApiUrl()}</div>
+            {getApiUrl() !== window.location.origin && (
+              <div style={{ marginTop: '0.5rem' }}>
+                <strong>Current origin:</strong> {window.location.origin}
+              </div>
+            )}
           </div>
         </div>
 
