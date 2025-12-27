@@ -99,8 +99,7 @@
       `;
     }
     
-    // Always forward state to analysis engine - it handles PGN parsing internally
-    analysisEngine.onGameStateUpdate(state);
+    // analysisEngine listens to the same `gameStateUpdate` event internally in live mode.
   }
   
   // Listen for game state updates from SSE (dispatched by liveboard.html)

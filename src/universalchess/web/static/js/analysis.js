@@ -463,7 +463,13 @@ const analysisEngine = (function() {
     updateMoveIndicator();
     updateChartHighlight();
     notifyPositionChange();
-    analyzeCurrentPosition();
+    // Do not interrupt queued replay analysis. The queue exists to populate the
+    // history chart; cancelling it prevents the chart from ever filling.
+    // Once the queue completes, it triggers a full-depth analysis of the current
+    // position automatically.
+    if (!isProcessingQueue) {
+      analyzeCurrentPosition();
+    }
     
     // Hide toast if we caught up
     if (movePos >= totalMoves) {

@@ -170,6 +170,9 @@
                 document.getElementById('gamepgn').value = pgn;
                 
                 if (analysisEngine.loadPgn(pgn)) {
+                    // Start at the latest position like the old analysis page.
+                    // This ensures the eval display updates once replay completes.
+                    analysisEngine.goToMove(analysisEngine.getTotalMoves());
                     buildMovesTable();
                 } else {
                     document.getElementById('gamepgn').value = 'Error: Could not parse PGN\n\n' + pgn;
