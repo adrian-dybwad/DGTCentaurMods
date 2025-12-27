@@ -1,43 +1,46 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// API target from environment variable or default
+const apiTarget = process.env.VITE_API_URL || 'http://dgt.local'
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
   server: {
     port: 3000,
     proxy: {
-      // Proxy API calls to Flask backend
+      // Proxy API calls to backend
       '/api': {
-        target: 'http://localhost:5000',
+        target: apiTarget,
         changeOrigin: true,
       },
       '/events': {
-        target: 'http://localhost:5000',
+        target: apiTarget,
         changeOrigin: true,
       },
       '/fen': {
-        target: 'http://localhost:5000',
+        target: apiTarget,
         changeOrigin: true,
       },
       '/getgames': {
-        target: 'http://localhost:5000',
+        target: apiTarget,
         changeOrigin: true,
       },
       '/getpgn': {
-        target: 'http://localhost:5000',
+        target: apiTarget,
         changeOrigin: true,
       },
       '/deletegame': {
-        target: 'http://localhost:5000',
+        target: apiTarget,
         changeOrigin: true,
       },
       '/stockfish': {
-        target: 'http://localhost:5000',
+        target: apiTarget,
         changeOrigin: true,
       },
       '/piece': {
-        target: 'http://localhost:5000',
+        target: apiTarget,
         changeOrigin: true,
       },
     },
