@@ -19,6 +19,10 @@
 #   - Node.js and npm installed
 #   - Backend server running at the specified URL
 #
+# Note: For local development, you need the Flask backend running:
+#   cd src/universalchess/web && python -m flask run --port 5000
+#   Then: ./scripts/run-react.sh --api http://localhost:5000
+#
 
 set -e
 
@@ -45,6 +49,9 @@ while [[ $# -gt 0 ]]; do
             echo "Examples:"
             echo "  $(basename "$0")                        # Uses http://dgt.local"
             echo "  $(basename "$0") --api http://localhost:5000"
+            echo ""
+            echo "For local development, start the Flask backend first:"
+            echo "  cd src/universalchess/web && python -m flask run --port 5000"
             exit 0
             ;;
         *)
@@ -69,13 +76,23 @@ if [ ! -d "node_modules" ]; then
     npm install
 fi
 
-echo "Starting React development server..."
-echo "  - Dev server: http://localhost:3000"
-echo "  - API proxy: ${API_URL}"
+echo ""
+echo "=========================================="
+echo " React Development Server"
+echo "=========================================="
+echo ""
+echo "  Frontend:  http://localhost:3000"
+echo "  API proxy: ${API_URL}"
+echo ""
+echo "  Make sure the Flask backend is running!"
+echo "  If not, run in another terminal:"
+echo "    cd ${REPO_ROOT}/src/universalchess/web"
+echo "    python -m flask run --port 5000"
+echo ""
+echo "=========================================="
 echo ""
 
 # Export API URL for Vite to pick up
 export VITE_API_URL="${API_URL}"
 
 npm run dev
-

@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 // API target from environment variable or default
+// For local dev, run: VITE_API_URL=http://localhost:5000 npm run dev
 const apiTarget = process.env.VITE_API_URL || 'http://dgt.local'
 
 // https://vite.dev/config/
@@ -35,11 +36,28 @@ export default defineConfig({
         target: apiTarget,
         changeOrigin: true,
       },
+      '/analyse': {
+        target: apiTarget,
+        changeOrigin: true,
+      },
+      // Static assets from Flask
       '/stockfish': {
         target: apiTarget,
         changeOrigin: true,
       },
+      '/static': {
+        target: apiTarget,
+        changeOrigin: true,
+      },
+      '/logo': {
+        target: apiTarget,
+        changeOrigin: true,
+      },
       '/piece': {
+        target: apiTarget,
+        changeOrigin: true,
+      },
+      '/resources': {
         target: apiTarget,
         changeOrigin: true,
       },

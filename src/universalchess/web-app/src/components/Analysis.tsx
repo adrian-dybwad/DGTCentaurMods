@@ -89,7 +89,10 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
   useEffect(() => {
     const sf = getStockfishService();
     stockfishRef.current = sf;
-    sf.init().catch(console.error);
+    sf.init().catch((e) => {
+      console.error('[Analysis] Failed to initialize Stockfish:', e);
+      // Stockfish not available - analysis will show "..." but won't crash
+    });
 
     return () => {
       sf.stop();
@@ -143,16 +146,21 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
     if (move.analysis) {
       setCurrentAnalysis(move.analysis);
     } else {
-      stockfishRef.current.analyze(move.fen, 18).then((result) => {
-        setCurrentAnalysis(result);
-        setMoves((prev) => {
-          const updated = [...prev];
-          if (updated[currentIndex]) {
-            updated[currentIndex] = { ...updated[currentIndex], analysis: result };
-          }
-          return updated;
+      stockfishRef.current.analyze(move.fen, 18)
+        .then((result) => {
+          setCurrentAnalysis(result);
+          setMoves((prev) => {
+            const updated = [...prev];
+            if (updated[currentIndex]) {
+              updated[currentIndex] = { ...updated[currentIndex], analysis: result };
+            }
+            return updated;
+          });
+        })
+        .catch((e) => {
+          console.error('[Analysis] Failed to analyze position:', e);
+          // Keep showing "..." if analysis fails
         });
-      });
     }
   }, [currentIndex, moves]);
 
