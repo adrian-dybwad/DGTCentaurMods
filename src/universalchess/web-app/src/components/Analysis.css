@@ -29,6 +29,38 @@
   color: var(--color-text-primary, #333);
 }
 
+/* Best move toggle controls */
+.best-move-toggle-link {
+  background: none;
+  border: none;
+  color: var(--color-accent-primary, #aa44aa);
+  cursor: pointer;
+  font-size: inherit;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.best-move-toggle-link:hover {
+  color: var(--color-accent-secondary, #882288);
+}
+
+.best-move-toggle {
+  background: none;
+  border: none;
+  color: var(--color-text-secondary, #666);
+  cursor: pointer;
+  font-size: 1.1rem;
+  font-weight: bold;
+  line-height: 1;
+  margin-left: 0.25rem;
+  padding: 0 0.25rem;
+  vertical-align: middle;
+}
+
+.best-move-toggle:hover {
+  color: var(--color-danger, #f14668);
+}
+
 /* Eval bar - horizontal progress */
 .analysis-widget .progress {
   height: 0.5rem;

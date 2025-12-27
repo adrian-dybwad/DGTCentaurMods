@@ -20,7 +20,7 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, T
 interface AnalysisProps {
   pgn: string;
   mode: 'live' | 'static';
-  onPositionChange?: (fen: string, moveIndex: number) => void;
+  onPositionChange?: (fen: string, moveIndex: number, totalMoves: number) => void;
   onBestMoveChange?: (bestMove: { from: string; to: string } | null) => void;
   /** Called with the actual move played (next in history), or null if at end/start */
   onPlayedMoveChange?: (playedMove: { from: string; to: string } | null) => void;
@@ -28,6 +28,10 @@ interface AnalysisProps {
   onMoveDataChange?: (moveIndex: number, evalHistory: (number | null)[]) => void;
   /** Ref to expose goToMove function for external navigation */
   goToMoveRef?: React.MutableRefObject<((index: number) => void) | null>;
+  /** Whether to show the best move for the latest position (live mode only) */
+  showBestMoveForLatest?: boolean;
+  /** Callback to toggle showBestMoveForLatest (live mode only) */
+  onToggleShowBestMove?: () => void;
 }
 
 interface MoveData {
@@ -53,7 +57,7 @@ function parseUciMove(uci: string | null): { from: string; to: string } | null {
   return { from, to };
 }
 
-export function Analysis({ pgn, mode, onPositionChange, onBestMoveChange, onPlayedMoveChange, onMoveDataChange, goToMoveRef }: AnalysisProps) {
+export function Analysis({ pgn, mode, onPositionChange, onBestMoveChange, onPlayedMoveChange, onMoveDataChange, goToMoveRef, showBestMoveForLatest, onToggleShowBestMove }: AnalysisProps) {
   const [moves, setMoves] = useState<MoveData[]>([]);
   const [movePos, setMovePos] = useState(0);  // 0 = start, 1 = after first move, etc.
   const [currentEval, setCurrentEval] = useState<{ cp: number; mate: number | null }>({ cp: 0, mate: null });
@@ -270,9 +274,9 @@ export function Analysis({ pgn, mode, onPositionChange, onBestMoveChange, onPlay
   // Notify parent of position change
   useEffect(() => {
     if (onPositionChange && movePos >= 0 && moves[movePos]) {
-      onPositionChange(moves[movePos].fen.split(' ')[0], movePos);
+      onPositionChange(moves[movePos].fen.split(' ')[0], movePos, totalMoves);
     }
-  }, [movePos, moves, onPositionChange]);
+  }, [movePos, moves, totalMoves, onPositionChange]);
 
   // Notify parent of best move change
   useEffect(() => {
@@ -474,7 +478,17 @@ export function Analysis({ pgn, mode, onPositionChange, onBestMoveChange, onPlay
         </span>
         <span className="eval-best-move">
           {bestMove ? (
-            <>Best: <strong>{bestMove}</strong></>
+            // In live mode at latest position: show toggle for best move visibility
+            mode === 'live' && movePos === totalMoves && onToggleShowBestMove ? (
+              showBestMoveForLatest ? (
+                <>Best: <strong>{bestMove}</strong> <button className="best-move-toggle" onClick={onToggleShowBestMove} title="Hide best move">&times;</button></>
+              ) : (
+                <button className="best-move-toggle-link" onClick={onToggleShowBestMove}>Show Best</button>
+              )
+            ) : (
+              // Static mode or not at latest: always show best move
+              <>Best: <strong>{bestMove}</strong></>
+            )
           ) : (
             analyzing ? 'Analyzing...' : (sfReady ? 'Waiting...' : 'Loading Stockfish...')
           )}

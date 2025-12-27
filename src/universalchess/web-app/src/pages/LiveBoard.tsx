@@ -1,8 +1,12 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { ChessBoard } from '../components/ChessBoard';
 import { Analysis } from '../components/Analysis';
 import { useGameStore } from '../stores/gameStore';
 import './LiveBoard.css';
+
+const SHOW_BEST_MOVE_KEY = 'universalChess.showBestMove';
+/** Animation duration for piece movement in milliseconds - matches react-chessboard default */
+const BOARD_ANIMATION_DURATION_MS = 300;
 
 /**
  * Live board page - shows current game with real-time updates.
@@ -14,13 +18,51 @@ export function LiveBoard() {
   const [displayFen, setDisplayFen] = useState<string | null>(null);
   const [bestMove, setBestMove] = useState<{ from: string; to: string } | null>(null);
   const [playedMove, setPlayedMove] = useState<{ from: string; to: string } | null>(null);
+  // Delayed arrows that wait for board animation to complete before showing
+  const [delayedBestMove, setDelayedBestMove] = useState<{ from: string; to: string } | null>(null);
+  const [delayedPlayedMove, setDelayedPlayedMove] = useState<{ from: string; to: string } | null>(null);
   const [pgnExpanded, setPgnExpanded] = useState(false);
-
-  const handlePositionChange = useCallback((fen: string, _moveIndex: number) => {
-    setDisplayFen(fen);
-    // Don't clear arrows here - let the analysis callbacks update them
-    // This prevents flickering between position change and analysis completion
+  const [isAtLatestMove, setIsAtLatestMove] = useState(true);
+  // Track when arrows should be delayed (after position navigation)
+  const arrowDelayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const shouldDelayArrowsRef = useRef(false);
+  
+  // Best move visibility for latest position - defaults to hidden, persisted in localStorage
+  const [showBestMoveEnabled, setShowBestMoveEnabled] = useState<boolean>(() => {
+    const stored = localStorage.getItem(SHOW_BEST_MOVE_KEY);
+    return stored === 'true';
+  });
+  
+  // Persist showBestMoveEnabled to localStorage when it changes
+  useEffect(() => {
+    localStorage.setItem(SHOW_BEST_MOVE_KEY, String(showBestMoveEnabled));
+  }, [showBestMoveEnabled]);
+  
+  const toggleShowBestMove = useCallback(() => {
+    setShowBestMoveEnabled((prev) => !prev);
   }, []);
+
+  const handlePositionChange = useCallback((fen: string, moveIndex: number, totalMoves: number) => {
+    setDisplayFen(fen);
+    const wasAtLatest = isAtLatestMove;
+    const nowAtLatest = moveIndex === totalMoves;
+    setIsAtLatestMove(nowAtLatest);
+    
+    // Clear arrows immediately and mark that new arrows should be delayed
+    // This prevents arrows appearing before piece animation completes
+    if (arrowDelayTimeoutRef.current) {
+      clearTimeout(arrowDelayTimeoutRef.current);
+    }
+    setDelayedBestMove(null);
+    setDelayedPlayedMove(null);
+    shouldDelayArrowsRef.current = true;
+    
+    // Clear source arrows when navigating away from latest position to prevent flash
+    if (wasAtLatest && !nowAtLatest) {
+      setBestMove(null);
+      setPlayedMove(null);
+    }
+  }, [isAtLatestMove]);
 
   const handleBestMoveChange = useCallback((move: { from: string; to: string } | null) => {
     setBestMove(move);
@@ -29,6 +71,32 @@ export function LiveBoard() {
   const handlePlayedMoveChange = useCallback((move: { from: string; to: string } | null) => {
     setPlayedMove(move);
   }, []);
+  
+  // Delay arrow display until after board animation completes
+  useEffect(() => {
+    if (arrowDelayTimeoutRef.current) {
+      clearTimeout(arrowDelayTimeoutRef.current);
+    }
+    
+    if (shouldDelayArrowsRef.current) {
+      // Delay arrows until animation completes
+      arrowDelayTimeoutRef.current = setTimeout(() => {
+        setDelayedBestMove(bestMove);
+        setDelayedPlayedMove(playedMove);
+        shouldDelayArrowsRef.current = false;
+      }, BOARD_ANIMATION_DURATION_MS);
+    } else {
+      // No delay needed (initial load or arrows updated without position change)
+      setDelayedBestMove(bestMove);
+      setDelayedPlayedMove(playedMove);
+    }
+    
+    return () => {
+      if (arrowDelayTimeoutRef.current) {
+        clearTimeout(arrowDelayTimeoutRef.current);
+      }
+    };
+  }, [bestMove, playedMove]);
 
   const currentFen = displayFen || gameState?.fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
   const currentPgn = gameState?.pgn || '';
@@ -45,7 +113,12 @@ export function LiveBoard() {
     <div className="columns">
       {/* Left column: Board */}
       <div className="column is-8">
-        <ChessBoard fen={currentFen} maxBoardWidth={700} showBestMove={bestMove} showPlayedMove={playedMove} />
+        <ChessBoard 
+          fen={currentFen} 
+          maxBoardWidth={700} 
+          showBestMove={isAtLatestMove ? (showBestMoveEnabled ? delayedBestMove : null) : delayedBestMove} 
+          showPlayedMove={delayedPlayedMove} 
+        />
       </div>
 
       {/* Right column: Widgets */}
@@ -82,6 +155,8 @@ export function LiveBoard() {
             onPositionChange={handlePositionChange}
             onBestMoveChange={handleBestMoveChange}
             onPlayedMoveChange={handlePlayedMoveChange}
+            showBestMoveForLatest={showBestMoveEnabled}
+            onToggleShowBestMove={toggleShowBestMove}
           />
         </div>
 
