@@ -30,6 +30,7 @@ const analysisEngine = (function() {
   let config = {
     mode: 'live',           // 'live' or 'static'
     containerId: 'analysis',
+    boardId: 'board1',      // chessboard.js container id (used for best-move arrows)
     stockfishPath: '/static/stockfish/stockfish.js',
     liveDepth: 15,          // Depth for live/current position analysis
     queueDepth: 10,         // Depth for batch replay analysis
@@ -137,6 +138,54 @@ const analysisEngine = (function() {
         bar.className = 'progress is-warning';
       }
     }
+
+    // Best-move arrow on the board.
+    renderBestMoveArrow();
+  }
+
+  function clearBestMoveArrow() {
+    const arrows = document.querySelectorAll('connection[data-analysis-arrow=\"true\"]');
+    for (const el of arrows) {
+      el.remove();
+    }
+  }
+
+  function getSquareElementId(coord) {
+    // chessboard_component assigns ids like `${boardId}-square-e4`
+    return config.boardId + '-square-' + coord;
+  }
+
+  function renderBestMoveArrow() {
+    clearBestMoveArrow();
+
+    const move = analysisState.bestMove;
+    if (!move || typeof move !== 'string' || move.length < 4) {
+      return;
+    }
+
+    const from = move.substring(0, 2);
+    const to = move.substring(2, 4);
+    if (!/^[a-h][1-8]$/.test(from) || !/^[a-h][1-8]$/.test(to)) {
+      return;
+    }
+
+    const fromId = getSquareElementId(from);
+    const toId = getSquareElementId(to);
+    const fromEl = document.getElementById(fromId);
+    const toEl = document.getElementById(toId);
+    if (!fromEl || !toEl) {
+      return;
+    }
+
+    // domarrow.js uses a custom <connection> element with from/to CSS selectors.
+    const conn = document.createElement('connection');
+    conn.setAttribute('data-analysis-arrow', 'true');
+    conn.setAttribute('from', '#' + fromId);
+    conn.setAttribute('to', '#' + toId);
+    conn.setAttribute('color', '#8fce8ff0');
+    conn.setAttribute('width', '6');
+    conn.setAttribute('tail', '');
+    document.body.appendChild(conn);
   }
 
   // --- Initialization ---

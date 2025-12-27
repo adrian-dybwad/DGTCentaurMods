@@ -32,8 +32,36 @@ var {{ board_id }}Config = {
 };
 var {{ board_id }} = Chessboard('{{ board_id }}', {{ board_id }}Config);
 
+/**
+ * Assign stable DOM ids to chessboard.js square elements so other UI features
+ * (e.g., best-move arrows via domarrow.js) can reference them reliably.
+ *
+ * chessboard.js creates squares with classes like `square-e4`, but does not
+ * provide ids. This function sets ids in the form:
+ *   `${boardId}-square-${coord}`  e.g. `board1-square-e4`
+ */
+function assignSquareIds(boardId) {
+    const boardEl = document.getElementById(boardId);
+    if (!boardEl) return;
+
+    const squares = boardEl.querySelectorAll('div[class*=\"square-\"]');
+    for (const el of squares) {
+        // Find a class like 'square-e4'
+        const coordClass = Array.from(el.classList).find(c => /^square-[a-h][1-8]$/.test(c));
+        if (!coordClass) continue;
+        const coord = coordClass.substring('square-'.length);
+        const desiredId = `${boardId}-square-${coord}`;
+        if (el.id !== desiredId) {
+            el.id = desiredId;
+        }
+    }
+}
+
+assignSquareIds('{{ board_id }}');
+
 window.addEventListener('resize', function() {
     {{ board_id }}.resize();
+    assignSquareIds('{{ board_id }}');
 });
 </script>
 
