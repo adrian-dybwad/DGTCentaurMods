@@ -1,125 +1,151 @@
 /**
- * Analysis Component Styles
+ * Analysis Widget - Matches original Flask template design
  */
 
-.analysis-container {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  padding: var(--space-4);
-  background: var(--color-bg-muted);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--color-border);
+.analysis-widget {
+  background: var(--color-bg-secondary, #f5f5f5);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
 }
 
-.analysis-eval {
+/* Eval display row */
+.analysis-eval-display {
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: var(--space-4);
-}
-
-.eval-bar-container {
-  width: 24px;
-  height: 100px;
-  background: linear-gradient(to top, var(--color-gray-600) 50%, var(--color-white) 50%);
-  border: 1px solid var(--color-gray-400);
-  border-radius: var(--radius-sm);
-  position: relative;
-  overflow: hidden;
-}
-
-.eval-bar {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: var(--color-white);
-  transition: height var(--transition-slow);
-}
-
-.eval-text {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
+  padding: 0.5rem 0;
 }
 
 .eval-score {
-  font-size: var(--text-2xl);
-  font-weight: var(--font-bold);
-  font-family: var(--font-mono);
-  color: var(--color-text);
+  font-size: 1.5rem;
+  font-weight: bold;
 }
 
 .eval-best-move {
-  font-size: var(--text-sm);
-  color: var(--color-text-light);
-  font-family: var(--font-mono);
+  color: var(--color-text-secondary, #666);
 }
 
+.eval-best-move strong {
+  color: var(--color-text-primary, #333);
+}
+
+/* Eval bar - horizontal progress */
+.analysis-widget .progress {
+  height: 0.5rem;
+  margin-bottom: 0.5rem;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #e0e0e0;
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  border: none;
+}
+
+.analysis-widget .progress::-webkit-progress-bar {
+  background: #e0e0e0;
+  border-radius: 4px;
+}
+
+.analysis-widget .progress::-webkit-progress-value {
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.analysis-widget .progress.is-success::-webkit-progress-value {
+  background: var(--color-success, #48c774);
+}
+
+.analysis-widget .progress.is-warning::-webkit-progress-value {
+  background: var(--color-warning, #ffdd57);
+}
+
+.analysis-widget .progress.is-danger::-webkit-progress-value {
+  background: var(--color-danger, #f14668);
+}
+
+/* Firefox progress bar */
+.analysis-widget .progress::-moz-progress-bar {
+  border-radius: 4px;
+}
+
+.analysis-widget .progress.is-success::-moz-progress-bar {
+  background: var(--color-success, #48c774);
+}
+
+.analysis-widget .progress.is-warning::-moz-progress-bar {
+  background: var(--color-warning, #ffdd57);
+}
+
+.analysis-widget .progress.is-danger::-moz-progress-bar {
+  background: var(--color-danger, #f14668);
+}
+
+/* Chart container */
 .analysis-chart {
-  height: 150px;
+  height: 120px;
+  margin-bottom: 0.5rem;
 }
 
+/* Navigation buttons */
 .analysis-nav {
   display: flex;
-  align-items: center;
+  gap: 0.25rem;
   justify-content: center;
-  gap: var(--space-2);
+  align-items: center;
+  margin-bottom: 0.5rem;
 }
 
 .analysis-nav button {
-  padding: var(--space-2) var(--space-4);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-white);
+  min-width: 2.5rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #dbdbdb;
+  background: white;
+  border-radius: 4px;
   cursor: pointer;
-  font-size: var(--text-base);
-  transition: background var(--transition-fast);
+  font-weight: 600;
+  transition: all 0.15s ease;
 }
 
-.analysis-nav button:hover:not(:disabled) {
-  background: var(--color-gray-100);
+.analysis-nav button:hover {
+  background: var(--color-accent-primary, #aa44aa);
+  color: white;
+  border-color: var(--color-accent-primary, #aa44aa);
 }
 
-.analysis-nav button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.analysis-nav button:active {
+  transform: scale(0.95);
 }
 
 .move-indicator {
-  padding: 0 var(--space-4);
-  font-family: var(--font-mono);
-  color: var(--color-text-light);
-}
-
-.new-move-toast {
-  position: fixed;
-  bottom: var(--space-8);
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--color-primary);
-  color: var(--color-white);
-  padding: var(--space-3) var(--space-6);
-  border-radius: var(--radius-lg);
-  cursor: pointer;
-  box-shadow: var(--shadow-lg);
-  z-index: var(--z-toast);
-  animation: slideUp var(--transition-slow);
-}
-
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateX(-50%) translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(-50%) translateY(0);
-  }
-}
-
-.analysis-status {
+  padding: 0.25rem 0.5rem;
+  min-width: 60px;
   text-align: center;
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-text-secondary, #666);
+}
+
+/* New moves toast */
+.new-moves-toast {
+  display: block;
+  padding: 0.5rem 1rem;
+  margin-top: 0.5rem;
+  cursor: pointer;
+  background: #e8f4fd;
+  border: 1px solid #209cee;
+  border-radius: 4px;
+  color: #1d72aa;
+  font-size: 0.9rem;
+  text-align: center;
+  transition: all 0.15s ease;
+}
+
+.new-moves-toast:hover {
+  background: #d3ebf8;
+}
+
+/* Notification styling */
+.notification.is-info.is-light {
+  background: #e8f4fd;
+  color: #1d72aa;
 }
