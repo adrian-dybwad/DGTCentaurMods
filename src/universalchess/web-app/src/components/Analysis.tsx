@@ -157,19 +157,32 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
         const sf = getStockfishService();
         sf.analyze(move.fen, 10)
           .then((result) => {
+            // Stockfish returns score from side-to-move's perspective.
+            // We want all scores from White's perspective for consistent chart.
+            const isBlackToMove = move.fen.includes(' b ');
+            
             let cp = result.score ?? 0;
-            // Negate if black's turn (eval from white's perspective)
-            if (move.fen.includes(' b ')) {
+            let mate = result.mate;
+            
+            if (isBlackToMove) {
               cp = -cp;
+              if (mate !== null) {
+                mate = -mate;
+              }
             }
+            
+            // For chart: use large values for mate, otherwise centipawns
+            const evalValue = mate !== null ? (mate > 0 ? 10000 : -10000) : cp;
+            
+            console.log(`[Analysis] Move ${index}: cp=${cp}, mate=${mate}, eval=${evalValue}`);
             
             setMoves((prev) => {
               const updated = [...prev];
               if (updated[index]) {
                 updated[index] = {
                   ...updated[index],
-                  eval: result.mate !== null ? (result.mate > 0 ? 10000 : -10000) : cp,
-                  mate: result.mate,
+                  eval: evalValue,
+                  mate: mate,
                 };
               }
               return updated;
@@ -201,13 +214,22 @@ export function Analysis({ pgn, mode, onPositionChange }: AnalysisProps) {
     const sf = getStockfishService();
     sf.analyze(move.fen, 16)
       .then((result) => {
+        // Normalize to White's perspective
+        const isBlackToMove = move.fen.includes(' b ');
+        
         let cp = result.score ?? 0;
-        if (move.fen.includes(' b ')) {
+        let mate = result.mate;
+        
+        if (isBlackToMove) {
           cp = -cp;
+          if (mate !== null) {
+            mate = -mate;
+          }
         }
+        
         setCurrentEval({
-          cp: result.mate !== null ? (result.mate > 0 ? 10000 : -10000) : cp,
-          mate: result.mate,
+          cp: mate !== null ? (mate > 0 ? 10000 : -10000) : cp,
+          mate: mate,
         });
         setBestMove(result.bestMove);
       })
