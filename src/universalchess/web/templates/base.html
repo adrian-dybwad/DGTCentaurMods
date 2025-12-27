@@ -21,6 +21,13 @@
     
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='icons/icon.svg', v=static_version) }}">
+
+    <!-- Core JS dependencies (loaded once, deterministic order) -->
+    <script defer src="{{ url_for('static', filename='js/jquery-3.4.1.min.js', v=static_version) }}"></script>
+    <script defer src="{{ url_for('static', filename='chessboardjs/js/chessboard-1.0.0.min.js', v=static_version) }}"></script>
+    <script defer src="{{ url_for('static', filename='js/domarrow.js', v=static_version) }}"></script>
+    <script defer src="{{ url_for('static', filename='js/board.js', v=static_version) }}"></script>
+    <script defer src="{{ url_for('static', filename='js/game_client.js', v=static_version) }}"></script>
   </head>
   <body>
   <!--
@@ -114,13 +121,6 @@
       });
     }
   </script>
-
-  <!-- Core JS dependencies (loaded once to avoid duplicate execution across templates) -->
-  <script src="{{ url_for('static', filename='js/jquery-3.4.1.min.js', v=static_version) }}"></script>
-  <script type="text/javascript" src="{{ url_for('static', filename='chessboardjs/js/chessboard-1.0.0.min.js', v=static_version) }}"></script>
-  <script type="text/javascript" src="{{ url_for('static', filename='js/domarrow.js', v=static_version) }}"></script>
-  <script type="text/javascript" src="{{ url_for('static', filename='js/board.js', v=static_version) }}"></script>
-  <script type="text/javascript" src="{{ url_for('static', filename='js/game_client.js', v=static_version) }}"></script>
 
   </body>
 </html>

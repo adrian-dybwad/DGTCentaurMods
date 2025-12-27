@@ -123,6 +123,56 @@
     window.dispatchEvent(new CustomEvent('chessboardsReady'));
   }
 
+  function showBoardInitError(boardId, message) {
+    const boardEl = document.getElementById(boardId);
+    if (!boardEl) return;
+    const existing = document.getElementById(boardId + '-init-error');
+    if (existing) return;
+    const banner = document.createElement('div');
+    banner.id = boardId + '-init-error';
+    banner.style.cssText = 'padding:12px;margin:8px 0;border:1px solid #f14668;background:#fff5f7;color:#cc0f35;border-radius:6px;font-size:14px;';
+    banner.textContent = message;
+    boardEl.parentElement && boardEl.parentElement.prepend(banner);
+  }
+
+  function verifyBoardsRendered(attempt) {
+    const tries = typeof attempt === 'number' ? attempt : 0;
+    const wrappers = document.querySelectorAll('.chessboard-wrapper[data-board-id]');
+    let allGood = true;
+
+    wrappers.forEach(w => {
+      const boardId = w.getAttribute('data-board-id');
+      if (!boardId) return;
+      const boardEl = document.getElementById(boardId);
+      const squares = boardEl ? boardEl.querySelectorAll('div[class*="square-"]').length : 0;
+      if (squares < 64) {
+        allGood = false;
+        // Retry init in case scripts raced or the board was initialized before dependencies loaded.
+        initOneBoard(w);
+      }
+    });
+
+    if (allGood) return;
+    if (tries < 20) {
+      setTimeout(() => verifyBoardsRendered(tries + 1), 250);
+      return;
+    }
+
+    // Still not good: surface a visible error instead of silent failure.
+    wrappers.forEach(w => {
+      const boardId = w.getAttribute('data-board-id');
+      if (!boardId) return;
+      const boardEl = document.getElementById(boardId);
+      const squares = boardEl ? boardEl.querySelectorAll('div[class*="square-"]').length : 0;
+      if (squares < 64) {
+        showBoardInitError(
+          boardId,
+          'Chessboard failed to initialize. Check DevTools Network for /static/chessboardjs/js/chessboard-1.0.0.min.js and /static/js/board.js, and Console for errors.'
+        );
+      }
+    });
+  }
+
   window.normalizePlacementFen = normalizePlacementFen;
   window.assignSquareIds = assignSquareIds;
   window.updateChessboardPosition = function(boardId, fenLike) {
@@ -132,6 +182,7 @@
 
   function initWhenReady() {
     initAllBoards();
+    verifyBoardsRendered(0);
     window.addEventListener('resize', () => {
       const wrappers = document.querySelectorAll('.chessboard-wrapper[data-board-id]');
       wrappers.forEach(w => {
