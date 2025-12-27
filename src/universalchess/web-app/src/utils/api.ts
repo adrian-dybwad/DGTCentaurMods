@@ -28,16 +28,30 @@ export function getDefaultApiUrl(): string {
 /**
  * Get the stored API URL, or the default if not set.
  * On first access (PWA install), stores the default API URL.
+ * 
+ * If the stored value is localhost but we have a configured API target,
+ * we update to use the configured target (handles dev mode correctly).
  */
 export function getApiUrl(): string {
   const stored = localStorage.getItem(API_URL_KEY);
+  const defaultUrl = getDefaultApiUrl();
   
   if (stored) {
+    // If stored is localhost but we have a real API target configured,
+    // update to use the configured target
+    const isStoredLocalhost = stored.includes('localhost') || stored.includes('127.0.0.1');
+    const isDefaultNotLocalhost = !defaultUrl.includes('localhost') && !defaultUrl.includes('127.0.0.1');
+    
+    if (isStoredLocalhost && isDefaultNotLocalhost) {
+      // User likely ran in dev mode first, now has proper config
+      localStorage.setItem(API_URL_KEY, defaultUrl);
+      return defaultUrl;
+    }
+    
     return stored;
   }
   
   // First time - save the default API URL
-  const defaultUrl = getDefaultApiUrl();
   localStorage.setItem(API_URL_KEY, defaultUrl);
   return defaultUrl;
 }
