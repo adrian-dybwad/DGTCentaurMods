@@ -18,9 +18,8 @@ export function LiveBoard() {
 
   const handlePositionChange = useCallback((fen: string, _moveIndex: number) => {
     setDisplayFen(fen);
-    // Clear arrows when position changes - new analysis will provide them
-    setBestMove(null);
-    setPlayedMove(null);
+    // Don't clear arrows here - let the analysis callbacks update them
+    // This prevents flickering between position change and analysis completion
   }, []);
 
   const handleBestMoveChange = useCallback((move: { from: string; to: string } | null) => {
