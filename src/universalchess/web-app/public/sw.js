@@ -1,5 +1,8 @@
 // Service Worker for Universal Chess PWA
-const CACHE_NAME = 'universal-chess-v1';
+// Cache version - increment on each release to bust old caches
+// This will be replaced by the build script with a timestamp or build hash
+const CACHE_VERSION = '__BUILD_TIMESTAMP__';
+const CACHE_NAME = `universal-chess-${CACHE_VERSION}`;
 
 // Assets to cache on install
 const STATIC_ASSETS = [

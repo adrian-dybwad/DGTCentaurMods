@@ -201,6 +201,10 @@ function buildReactApp {
         return 0
     fi
     
+    # Generate build timestamp for cache busting
+    local build_timestamp
+    build_timestamp="$(date +%s)"
+    
     # Install dependencies and build
     (
         cd "${web_app_dir}"
@@ -214,6 +218,19 @@ function buildReactApp {
     if [ -d "${web_app_dir}/dist" ]; then
         mkdir -p "${react_dist}"
         cp -r "${web_app_dir}/dist/"* "${react_dist}/"
+        
+        # Replace the cache version placeholder in sw.js with the build timestamp
+        # This ensures each build has a unique cache name, forcing cache refresh
+        if [ -f "${react_dist}/sw.js" ]; then
+            # Use portable sed syntax (works on both macOS and Linux)
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                sed -i '' "s/__BUILD_TIMESTAMP__/${build_timestamp}/g" "${react_dist}/sw.js"
+            else
+                sed -i "s/__BUILD_TIMESTAMP__/${build_timestamp}/g" "${react_dist}/sw.js"
+            fi
+            echo "::: Service worker cache version set to ${build_timestamp}"
+        fi
+        
         echo "::: React app built and staged at ${react_dist}"
     else
         echo "WARNING: React build output not found at ${web_app_dir}/dist" >&2

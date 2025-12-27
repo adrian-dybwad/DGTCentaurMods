@@ -64,9 +64,8 @@ export function LiveBoard() {
     setDisplayFen(fen);
     setIsAtLatestMove(moveIndex === totalMoves);
     
-    // Check if this is the initial position load or if position actually changed
+    // Check if position actually changed (navigation vs initial load)
     const lastPos = lastPositionRef.current;
-    const isInitialLoad = !hasInitialPositionRef.current;
     const positionActuallyChanged = lastPos && (lastPos.moveIndex !== moveIndex || lastPos.totalMoves !== totalMoves);
     
     // Update position tracking
