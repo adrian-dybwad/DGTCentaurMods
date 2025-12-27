@@ -34,6 +34,51 @@ var {{ board_id }}Config = {
 };
 var {{ board_id }} = Chessboard('{{ board_id }}', {{ board_id }}Config);
 
+function normalizePlacementFen(fenLike) {
+    return (fenLike || '').split(' ')[0];
+}
+
+function isChessboardDomReady(boardId) {
+    const boardEl = document.getElementById(boardId);
+    if (!boardEl) return false;
+    // chessboard.js squares have classes like `square-e4`; expect 64.
+    return boardEl.querySelectorAll('div[class*="square-"]').length >= 64;
+}
+
+/**
+ * Safely update the chessboard.js position.
+ *
+ * Why: chessboard.js can throw internally if `position()` is called before the
+ * DOM is fully ready (or if given a full FEN). This helper normalizes input and
+ * retries briefly until the board is ready.
+ */
+window.updateChessboardPosition = function(boardId, fenLike, attempt) {
+    const tries = typeof attempt === 'number' ? attempt : 0;
+    const board = window[boardId];
+    if (!board || typeof board.position !== 'function') return;
+
+    const placement = normalizePlacementFen(fenLike);
+    if (!placement) return;
+
+    if (!isChessboardDomReady(boardId)) {
+        if (tries < 20) {
+            setTimeout(function() { window.updateChessboardPosition(boardId, fenLike, tries + 1); }, 50);
+        }
+        return;
+    }
+
+    try {
+        board.position(placement);
+    } catch (e) {
+        // If chessboard.js is mid-render, retry a few times.
+        if (tries < 20) {
+            setTimeout(function() { window.updateChessboardPosition(boardId, fenLike, tries + 1); }, 50);
+            return;
+        }
+        console.error('Failed to update board position:', e);
+    }
+};
+
 /**
  * Assign stable DOM ids to chessboard.js square elements so other UI features
  * (e.g., best-move arrows via domarrow.js) can reference them reliably.

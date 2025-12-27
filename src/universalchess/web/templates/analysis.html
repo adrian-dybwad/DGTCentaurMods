@@ -141,8 +141,12 @@
             stockfishPath: "{{ url_for('static', filename='stockfish/stockfish.js') }}",
             onPositionChange: function(fen, moveNumber) {
                 // Update board position
-                if (typeof board1 !== 'undefined' && fen) {
-                    board1.position(fen);
+                if (fen) {
+                    if (typeof window.updateChessboardPosition === 'function') {
+                        window.updateChessboardPosition('board1', fen);
+                    } else if (typeof board1 !== 'undefined') {
+                        board1.position(fen);
+                    }
                 }
                 // Update move table highlighting
                 buildMovesTable();
