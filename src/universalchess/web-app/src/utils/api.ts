@@ -81,16 +81,28 @@ export function resetApiUrl(): void {
 }
 
 /**
+ * Check if we're in development mode (running on localhost with Vite proxy).
+ */
+export function isDevMode(): boolean {
+  const hostname = window.location.hostname;
+  return hostname === 'localhost' || hostname === '127.0.0.1';
+}
+
+/**
  * Build a full URL for an API endpoint.
- * In development (same origin), returns the path as-is for Vite proxy.
+ * In development mode, returns the path as-is for Vite proxy.
  * In production PWA with a different origin, returns the full URL.
  */
 export function buildApiUrl(path: string): string {
+  // In dev mode, always use relative paths to go through Vite proxy
+  if (isDevMode()) {
+    return path;
+  }
+  
   const apiUrl = getApiUrl();
   const currentOrigin = window.location.origin;
   
   // If API URL is the same as current origin, use relative paths
-  // This works with Vite proxy in development
   if (apiUrl === currentOrigin) {
     return path;
   }
@@ -101,8 +113,12 @@ export function buildApiUrl(path: string): string {
 
 /**
  * Check if we're using a cross-origin API.
+ * In dev mode, we use the proxy so it's not cross-origin.
  */
 export function isCrossOriginApi(): boolean {
+  if (isDevMode()) {
+    return false;
+  }
   return getApiUrl() !== window.location.origin;
 }
 
