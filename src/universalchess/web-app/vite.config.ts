@@ -27,6 +27,11 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: 3000,
+      // Disable caching in dev mode unless VITE_ENABLE_CACHE is set
+      // Use --cache flag with run-react.sh to enable caching for testing
+      headers: env.VITE_ENABLE_CACHE ? {} : {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+      },
       proxy: {
         // Proxy API calls to backend
         '/api': {
