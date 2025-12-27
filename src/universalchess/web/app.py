@@ -1441,7 +1441,9 @@ def piece_svg(piece_code: str):
     except ValueError:
         abort(404)
 
-    return Response(svg, mimetype="image/svg+xml")
+    response = Response(svg, mimetype="image/svg+xml")
+    response.headers['Cache-Control'] = 'public, max-age=604800, immutable'  # 7 days
+    return response
 
 # Piece images are generated from SVGs on-demand (lazy-loaded and cached)
 # The size matches the original PNG pieces for video frame generation
