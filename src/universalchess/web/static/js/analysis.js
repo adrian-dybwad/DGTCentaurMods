@@ -34,6 +34,7 @@ const analysisEngine = (function() {
     liveDepth: 15,          // Depth for live/current position analysis
     queueDepth: 10,         // Depth for batch replay analysis
     onPositionChange: null, // Callback: (fen, moveNumber) => void
+    debug: false,           // Enables verbose console logging
   };
   
   // State
@@ -53,6 +54,7 @@ const analysisEngine = (function() {
   let queuedMoveNumber = 0;
   let analysisQueue = [];
   let isProcessingQueue = false;
+  let pendingGameState = null; // Buffer for live state received before init()
   
   // Live mode state
   let latestGameState = null;
@@ -60,6 +62,12 @@ const analysisEngine = (function() {
   let unseenMoves = 0;
   let lastSeenPgn = '';
   
+  function debugLog(...args) {
+    if (config.debug) {
+      console.log(...args);
+    }
+  }
+
   // --- Initialization ---
   
   function init(options) {
@@ -75,6 +83,13 @@ const analysisEngine = (function() {
     
     initChart();
     initStockfish();
+
+    // If a live update arrived before init() completed, replay it now.
+    if (pendingGameState) {
+      const state = pendingGameState;
+      pendingGameState = null;
+      onGameStateUpdate(state);
+    }
     
     // Set up SSE listener for live mode
     if (config.mode === 'live') {
@@ -161,7 +176,7 @@ const analysisEngine = (function() {
     if (stockfish) return;
     
     try {
-      console.log('[Analysis] Initializing Stockfish worker');
+      debugLog('[Analysis] Initializing Stockfish worker');
       stockfish = new Worker(config.stockfishPath);
       
       stockfish.onmessage = function(event) {
@@ -169,9 +184,9 @@ const analysisEngine = (function() {
         
         // When Stockfish is ready, process any queued positions
         if (line === 'uciok') {
-          console.log('[Analysis] Stockfish ready');
+          debugLog('[Analysis] Stockfish ready');
           if (analysisQueue.length > 0 && !isProcessingQueue) {
-            console.log('[Analysis] Processing', analysisQueue.length, 'queued positions');
+            debugLog('[Analysis] Processing', analysisQueue.length, 'queued positions');
             processNextInQueue();
           }
         }
@@ -245,7 +260,7 @@ const analysisEngine = (function() {
   function processNextInQueue() {
     if (analysisQueue.length === 0) {
       isProcessingQueue = false;
-      console.log('[Analysis] Queue processing complete');
+      debugLog('[Analysis] Queue processing complete');
       // Analyze current position at full depth
       if (chess && movePos > 0) {
         analyzeCurrentPosition();
@@ -291,11 +306,9 @@ const analysisEngine = (function() {
   
   function loadPgn(pgn) {
     if (!pgn || !chess) {
-      console.log('[Analysis] loadPgn: no pgn or chess not initialized');
       return false;
     }
-    
-    console.log('[Analysis] loadPgn called, pgn length:', pgn.length);
+    debugLog('[Analysis] loadPgn called, pgn length:', pgn.length);
     
     // Reset state
     chess.reset();
@@ -317,16 +330,16 @@ const analysisEngine = (function() {
     // Try to load the PGN
     const tempChess = new Chess();
     if (!tempChess.load_pgn(pgn)) {
-      console.error('[Analysis] Could not parse PGN:', pgn.substring(0, 200));
+      console.error('[Analysis] Could not parse PGN');
       return false;
     }
     
     moves = tempChess.history();
     totalMoves = moves.length;
-    console.log('[Analysis] Loaded', totalMoves, 'moves:', moves.slice(0, 5).join(', '), '...');
+    debugLog('[Analysis] Loaded', totalMoves, 'moves');
     
     if (totalMoves === 0) {
-      console.log('[Analysis] No moves in PGN');
+      debugLog('[Analysis] No moves in PGN');
       updateMoveIndicator();
       return true;
     }
@@ -337,7 +350,7 @@ const analysisEngine = (function() {
       tempChess.move(moves[i]);
       analysisQueue.push({ fen: tempChess.fen(), moveNum: i + 1 });
     }
-    console.log('[Analysis] Queued', analysisQueue.length, 'positions for analysis');
+    debugLog('[Analysis] Queued', analysisQueue.length, 'positions for analysis');
     
     // Reset to start position
     chess.reset();
@@ -346,10 +359,10 @@ const analysisEngine = (function() {
     
     // Start batch analysis - ensure stockfish is ready
     if (analysisQueue.length > 0 && stockfish) {
-      console.log('[Analysis] Starting queue processing');
+      debugLog('[Analysis] Starting queue processing');
       processNextInQueue();
     } else if (!stockfish) {
-      console.warn('[Analysis] Stockfish not ready, will analyze when initialized');
+      debugLog('[Analysis] Stockfish not ready, will analyze when initialized');
     }
     
     // Notify position change
@@ -364,6 +377,13 @@ const analysisEngine = (function() {
     if (!state) return;
     
     latestGameState = state;
+
+    // If init() hasn't run yet, buffer the latest state and retry after init.
+    if (!chess) {
+      pendingGameState = state;
+      return;
+    }
+
     const newMoveNumber = state.move_number || 0;
     
     // Detect new game
@@ -373,7 +393,7 @@ const analysisEngine = (function() {
     
     // Initial load: if we have a PGN but haven't loaded it yet
     if (state.pgn && lastSeenPgn === '' && totalMoves === 0) {
-      console.log('[Analysis] Initial PGN load, move_number:', newMoveNumber);
+      debugLog('[Analysis] Initial PGN load, move_number:', newMoveNumber);
       latestMoveNumber = newMoveNumber;
       if (loadPgn(state.pgn)) {
         // Go to the last move to show current position
