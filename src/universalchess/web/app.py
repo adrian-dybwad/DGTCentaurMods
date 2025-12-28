@@ -2116,6 +2116,11 @@ def sse_events():
             _sse_clients.append(client_queue)
         
         try:
+            # Send immediate comment to trigger browser onopen event.
+            # Without this, onopen only fires after the first real data arrives,
+            # causing the connection status to remain "Reconnecting..." for up to 30s.
+            yield ": connected\n\n"
+            
             # Send initial state if available
             subscriber = get_subscriber()
             last_state = subscriber.get_last_state()
