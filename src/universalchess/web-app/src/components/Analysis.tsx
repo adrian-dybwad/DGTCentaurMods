@@ -94,6 +94,7 @@ export function Analysis({ pgn, mode, onPositionChange, onBestMoveChange, onPlay
   }, []);
 
   // Parse PGN and build move history
+  // Preserves existing evaluations for unchanged positions
   useEffect(() => {
     if (!pgn || pgn === lastPgnRef.current) return;
     lastPgnRef.current = pgn;
@@ -102,7 +103,7 @@ export function Analysis({ pgn, mode, onPositionChange, onBestMoveChange, onPlay
 
     const chess = new Chess();
     const newMoves: MoveData[] = [
-      { fen: chess.fen(), san: 'Start', eval: null, mate: null, uci: null },
+      { fen: chess.fen(), san: 'Start', eval: moves[0]?.eval ?? null, mate: moves[0]?.mate ?? null, uci: null },
     ];
 
     try {
@@ -110,15 +111,25 @@ export function Analysis({ pgn, mode, onPositionChange, onBestMoveChange, onPlay
       const history = chess.history({ verbose: true });
       
       chess.reset();
-      for (const move of history) {
+      for (let i = 0; i < history.length; i++) {
+        const move = history[i];
         chess.move(move.san);
         // Build UCI notation from "from" and "to" squares, plus promotion if any
         const uci = move.from + move.to + (move.promotion || '');
+        const moveIndex = i + 1; // 1-indexed in moves array
+        
+        // Preserve existing evaluation if this position was already analyzed
+        // Check by comparing FEN (position) - if same position, keep the eval
+        const existingMove = moves[moveIndex];
+        const fen = chess.fen();
+        const existingEval = existingMove?.fen === fen ? existingMove.eval : null;
+        const existingMate = existingMove?.fen === fen ? existingMove.mate : null;
+        
         newMoves.push({
-          fen: chess.fen(),
+          fen: fen,
           san: move.san,
-          eval: null,
-          mate: null,
+          eval: existingEval,
+          mate: existingMate,
           uci: uci,
         });
       }
@@ -130,12 +141,22 @@ export function Analysis({ pgn, mode, onPositionChange, onBestMoveChange, onPlay
     const prevLength = moves.length;
     setMoves(newMoves);
 
-    // Build analysis queue
-    queueRef.current = [];
+    // Build analysis queue - only queue positions that haven't been analyzed yet
+    const newQueue: number[] = [];
     for (let i = 1; i < newMoves.length; i++) {
-      queueRef.current.push(i);
+      if (newMoves[i].eval === null) {
+        newQueue.push(i);
+      }
     }
-    console.log('[Analysis] Queue:', queueRef.current.length, 'positions');
+    
+    // Merge with existing queue (avoid duplicates)
+    const existingQueue = new Set(queueRef.current);
+    for (const idx of newQueue) {
+      if (!existingQueue.has(idx)) {
+        queueRef.current.push(idx);
+      }
+    }
+    console.log('[Analysis] Queue:', queueRef.current.length, 'positions to analyze');
 
     // Handle position based on mode
     if (mode === 'live') {
