@@ -181,7 +181,23 @@ def handle_piece_lift(ctx: PieceEventContext, field: int, piece_color) -> None:
             and ctx.move_state.source_square < 0
             and is_current_player_piece
         ):
-            ctx.move_state.legal_destination_squares = ctx.game_state.get_legal_destinations(field)
+            legal_destinations = ctx.game_state.get_legal_destinations(field)
+            
+            # If piece has no legal moves, enter correction mode immediately
+            if not legal_destinations:
+                log.warning(
+                    f"[GameManager._handle_piece_lift] Piece at {chess.square_name(field)} has no legal moves - "
+                    "entering correction mode"
+                )
+                ctx.board_module.beep(ctx.board_module.SOUND_WRONG_MOVE, event_type="error")
+                ctx.enter_correction_mode_fn()
+                current_state = ctx.board_module.getChessState()
+                expected_state = ctx.get_expected_state_fn()
+                if current_state is not None and expected_state is not None:
+                    ctx.provide_correction_guidance_fn(current_state, expected_state)
+                return
+            
+            ctx.move_state.legal_destination_squares = legal_destinations
             ctx.move_state.source_square = field
             ctx.move_state.source_piece_color = piece_color
 
