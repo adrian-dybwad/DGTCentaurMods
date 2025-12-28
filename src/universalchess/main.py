@@ -3102,6 +3102,17 @@ def main():
         log.error(f"[Main] Failed to load game settings: {e}", exc_info=True)
         # Continue anyway - settings are not critical
 
+    # Start settings subscriber for hot reload from web app
+    try:
+        from universalchess.services.game_broadcast import get_settings_subscriber
+        settings_subscriber = get_settings_subscriber()
+        settings_subscriber.add_callback(_load_game_settings)
+        settings_subscriber.start()
+        log.info("[Main] Settings subscriber started (hot reload enabled)")
+    except Exception as e:
+        log.warning(f"[Main] Failed to start settings subscriber: {e}")
+        # Continue anyway - hot reload is optional
+
     try:
         log.info("[Main] Initializing MenuManager...")
         _menu_manager = MenuManager.get_instance()

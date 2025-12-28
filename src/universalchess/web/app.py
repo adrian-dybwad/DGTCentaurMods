@@ -1724,7 +1724,8 @@ def save_all_settings(settings_dict, *, broadcast: bool = True):
     
     Args:
         settings_dict: Nested dict of settings to save.
-        broadcast: If True, broadcast settings_changed event to SSE clients.
+        broadcast: If True, broadcast settings_changed event to SSE clients
+                   and notify the main process to reload settings.
     """
     from universalchess.board.settings import Settings
     import configparser
@@ -1744,7 +1745,14 @@ def save_all_settings(settings_dict, *, broadcast: bool = True):
     Settings.write_config(config)
     
     if broadcast:
+        # Notify SSE clients (React app)
         broadcast_sse_event("settings_changed")
+        # Notify main process to reload settings (hot reload)
+        try:
+            from universalchess.services.game_broadcast import notify_main_process_settings_changed
+            notify_main_process_settings_changed()
+        except Exception:
+            pass  # Main process notification is optional
 
 
 @app.route("/api/settings", methods=["GET"])

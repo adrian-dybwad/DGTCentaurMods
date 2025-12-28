@@ -47,10 +47,12 @@ except ImportError:
 # Socket path - in /run for volatile runtime data
 SOCKET_DIR = Path("/run/universalchess")
 SOCKET_PATH = SOCKET_DIR / "game.sock"
+SETTINGS_SOCKET_PATH = SOCKET_DIR / "settings.sock"
 
 # Fallback for development (when /run isn't available)
 DEV_SOCKET_DIR = Path("/tmp/universalchess")
 DEV_SOCKET_PATH = DEV_SOCKET_DIR / "game.sock"
+DEV_SETTINGS_SOCKET_PATH = DEV_SOCKET_DIR / "settings.sock"
 
 
 def get_socket_path() -> Path:
@@ -58,6 +60,13 @@ def get_socket_path() -> Path:
     if SOCKET_DIR.exists() or os.access(SOCKET_DIR.parent, os.W_OK):
         return SOCKET_PATH
     return DEV_SOCKET_PATH
+
+
+def get_settings_socket_path() -> Path:
+    """Get the appropriate settings socket path based on environment."""
+    if SOCKET_DIR.exists() or os.access(SOCKET_DIR.parent, os.W_OK):
+        return SETTINGS_SOCKET_PATH
+    return DEV_SETTINGS_SOCKET_PATH
 
 
 @dataclass
@@ -488,4 +497,226 @@ def broadcast_settings_changed() -> bool:
         True if broadcast succeeded, False otherwise.
     """
     return get_broadcaster().broadcast_event("settings_changed")
+
+
+# -----------------------------------------------------------------------------
+# Settings notification (web app → main process)
+# -----------------------------------------------------------------------------
+
+class SettingsPublisher:
+    """
+    Publisher side for settings changes (web app → main process).
+    
+    Used by the web application to notify the main process that settings changed.
+    """
+    
+    def __init__(self):
+        self._socket: Optional[socket.socket] = None
+        self._connected = False
+        self._lock = threading.Lock()
+    
+    def _ensure_socket_dir(self) -> None:
+        """Ensure the socket directory exists with correct permissions."""
+        socket_path = get_settings_socket_path()
+        socket_dir = socket_path.parent
+        
+        if not socket_dir.exists():
+            socket_dir.mkdir(parents=True, mode=0o755)
+            log.info(f"[SettingsPublisher] Created socket directory: {socket_dir}")
+    
+    def connect(self) -> bool:
+        """Connect to the settings socket.
+        
+        Returns:
+            True if connected, False otherwise.
+        """
+        with self._lock:
+            if self._connected:
+                return True
+            
+            try:
+                self._ensure_socket_dir()
+                self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+                self._connected = True
+                log.info(f"[SettingsPublisher] Ready to publish to {get_settings_socket_path()}")
+                return True
+            except Exception as e:
+                log.debug(f"[SettingsPublisher] Failed to initialize: {e}")
+                self._connected = False
+                return False
+    
+    def notify_settings_changed(self) -> bool:
+        """Notify the main process that settings have changed.
+        
+        Returns:
+            True if sent successfully, False otherwise.
+        """
+        if not self._connected:
+            if not self.connect():
+                return False
+        
+        try:
+            socket_path = get_settings_socket_path()
+            message = json.dumps({"type": "settings_changed"}).encode("utf-8")
+            self._socket.sendto(message, str(socket_path))
+            log.debug("[SettingsPublisher] Sent settings_changed notification")
+            return True
+        except FileNotFoundError:
+            log.debug("[SettingsPublisher] Main process not listening")
+            return False
+        except Exception as e:
+            log.debug(f"[SettingsPublisher] Send failed: {e}")
+            self._connected = False
+            return False
+    
+    def close(self) -> None:
+        """Close the socket."""
+        with self._lock:
+            if self._socket:
+                try:
+                    self._socket.close()
+                except Exception:
+                    pass
+                self._socket = None
+            self._connected = False
+
+
+class SettingsSubscriber:
+    """
+    Subscriber side for settings changes (main process listens).
+    
+    Used by the main application to receive notifications when settings change.
+    """
+    
+    def __init__(self):
+        self._socket: Optional[socket.socket] = None
+        self._running = False
+        self._thread: Optional[threading.Thread] = None
+        self._callbacks: List[Callable[[], None]] = []
+        self._lock = threading.Lock()
+    
+    def _ensure_socket(self) -> None:
+        """Create and bind the Unix socket."""
+        socket_path = get_settings_socket_path()
+        socket_dir = socket_path.parent
+        
+        if not socket_dir.exists():
+            socket_dir.mkdir(parents=True, mode=0o755)
+        
+        if socket_path.exists():
+            socket_path.unlink()
+        
+        self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        self._socket.bind(str(socket_path))
+        self._socket.settimeout(1.0)
+        
+        os.chmod(socket_path, 0o600)
+        log.info(f"[SettingsSubscriber] Listening on {socket_path}")
+    
+    def add_callback(self, callback: Callable[[], None]) -> None:
+        """Register a callback for settings change notifications.
+        
+        Args:
+            callback: Function to call when settings change (no arguments).
+        """
+        with self._lock:
+            self._callbacks.append(callback)
+    
+    def start(self) -> None:
+        """Start the subscriber thread."""
+        if self._running:
+            return
+        
+        self._running = True
+        self._thread = threading.Thread(target=self._receive_loop, daemon=True)
+        self._thread.start()
+        log.info("[SettingsSubscriber] Started")
+    
+    def stop(self) -> None:
+        """Stop the subscriber thread."""
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=2.0)
+            self._thread = None
+        
+        if self._socket:
+            try:
+                self._socket.close()
+            except Exception:
+                pass
+            self._socket = None
+        
+        socket_path = get_settings_socket_path()
+        if socket_path.exists():
+            try:
+                socket_path.unlink()
+            except Exception:
+                pass
+        
+        log.info("[SettingsSubscriber] Stopped")
+    
+    def _receive_loop(self) -> None:
+        """Main receive loop - runs in background thread."""
+        try:
+            self._ensure_socket()
+        except Exception as e:
+            log.error(f"[SettingsSubscriber] Failed to create socket: {e}")
+            self._running = False
+            return
+        
+        while self._running:
+            try:
+                data, _ = self._socket.recvfrom(65536)
+                message = data.decode("utf-8")
+                parsed = json.loads(message)
+                
+                if parsed.get("type") == "settings_changed":
+                    log.info("[SettingsSubscriber] Received settings_changed, notifying callbacks")
+                    with self._lock:
+                        callbacks = list(self._callbacks)
+                    
+                    for callback in callbacks:
+                        try:
+                            callback()
+                        except Exception as e:
+                            log.error(f"[SettingsSubscriber] Callback error: {e}")
+                
+            except socket.timeout:
+                continue
+            except Exception as e:
+                if self._running:
+                    log.error(f"[SettingsSubscriber] Receive error: {e}")
+                    time.sleep(0.1)
+
+
+# Singleton instances for settings notification
+_settings_publisher: Optional[SettingsPublisher] = None
+_settings_subscriber: Optional[SettingsSubscriber] = None
+
+
+def get_settings_publisher() -> SettingsPublisher:
+    """Get the singleton SettingsPublisher instance."""
+    global _settings_publisher
+    if _settings_publisher is None:
+        _settings_publisher = SettingsPublisher()
+    return _settings_publisher
+
+
+def get_settings_subscriber() -> SettingsSubscriber:
+    """Get the singleton SettingsSubscriber instance."""
+    global _settings_subscriber
+    if _settings_subscriber is None:
+        _settings_subscriber = SettingsSubscriber()
+    return _settings_subscriber
+
+
+def notify_main_process_settings_changed() -> bool:
+    """Notify the main process that settings have changed.
+    
+    Called from the web app when settings are saved.
+    
+    Returns:
+        True if notification was sent, False otherwise.
+    """
+    return get_settings_publisher().notify_settings_changed()
 
