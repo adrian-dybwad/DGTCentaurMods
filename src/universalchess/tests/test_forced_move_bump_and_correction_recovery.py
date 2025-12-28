@@ -1,0 +1,124 @@
+import chess
+from unittest.mock import Mock
+
+from universalchess.managers.game.field_events import FieldEventContext, process_field_event
+from universalchess.managers.game.move_state import MoveState
+from universalchess.managers.game.correction_mode import CorrectionMode
+
+
+def _piece_presence_state(board: chess.Board) -> bytearray:
+    state = bytearray(64)
+    for sq in chess.SQUARES:
+        state[sq] = 1 if board.piece_at(sq) is not None else 0
+    return state
+
+
+class _PlayerManagerStub:
+    def __init__(self, pending_move: chess.Move):
+        self._pending_move = pending_move
+
+    def get_current_pending_move(self, _board: chess.Board):
+        return self._pending_move
+
+
+def test_forced_move_bump_after_source_lift_does_not_enter_correction_mode() -> None:
+    # Expected failure message if broken: "enter_correction_mode_fn called on bump during forced move"
+    # Why: After lifting the forced move source piece, bumping another piece must not trigger correction mode.
+    chess_board = chess.Board("rnbqkb1r/pppp1ppp/8/4p3/2P1n3/PP6/3P1PPP/RNBQKBNR b KQkq - 0 4")
+    pending_move = chess.Move.from_uci("f8c5")
+
+    move_state = MoveState()
+    correction_mode = CorrectionMode()
+
+    board_module = Mock()
+    board_module.getChessState.return_value = None
+    board_module.beep = Mock()
+    board_module.SOUND_WRONG_MOVE = 0
+
+    enter_correction_mode_fn = Mock()
+    provide_correction_guidance_fn = Mock()
+
+    ctx = FieldEventContext(
+        chess_board=chess_board,
+        move_state=move_state,
+        correction_mode=correction_mode,
+        player_manager=_PlayerManagerStub(pending_move),
+        board_module=board_module,
+        event_callback=None,
+        enter_correction_mode_fn=enter_correction_mode_fn,
+        provide_correction_guidance_fn=provide_correction_guidance_fn,
+        handle_field_event_in_correction_mode_fn=Mock(),
+        handle_piece_event_without_player_fn=Mock(),
+        on_piece_event_fn=Mock(),
+        handle_king_lift_resign_fn=Mock(),
+        execute_pending_move_fn=Mock(),
+        get_kings_in_center_menu_active_fn=lambda: False,
+        set_kings_in_center_menu_active_fn=lambda _v: None,
+        on_kings_in_center_cancel_fn=None,
+        get_king_lift_resign_menu_active_fn=lambda: False,
+        set_king_lift_resign_menu_active_fn=lambda _v: None,
+        on_king_lift_resign_cancel_fn=None,
+        chess_board_to_state_fn=lambda _b: None,
+    )
+
+    # Lift forced move source (f8)
+    process_field_event(ctx, piece_event=0, field=chess.F8, time_in_seconds=0.0)
+    assert move_state.pending_move_source_lifted == chess.F8
+
+    # Bump a3 (white pawn) - must NOT trigger correction mode even though pawn has no legal moves on black turn.
+    process_field_event(ctx, piece_event=0, field=chess.A3, time_in_seconds=0.1)
+
+    enter_correction_mode_fn.assert_not_called()
+
+
+def test_pending_move_executes_even_if_correction_mode_active_when_board_matches_post_move() -> None:
+    # Expected failure message if broken: "execute_pending_move_fn not called while in correction mode"
+    # Why: If correction mode is active and the forced move is physically completed, the move must be accepted.
+    chess_board = chess.Board("rnbqkb1r/pppp1ppp/8/4p3/2P1n3/PP6/3P1PPP/RNBQKBNR b KQkq - 0 4")
+    pending_move = chess.Move.from_uci("f8c5")
+
+    expected_after_board = chess_board.copy()
+    expected_after_board.push(pending_move)
+    expected_after_state = _piece_presence_state(expected_after_board)
+
+    move_state = MoveState()
+    correction_mode = CorrectionMode()
+    correction_mode.enter(_piece_presence_state(chess_board))
+
+    board_module = Mock()
+    board_module.getChessState.return_value = expected_after_state
+    board_module.beep = Mock()
+
+    execute_pending_move_fn = Mock()
+    handle_field_event_in_correction_mode_fn = Mock()
+
+    ctx = FieldEventContext(
+        chess_board=chess_board,
+        move_state=move_state,
+        correction_mode=correction_mode,
+        player_manager=_PlayerManagerStub(pending_move),
+        board_module=board_module,
+        event_callback=None,
+        enter_correction_mode_fn=Mock(),
+        provide_correction_guidance_fn=Mock(),
+        handle_field_event_in_correction_mode_fn=handle_field_event_in_correction_mode_fn,
+        handle_piece_event_without_player_fn=Mock(),
+        on_piece_event_fn=Mock(),
+        handle_king_lift_resign_fn=Mock(),
+        execute_pending_move_fn=execute_pending_move_fn,
+        get_kings_in_center_menu_active_fn=lambda: False,
+        set_kings_in_center_menu_active_fn=lambda _v: None,
+        on_kings_in_center_cancel_fn=None,
+        get_king_lift_resign_menu_active_fn=lambda: False,
+        set_king_lift_resign_menu_active_fn=lambda _v: None,
+        on_king_lift_resign_cancel_fn=None,
+        chess_board_to_state_fn=lambda b: _piece_presence_state(b),
+    )
+
+    # While in correction mode, PLACE on c5 should accept the pending move if the full physical state matches post-move.
+    process_field_event(ctx, piece_event=1, field=chess.C5, time_in_seconds=1.0)
+
+    execute_pending_move_fn.assert_called_once_with(pending_move)
+    handle_field_event_in_correction_mode_fn.assert_not_called()
+
+

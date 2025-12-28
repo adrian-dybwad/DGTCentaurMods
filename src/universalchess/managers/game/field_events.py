@@ -77,6 +77,11 @@ def process_field_event(
 
     is_lift = piece_event == 0
 
+    # Pending move helpers (engine/Lichess forced move)
+    pending_move = ctx.player_manager.get_current_pending_move(ctx.chess_board)
+    is_pending_capture = pending_move is not None and ctx.chess_board.is_capture(pending_move)
+    pending_capture_square = pending_move.to_square if is_pending_capture else None
+
     # When a resign menu is active (kings-in-center or king-lift), check for:
     # 1. Board corrected (pieces returned to position) → cancel menu
     # 2. LIFT event → cancel menu and enter correction mode to guide pieces back
@@ -124,6 +129,36 @@ def process_field_event(
 
     # Handle correction mode - piece events help correct the board
     if ctx.correction_mode.is_active:
+        # IMPORTANT: Even while correction mode is active, allow the forced/pending move
+        # to be executed if the physical board already matches the expected post-move state.
+        #
+        # This prevents a deadlock where an unrelated bump triggers correction mode mid-sequence,
+        # and then placing the forced move on the correct target never gets accepted because
+        # correction mode compares against the pre-move logical state.
+        if (
+            pending_move is not None
+            and piece_event == 1  # PLACE
+        ):
+            if (not is_pending_capture) or (
+                pending_capture_square is not None
+                and ctx.move_state.has_seen_capture_square_event(pending_capture_square)
+            ):
+                expected_board_after = ctx.chess_board.copy()
+                expected_board_after.push(pending_move)
+                expected_state_after = ctx.chess_board_to_state_fn(expected_board_after)
+                current_physical_state = ctx.board_module.getChessState()
+                if (
+                    expected_state_after is not None
+                    and current_physical_state is not None
+                    and ChessGameState.states_match(current_physical_state, expected_state_after)
+                ):
+                    log.info(
+                        f"[GameManager.receive_field] (correction_mode) Physical board matches expected state after "
+                        f"{pending_move.uci()} - executing pending move directly"
+                    )
+                    ctx.execute_pending_move_fn(pending_move)
+                    return
+
         ctx.handle_field_event_in_correction_mode_fn(piece_event, field, time_in_seconds)
         return
 
@@ -144,7 +179,6 @@ def process_field_event(
     # For captures: require at least one event (LIFT or PLACE) on the capture square
     # before using the board state shortcut. This ensures the user has interacted with
     # the captured piece (even if some events were missed/fumbled).
-    pending_move = ctx.player_manager.get_current_pending_move(ctx.chess_board)
     if pending_move is not None:
         is_capture = ctx.chess_board.is_capture(pending_move)
         capture_square = pending_move.to_square if is_capture else None
@@ -195,15 +229,18 @@ def process_field_event(
     # the pending move. When the forced move source has been lifted and the user is now
     # bumping/adjusting another piece (e.g., removing the captured piece), we should
     # not trigger an error.
-    pending_move_in_progress = ctx.move_state.pending_move_source_lifted != INVALID_SQUARE
+    pending_move_in_progress = (
+        ctx.move_state.pending_move_source_lifted != INVALID_SQUARE
+        and (not is_pending_capture or (pending_capture_square is not None and ctx.move_state.has_seen_capture_square_event(pending_capture_square)))
+    )
     if is_lift and pending_move is not None and piece_color is not None and not pending_move_in_progress:
         pending_from_square = pending_move.from_square
         pending_to_square = pending_move.to_square
-        is_pending_capture = ctx.chess_board.is_capture(pending_move)
+        is_pending_capture_local = ctx.chess_board.is_capture(pending_move)
         
         # Allow lifting from: source square OR capture target square
         is_valid_lift = (field == pending_from_square or 
-                         (is_pending_capture and field == pending_to_square))
+                         (is_pending_capture_local and field == pending_to_square))
         
         # Track when the correct source piece is lifted for the pending move
         if is_valid_lift and field == pending_from_square:
@@ -234,20 +271,39 @@ def process_field_event(
     # - Player lifting opponent's piece (which has no legal moves since it's not their turn)
     # - Lifting an empty square (piece_color is None, handled separately)
     if is_lift and piece_color is not None:
-        # Check if this piece has any legal moves from this square
-        has_legal_moves = any(move.from_square == field for move in ctx.chess_board.legal_moves)
-        if not has_legal_moves:
-            log.warning(
-                f"[GameManager.receive_field] Piece at {chess.square_name(field)} has no legal moves - "
-                "entering correction mode"
+        # During a forced/pending move sequence, once the correct source piece has been lifted,
+        # allow subsequent bumps/adjustments without triggering correction mode based on
+        # the current position's legal moves (which are turn-dependent).
+        #
+        # Example: black forced move is pending, user lifts black source piece, then bumps a
+        # white pawn. That pawn has no legal moves because it's not White's turn, but this
+        # should not force correction mode mid-sequence.
+        allow_bumps_without_legal_move_check = (
+            pending_move is not None
+            and ctx.move_state.pending_move_source_lifted != INVALID_SQUARE
+            and (
+                not is_pending_capture
+                or (
+                    pending_capture_square is not None
+                    and ctx.move_state.has_seen_capture_square_event(pending_capture_square)
+                )
             )
-            ctx.board_module.beep(ctx.board_module.SOUND_WRONG_MOVE, event_type="error")
-            ctx.enter_correction_mode_fn()
-            current_state = ctx.board_module.getChessState()
-            expected_state = ctx.chess_board_to_state_fn(ctx.chess_board)
-            if current_state is not None and expected_state is not None:
-                ctx.provide_correction_guidance_fn(current_state, expected_state)
-            return
+        )
+        if not allow_bumps_without_legal_move_check:
+            # Check if this piece has any legal moves from this square (turn-dependent).
+            has_legal_moves = any(move.from_square == field for move in ctx.chess_board.legal_moves)
+            if not has_legal_moves:
+                log.warning(
+                    f"[GameManager.receive_field] Piece at {chess.square_name(field)} has no legal moves - "
+                    "entering correction mode"
+                )
+                ctx.board_module.beep(ctx.board_module.SOUND_WRONG_MOVE, event_type="error")
+                ctx.enter_correction_mode_fn()
+                current_state = ctx.board_module.getChessState()
+                expected_state = ctx.chess_board_to_state_fn(ctx.chess_board)
+                if current_state is not None and expected_state is not None:
+                    ctx.provide_correction_guidance_fn(current_state, expected_state)
+                return
 
     # Forward to player manager (after board state validation to avoid incorrect move formation)
     ctx.on_piece_event_fn("lift" if is_lift else "place", field, ctx.chess_board)
