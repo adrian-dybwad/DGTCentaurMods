@@ -77,14 +77,7 @@ class LocalController(GameController):
         """
         self._player_manager = player_manager
         self._game_manager.set_player_manager(player_manager)
-        
-        # Check for Lichess and set up callbacks
-        from universalchess.players.lichess import LichessPlayer
-        for player in [player_manager.white_player, player_manager.black_player]:
-            if isinstance(player, LichessPlayer):
-                player.set_clock_callback(self._on_lichess_clock_update)
-                player.set_game_info_callback(self._on_lichess_game_info)
-        
+
         log.info(f"[LocalController] PlayerManager set: "
                  f"White={player_manager.white_player.name}, "
                  f"Black={player_manager.black_player.name}")
@@ -467,21 +460,6 @@ class LocalController(GameController):
         
         log.debug(f"[LocalController] Requesting suggestion from assistant manager (color={chess_board.turn})")
         assistant_manager.request_suggestion(chess_board, chess_board.turn)
-    
-    # =========================================================================
-    # Lichess-Specific Callbacks
-    # =========================================================================
-    
-    def _on_lichess_clock_update(self, white_time: int, black_time: int) -> None:
-        """Handle clock update from Lichess."""
-        self._game_manager.set_clock(white_time, black_time)
-    
-    def _on_lichess_game_info(self, white_player: str, white_rating: str,
-                               black_player: str, black_rating: str) -> None:
-        """Handle game info update from Lichess."""
-        white_str = f"{white_player}({white_rating})"
-        black_str = f"{black_player}({black_rating})"
-        self._game_manager.set_game_info("", "", "", white_str, black_str)
     
     # =========================================================================
     # Cleanup
