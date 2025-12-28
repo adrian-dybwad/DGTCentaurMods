@@ -1719,8 +1719,13 @@ def get_all_settings():
     return result
 
 
-def save_all_settings(settings_dict):
-    """Save all settings to centaur.ini from a nested dictionary."""
+def save_all_settings(settings_dict, *, broadcast: bool = True):
+    """Save all settings to centaur.ini from a nested dictionary.
+    
+    Args:
+        settings_dict: Nested dict of settings to save.
+        broadcast: If True, broadcast settings_changed event to SSE clients.
+    """
     from universalchess.board.settings import Settings
     import configparser
     
@@ -1737,6 +1742,9 @@ def save_all_settings(settings_dict):
             config.set(section, key, str(value))
     
     Settings.write_config(config)
+    
+    if broadcast:
+        broadcast_sse_event("settings_changed")
 
 
 @app.route("/api/settings", methods=["GET"])
@@ -2007,6 +2015,26 @@ import threading
 # Thread-safe queue for SSE clients - each client gets its own queue
 _sse_clients: list[queue.Queue] = []
 _sse_clients_lock = threading.Lock()
+
+
+def broadcast_sse_event(event_type: str, data: dict = None) -> None:
+    """Broadcast a custom SSE event to all connected clients.
+    
+    Args:
+        event_type: Type of event (e.g., 'settings_changed').
+        data: Optional data payload (JSON-serializable).
+    """
+    message = json.dumps({
+        "type": event_type,
+        **(data or {})
+    })
+    with _sse_clients_lock:
+        for client_queue in _sse_clients:
+            try:
+                client_queue.put_nowait(message)
+            except queue.Full:
+                pass
+
 
 def _on_game_state_update(state: GameState) -> None:
     """Callback invoked when game state is received from main app.

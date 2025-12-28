@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button, Card, CardHeader, Input, Select, Toggle, Badge } from '../components/ui';
 import type { EngineDefinition } from '../types/game';
-import { apiFetch } from '../utils/api';
+import { apiFetch, buildApiUrl } from '../utils/api';
 import './Settings.css';
 
 interface SettingsData {
@@ -103,6 +103,53 @@ const defaultFormSettings: FormSettings = {
 };
 
 /**
+ * Parse raw settings from the API into the form settings structure.
+ */
+function parseRawSettings(data: SettingsData): FormSettings {
+  return {
+    player1: {
+      type: data.PlayerOne?.type || 'human',
+      name: data.PlayerOne?.name || '',
+      engine: data.PlayerOne?.engine || 'stockfish',
+      elo: data.PlayerOne?.elo || 'Default',
+      hand_brain_mode: data.PlayerOne?.hand_brain_mode || 'normal',
+    },
+    player2: {
+      type: data.PlayerTwo?.type || 'engine',
+      name: data.PlayerTwo?.name || '',
+      engine: data.PlayerTwo?.engine || 'stockfish',
+      elo: data.PlayerTwo?.elo || 'Default',
+      hand_brain_mode: data.PlayerTwo?.hand_brain_mode || 'normal',
+    },
+    game: {
+      time_control: data.game?.time_control || '0',
+      analysis_mode: data.game?.analysis_mode !== 'false',
+      analysis_engine: data.game?.analysis_engine || 'stockfish',
+      show_board: data.game?.show_board !== 'false',
+      show_clock: data.game?.show_clock !== 'false',
+      show_analysis: data.game?.show_analysis !== 'false',
+      show_graph: data.game?.show_graph !== 'false',
+      led_brightness: parseInt(data.game?.led_brightness || '5'),
+    },
+    lichess: {
+      api_token: data.lichess?.api_token || '',
+      range: data.lichess?.range || '',
+    },
+    sound: {
+      enabled: data.sound?.sound !== 'off',
+      key_press: data.sound?.key_press !== 'off',
+      game_events: data.sound?.game_event !== 'off',
+      piece_events: data.sound?.piece_event !== 'off',
+      errors: data.sound?.error !== 'off',
+    },
+    system: {
+      developer_mode: data.system?.developer === 'True' || data.system?.developer === 'true',
+      database_uri: data.DATABASE?.database_uri || '',
+    },
+  };
+}
+
+/**
  * Settings page with tabbed navigation matching the Flask version.
  */
 export function Settings() {
@@ -118,22 +165,60 @@ export function Settings() {
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
   const [installingEngine, setInstallingEngine] = useState<string | null>(null);
+  const hasChangesRef = useRef(hasChanges);
+
+  // Keep ref in sync with state (for use in SSE callback)
+  useEffect(() => {
+    hasChangesRef.current = hasChanges;
+  }, [hasChanges]);
+
+  // Fetch settings function (reusable for initial load and SSE refresh)
+  const fetchSettings = useCallback(async () => {
+    const [settingsData, enginesData] = await Promise.all([
+      apiFetch('/api/settings').then((r) => r.json()),
+      apiFetch('/api/engines/all').then((r) => r.json()),
+    ]);
+    setRawSettings(settingsData);
+    setEngines(enginesData);
+    setInstalledEngines(enginesData.filter((e: EngineDefinition) => e.installed));
+    
+    const parsed = parseRawSettings(settingsData);
+    setFormSettings(parsed);
+    setOriginalSettings(parsed);
+    return { settingsData, enginesData };
+  }, []);
+
+  // Listen for settings_changed events via SSE
+  useEffect(() => {
+    const eventsUrl = buildApiUrl('/events');
+    const es = new EventSource(eventsUrl);
+
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'settings_changed') {
+          // Only refetch if there are no local unsaved changes
+          if (!hasChangesRef.current) {
+            console.log('[Settings] Received settings_changed, refetching...');
+            fetchSettings().catch((e) => console.error('Failed to refetch settings:', e));
+          } else {
+            console.log('[Settings] Received settings_changed but have local changes, skipping refetch');
+          }
+        }
+      } catch {
+        // Ignore parse errors (game state events have different structure)
+      }
+    };
+
+    return () => {
+      es.close();
+    };
+  }, [fetchSettings]);
 
   // Load settings and engines on mount
   useEffect(() => {
-    Promise.all([
-      apiFetch('/api/settings').then((r) => r.json()),
-      apiFetch('/api/engines/all').then((r) => r.json()),
-    ])
-      .then(([settingsData, enginesData]) => {
-        setRawSettings(settingsData);
-        setEngines(enginesData);
-        setInstalledEngines(enginesData.filter((e: EngineDefinition) => e.installed));
-        
-        // Parse raw settings into form state
-        const parsed = parseRawSettings(settingsData);
-        setFormSettings(parsed);
-        setOriginalSettings(parsed);
+    fetchSettings()
+      .then(() => {
         setLoading(false);
       })
       .catch((e) => {
@@ -141,7 +226,7 @@ export function Settings() {
         setLoadError('Could not connect to the Universal Chess backend. Make sure the board is running and accessible.');
         setLoading(false);
       });
-  }, []);
+  }, [fetchSettings]);
 
   // Load engine levels when engine changes
   const loadEngineLevels = useCallback(async (engineName: string) => {
@@ -163,50 +248,6 @@ export function Settings() {
     if (formSettings.player2.engine) loadEngineLevels(formSettings.player2.engine);
     if (formSettings.game.analysis_engine) loadEngineLevels(formSettings.game.analysis_engine);
   }, [formSettings.player1.engine, formSettings.player2.engine, formSettings.game.analysis_engine, loadEngineLevels]);
-
-  const parseRawSettings = (data: SettingsData): FormSettings => {
-    return {
-      player1: {
-        type: data.PlayerOne?.type || 'human',
-        name: data.PlayerOne?.name || '',
-        engine: data.PlayerOne?.engine || 'stockfish',
-        elo: data.PlayerOne?.elo || 'Default',
-        hand_brain_mode: data.PlayerOne?.hand_brain_mode || 'normal',
-      },
-      player2: {
-        type: data.PlayerTwo?.type || 'engine',
-        name: data.PlayerTwo?.name || '',
-        engine: data.PlayerTwo?.engine || 'stockfish',
-        elo: data.PlayerTwo?.elo || 'Default',
-        hand_brain_mode: data.PlayerTwo?.hand_brain_mode || 'normal',
-      },
-      game: {
-        time_control: data.game?.time_control || '0',
-        analysis_mode: data.game?.analysis_mode !== 'false',
-        analysis_engine: data.game?.analysis_engine || 'stockfish',
-        show_board: data.game?.show_board !== 'false',
-        show_clock: data.game?.show_clock !== 'false',
-        show_analysis: data.game?.show_analysis !== 'false',
-        show_graph: data.game?.show_graph !== 'false',
-        led_brightness: parseInt(data.game?.led_brightness || '5'),
-      },
-      lichess: {
-        api_token: data.lichess?.api_token || '',
-        range: data.lichess?.range || '',
-      },
-      sound: {
-        enabled: data.sound?.sound !== 'off',
-        key_press: data.sound?.key_press !== 'off',
-        game_events: data.sound?.game_event !== 'off',
-        piece_events: data.sound?.piece_event !== 'off',
-        errors: data.sound?.error !== 'off',
-      },
-      system: {
-        developer_mode: data.system?.developer === 'True' || data.system?.developer === 'true',
-        database_uri: data.DATABASE?.database_uri || '',
-      },
-    };
-  };
 
   const updateFormSettings = <T extends keyof FormSettings>(
     section: T,
