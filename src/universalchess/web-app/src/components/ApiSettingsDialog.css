@@ -89,8 +89,13 @@
   gap: 0.5rem;
 }
 
+/* Standard dialog inputs */
+.dialog .form-group input[type="text"],
+.dialog .form-group input[type="password"],
+.dialog .form-group input[type="url"],
 .input-with-button input {
   flex: 1;
+  width: 100%;
   padding: 0.75rem 1rem;
   border: 2px solid rgba(0, 0, 0, 0.2);
   border-radius: 8px;
@@ -98,8 +103,12 @@
   background: #fff;
   color: #1a1a1a;
   transition: border-color 0.2s;
+  box-sizing: border-box;
 }
 
+.dialog .form-group input[type="text"]:focus,
+.dialog .form-group input[type="password"]:focus,
+.dialog .form-group input[type="url"]:focus,
 .input-with-button input:focus {
   outline: none;
   border-color: var(--color-accent-primary, #aa44aa);
@@ -135,6 +144,23 @@
   font-size: 0.875rem;
   color: #363636;
   margin-top: 1rem;
+}
+
+/* Checkbox styling for dialogs */
+.dialog .checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #1a1a1a;
+  cursor: pointer;
+  user-select: none;
+}
+
+.dialog .checkbox-label input[type="checkbox"] {
+  width: 1.1rem;
+  height: 1.1rem;
+  cursor: pointer;
+  accent-color: var(--color-accent-primary, #aa44aa);
 }
 
 .dialog-footer {
