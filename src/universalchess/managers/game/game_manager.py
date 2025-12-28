@@ -861,6 +861,7 @@ class GameManager:
             handle_piece_event_without_player_fn=self._handle_piece_event_without_player,
             on_piece_event_fn=self._player_manager.on_piece_event if self._player_manager else (lambda *_: None),
             handle_king_lift_resign_fn=self._handle_king_lift_resign,
+            execute_pending_move_fn=self._execute_pending_move_directly,
             get_kings_in_center_menu_active_fn=lambda: self._kings_in_center_menu_active,
             set_kings_in_center_menu_active_fn=lambda v: setattr(self, "_kings_in_center_menu_active", v),
             on_kings_in_center_cancel_fn=self.on_kings_in_center_cancel,
@@ -1008,6 +1009,33 @@ class GameManager:
         """Execute a complete move submitted by a player (delegates to player_moves)."""
         ctx = self._build_player_move_context()
         execute_complete_move(ctx, move)
+
+    def _execute_pending_move_directly(self, move: chess.Move) -> None:
+        """Execute a pending move directly based on board state validation.
+        
+        Called when the physical board state matches the expected state after
+        the pending move, regardless of what piece events were received.
+        This handles nudges, missed lifts, or any other event sequence noise.
+        
+        Clears the player's pending move and lifted squares state before
+        executing to ensure clean state.
+        
+        Args:
+            move: The pending move to execute.
+        """
+        log.info(f"[GameManager._execute_pending_move_directly] Executing move {move.uci()} based on board state")
+        
+        # Clear player's pending state to prevent double-execution
+        if self._player_manager:
+            current_player = self._player_manager.get_current_player(self.chess_board)
+            if current_player:
+                # Clear pending move
+                current_player._pending_move = None
+                # Clear lifted squares (protected access, but necessary here)
+                current_player._lifted_squares = []
+        
+        # Execute the move
+        self._execute_complete_move(move)
 
     def _on_player_move(self, move: chess.Move) -> bool:
         """Callback when a player submits a move (delegates to player_moves)."""

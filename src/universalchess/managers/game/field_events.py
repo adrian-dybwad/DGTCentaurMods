@@ -34,6 +34,7 @@ class FieldEventContext:
     handle_piece_event_without_player_fn: Callable[[int], None]
     on_piece_event_fn: Callable[[str, int, chess.Board], None]
     handle_king_lift_resign_fn: Callable[[int, object], None]
+    execute_pending_move_fn: Callable[[chess.Move], None]
 
     # Menu state and callbacks
     get_kings_in_center_menu_active_fn: Callable[[], bool]
@@ -131,6 +132,30 @@ def process_field_event(
         if not is_lift:
             ctx.handle_piece_event_without_player_fn(field)
         return
+
+    # BOARD STATE VALIDATION FOR PENDING MOVES
+    # If there's a pending move (engine/Lichess) and the physical board matches the
+    # expected state AFTER the move, execute it directly regardless of event sequence.
+    # This handles nudges, missed lifts, or any other noise - if the board is right, the move succeeded.
+    if not is_lift:
+        pending_move = ctx.player_manager.get_current_pending_move(ctx.chess_board)
+        if pending_move is not None:
+            # Create expected board state after the pending move
+            expected_board_after = ctx.chess_board.copy()
+            expected_board_after.push(pending_move)
+            expected_state_after = ctx.chess_board_to_state_fn(expected_board_after)
+            
+            # Get current physical state
+            current_physical_state = ctx.board_module.getChessState()
+            
+            if expected_state_after is not None and current_physical_state is not None:
+                if ChessGameState.states_match(current_physical_state, expected_state_after):
+                    log.info(
+                        f"[GameManager.receive_field] Physical board matches expected state after {pending_move.uci()} - "
+                        "executing pending move directly"
+                    )
+                    ctx.execute_pending_move_fn(pending_move)
+                    return
 
     # Forward to player manager
     ctx.on_piece_event_fn("lift" if is_lift else "place", field, ctx.chess_board)

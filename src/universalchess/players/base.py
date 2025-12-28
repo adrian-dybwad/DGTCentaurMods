@@ -471,9 +471,18 @@ class Player(ABC):
                 self._lifted_squares = []
                 self._on_move_formed(chess.Move(from_sq, square))
             else:
-                # Two pieces lifted (capture scenario)
+                # Multiple pieces lifted (capture or with nudges)
                 if square in self._lifted_squares:
-                    # Placing on one of the lifted squares = capture move
+                    if len(self._lifted_squares) > 2:
+                        # More than 2 pieces lifted - this is likely a nudge being returned.
+                        # Remove the placed-back square and continue waiting for the actual move.
+                        # E.g., for capture b4xc3 with accidental b3 nudge:
+                        #   LIFT(b4), LIFT(c3), LIFT(b3), PLACE(b3) -> just remove b3, wait for PLACE(c3)
+                        from universalchess.board.logging import log
+                        log.info(f"[Player.on_piece_event] Piece returned to {chess.square_name(square)} with {len(self._lifted_squares)} lifts - treating as nudge")
+                        self._lifted_squares.remove(square)
+                        return
+                    # Exactly 2 lifted: placing on one of the lifted squares = capture move
                     # The OTHER lifted square is the source
                     from_sq = [sq for sq in self._lifted_squares if sq != square][0]
                 else:
