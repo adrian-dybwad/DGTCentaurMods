@@ -133,10 +133,13 @@ def process_field_event(
             ctx.handle_piece_event_without_player_fn(field)
         return
 
-    # BOARD STATE VALIDATION FOR PENDING MOVES
+    # BOARD STATE VALIDATION FOR PENDING MOVES (must happen BEFORE forwarding to player)
     # If there's a pending move (engine/Lichess) and the physical board matches the
     # expected state AFTER the move, execute it directly regardless of event sequence.
     # This handles nudges, missed lifts, or any other noise - if the board is right, the move succeeded.
+    # 
+    # This check MUST happen before on_piece_event_fn() because otherwise the player
+    # may form an incorrect move from a noisy event sequence and report an error.
     if not is_lift:
         pending_move = ctx.player_manager.get_current_pending_move(ctx.chess_board)
         if pending_move is not None:
@@ -157,7 +160,7 @@ def process_field_event(
                     ctx.execute_pending_move_fn(pending_move)
                     return
 
-    # Forward to player manager
+    # Forward to player manager (after board state validation to avoid incorrect move formation)
     ctx.on_piece_event_fn("lift" if is_lift else "place", field, ctx.chess_board)
 
     # Handle king-lift resign (board-level concern)

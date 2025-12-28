@@ -473,23 +473,33 @@ class Player(ABC):
             else:
                 # Multiple pieces lifted (capture or with nudges)
                 if square in self._lifted_squares:
-                    if len(self._lifted_squares) > 2:
-                        # More than 2 pieces lifted - this is likely a nudge being returned.
-                        # Remove the placed-back square and continue waiting for the actual move.
-                        # E.g., for capture b4xc3 with accidental b3 nudge:
-                        #   LIFT(b4), LIFT(c3), LIFT(b3), PLACE(b3) -> just remove b3, wait for PLACE(c3)
-                        from universalchess.board.logging import log
-                        log.info(f"[Player.on_piece_event] Piece returned to {chess.square_name(square)} with {len(self._lifted_squares)} lifts - treating as nudge")
-                        self._lifted_squares.remove(square)
-                        return
-                    # Exactly 2 lifted: placing on one of the lifted squares = capture move
-                    # The OTHER lifted square is the source
-                    from_sq = [sq for sq in self._lifted_squares if sq != square][0]
+                    if len(self._lifted_squares) >= 2:
+                        # 2+ pieces lifted and placing on one of them.
+                        # Check if this is a nudge return (piece returning to its own square)
+                        # vs a capture (piece moving to enemy's square).
+                        #
+                        # Key insight: if the square has a piece of the OPPONENT's color,
+                        # it's a capture destination. If it has OUR piece, it's a return.
+                        piece_at_dest = board.piece_at(square)
+                        my_color = board.turn
+                        
+                        if piece_at_dest is not None and piece_at_dest.color != my_color:
+                            # Opponent's piece at destination - this is a capture move
+                            # The OTHER lifted square (of our color) is the source
+                            from_sq = [sq for sq in self._lifted_squares if sq != square][0]
+                            self._lifted_squares = []
+                            self._on_move_formed(chess.Move(from_sq, square))
+                        else:
+                            # Our own piece or empty square being returned - treat as nudge
+                            from universalchess.board.logging import log
+                            log.info(f"[Player.on_piece_event] Piece returned to {chess.square_name(square)} with {len(self._lifted_squares)} lifts - treating as nudge")
+                            self._lifted_squares.remove(square)
+                            return
                 else:
                     # Placing on a third square - unusual, take first lifted as source
                     from_sq = self._lifted_squares[0]
-                self._lifted_squares = []
-                self._on_move_formed(chess.Move(from_sq, square))
+                    self._lifted_squares = []
+                    self._on_move_formed(chess.Move(from_sq, square))
     
     def _on_move_formed(self, move: chess.Move) -> None:
         """Called when a move is formed from piece events.

@@ -314,9 +314,15 @@ class EnginePlayer(Player):
             else:
                 log.warning("[EnginePlayer] No move callback set, cannot submit move")
         else:
-            # Doesn't match - board needs correction
-            log.warning(f"[EnginePlayer] Move {move.uci()} does not match pending {self._pending_move.uci()}")
-            self._report_error("move_mismatch")
+            # Move doesn't match pending - likely a fumble or bump.
+            # Instead of immediately entering correction mode, reset lifted_squares
+            # and wait for the board state check to validate the move.
+            # The field_events.py "board state as source of truth" check will
+            # execute the move when the physical board matches the expected state.
+            log.warning(f"[EnginePlayer] Move {move.uci()} does not match pending {self._pending_move.uci()} - "
+                       "resetting and waiting for correct placement")
+            self._lifted_squares = []
+            # Don't report error - let the board state check handle it
     
     def on_move_made(self, move: chess.Move, board: chess.Board) -> None:
         """Notification that a move was made.
