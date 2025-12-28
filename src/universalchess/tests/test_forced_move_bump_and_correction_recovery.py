@@ -50,6 +50,7 @@ def test_forced_move_bump_after_source_lift_does_not_enter_correction_mode() -> 
         handle_field_event_in_correction_mode_fn=Mock(),
         handle_piece_event_without_player_fn=Mock(),
         on_piece_event_fn=Mock(),
+        on_player_move_fn=Mock(return_value=False),
         handle_king_lift_resign_fn=Mock(),
         execute_pending_move_fn=Mock(),
         get_kings_in_center_menu_active_fn=lambda: False,
@@ -104,6 +105,7 @@ def test_pending_move_executes_even_if_correction_mode_active_when_board_matches
         handle_field_event_in_correction_mode_fn=handle_field_event_in_correction_mode_fn,
         handle_piece_event_without_player_fn=Mock(),
         on_piece_event_fn=Mock(),
+        on_player_move_fn=Mock(return_value=False),
         handle_king_lift_resign_fn=Mock(),
         execute_pending_move_fn=execute_pending_move_fn,
         get_kings_in_center_menu_active_fn=lambda: False,
@@ -152,6 +154,7 @@ def test_pending_capture_allows_lifting_capture_square_first_without_correction_
         handle_field_event_in_correction_mode_fn=Mock(),
         handle_piece_event_without_player_fn=Mock(),
         on_piece_event_fn=on_piece_event_fn,
+        on_player_move_fn=Mock(return_value=False),
         handle_king_lift_resign_fn=Mock(),
         execute_pending_move_fn=Mock(),
         get_kings_in_center_menu_active_fn=lambda: False,
@@ -197,6 +200,7 @@ def test_lifting_capturable_opponent_piece_does_not_trigger_correction_mode() ->
         handle_field_event_in_correction_mode_fn=Mock(),
         handle_piece_event_without_player_fn=Mock(),
         on_piece_event_fn=Mock(),
+        on_player_move_fn=Mock(return_value=False),
         handle_king_lift_resign_fn=Mock(),
         execute_pending_move_fn=Mock(),
         get_kings_in_center_menu_active_fn=lambda: False,
@@ -241,6 +245,7 @@ def test_lifting_non_capturable_opponent_piece_enters_correction_mode() -> None:
         handle_field_event_in_correction_mode_fn=Mock(),
         handle_piece_event_without_player_fn=Mock(),
         on_piece_event_fn=Mock(),
+        on_player_move_fn=Mock(return_value=False),
         handle_king_lift_resign_fn=Mock(),
         execute_pending_move_fn=Mock(),
         get_kings_in_center_menu_active_fn=lambda: False,
@@ -256,5 +261,63 @@ def test_lifting_non_capturable_opponent_piece_enters_correction_mode() -> None:
     process_field_event(ctx, piece_event=0, field=chess.A7, time_in_seconds=0.0)
 
     enter_correction_mode_fn.assert_called_once()
+
+
+def test_normal_move_lift_bump_then_place_valid_move_is_accepted() -> None:
+    # Expected failure message if broken: "on_player_move_fn not called for legal move after bumps"
+    # Why: After lifting a piece, bumping/replacing other pieces must not prevent accepting a valid final move.
+    chess_board = chess.Board()  # start position, white to move
+
+    move_state = MoveState()
+    correction_mode = CorrectionMode()
+
+    expected_after_board = chess_board.copy()
+    expected_after_board.push(chess.Move.from_uci("e2e4"))
+    expected_after_state = _piece_presence_state(expected_after_board)
+
+    board_module = Mock()
+    board_module.getChessState.side_effect = [
+        _piece_presence_state(chess_board),  # after a7 place (still matches logical)
+        expected_after_state,  # after e4 place (matches post-move)
+    ]
+    board_module.beep = Mock()
+    board_module.SOUND_WRONG_MOVE = 0
+
+    enter_correction_mode_fn = Mock()
+    on_player_move_fn = Mock(return_value=True)
+
+    ctx = FieldEventContext(
+        chess_board=chess_board,
+        move_state=move_state,
+        correction_mode=correction_mode,
+        player_manager=_PlayerManagerStub(None),
+        board_module=board_module,
+        event_callback=None,
+        enter_correction_mode_fn=enter_correction_mode_fn,
+        provide_correction_guidance_fn=Mock(),
+        handle_field_event_in_correction_mode_fn=Mock(),
+        handle_piece_event_without_player_fn=Mock(),
+        on_piece_event_fn=Mock(),
+        on_player_move_fn=on_player_move_fn,
+        handle_king_lift_resign_fn=Mock(),
+        execute_pending_move_fn=Mock(),
+        get_kings_in_center_menu_active_fn=lambda: False,
+        set_kings_in_center_menu_active_fn=lambda _v: None,
+        on_kings_in_center_cancel_fn=None,
+        get_king_lift_resign_menu_active_fn=lambda: False,
+        set_king_lift_resign_menu_active_fn=lambda _v: None,
+        on_king_lift_resign_cancel_fn=None,
+        chess_board_to_state_fn=lambda b: _piece_presence_state(b),
+    )
+
+    # Lift source piece (e2 pawn), then bump another piece (a7 pawn), then place on e4.
+    process_field_event(ctx, piece_event=0, field=chess.E2, time_in_seconds=0.0)
+    process_field_event(ctx, piece_event=0, field=chess.A7, time_in_seconds=0.1)
+    process_field_event(ctx, piece_event=1, field=chess.A7, time_in_seconds=0.2)
+    process_field_event(ctx, piece_event=1, field=chess.E4, time_in_seconds=0.3)
+
+    enter_correction_mode_fn.assert_not_called()
+    on_player_move_fn.assert_called_once()
+    assert on_player_move_fn.call_args[0][0].uci() == "e2e4"
 
 

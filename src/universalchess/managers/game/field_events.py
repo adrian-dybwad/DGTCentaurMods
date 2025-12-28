@@ -33,6 +33,7 @@ class FieldEventContext:
     handle_field_event_in_correction_mode_fn: Callable[[int, int, float], None]
     handle_piece_event_without_player_fn: Callable[[int], None]
     on_piece_event_fn: Callable[[str, int, chess.Board], None]
+    on_player_move_fn: Callable[[chess.Move], bool]
     handle_king_lift_resign_fn: Callable[[int, object], None]
     execute_pending_move_fn: Callable[[chess.Move], None]
 
@@ -118,6 +119,51 @@ def process_field_event(
         )
 
     pending_move, is_pending_capture, pending_capture_square = _pending_move_context()
+
+    def _try_execute_normal_move_from_physical_state(*, placed_square: int) -> bool:
+        """Attempt to execute a normal (non-pending) move based on physical board state.
+
+        This is the normal-move analogue of the pending-move "post-state match" shortcut.
+        It exists to make move acceptance robust against noisy event sequences:
+        if the physical board matches the expected state after a legal move from the lifted
+        source square, accept the move even if other pieces were bumped and replaced.
+        """
+        source_square = getattr(ctx.move_state, "source_square", INVALID_SQUARE)
+        if source_square == INVALID_SQUARE:
+            return False
+
+        current_physical_state = ctx.board_module.getChessState()
+        if current_physical_state is None:
+            return False
+
+        # If the player put the lifted piece back on its source square and the physical board
+        # matches the logical board, treat this as a cancelled move and clear the source square.
+        expected_state_now = ctx.chess_board_to_state_fn(ctx.chess_board)
+        if expected_state_now is not None and ChessGameState.states_match(current_physical_state, expected_state_now):
+            if placed_square == source_square:
+                ctx.move_state.source_square = INVALID_SQUARE
+            return False
+
+        candidate_moves = [m for m in ctx.chess_board.legal_moves if m.from_square == source_square]
+        for move in candidate_moves:
+            expected_board_after = ctx.chess_board.copy()
+            expected_board_after.push(move)
+            expected_state_after = ctx.chess_board_to_state_fn(expected_board_after)
+            if expected_state_after is None:
+                continue
+            if ChessGameState.states_match(current_physical_state, expected_state_after):
+                log.info(
+                    f"[GameManager.receive_field] Physical board matches expected state after {move.uci()} - "
+                    "accepting normal move directly"
+                )
+                accepted = bool(ctx.on_player_move_fn(move))
+                # Defensive: clear the source square on acceptance so subsequent PLACE events
+                # during a noisy sequence don't attempt to "re-accept" the same move.
+                if accepted:
+                    ctx.move_state.source_square = INVALID_SQUARE
+                return accepted
+
+        return False
 
     # When a resign menu is active (kings-in-center or king-lift), check for:
     # 1. Board corrected (pieces returned to position) → cancel menu
@@ -244,6 +290,25 @@ def process_field_event(
                 log.debug(f"[GameManager.receive_field] Pending capture {pending_move.uci()} - "
                          "waiting for event on capture square")
 
+    # Track normal move source square on LIFT so bumps can be tolerated and the final board state can be used.
+    if (
+        pending_move is None
+        and is_lift
+        and piece_color is not None
+        and piece_color == ctx.chess_board.turn
+        and getattr(ctx.move_state, "source_square", INVALID_SQUARE) == INVALID_SQUARE
+        and not getattr(ctx.move_state, "late_castling_in_progress", False)
+        and not getattr(ctx.move_state, "castling_rook_placed", False)
+    ):
+        # Only treat this as a move start if the square has at least one legal move.
+        if any(move.from_square == field for move in ctx.chess_board.legal_moves):
+            ctx.move_state.source_square = field
+
+    # BOARD STATE VALIDATION FOR NORMAL MOVES (must happen BEFORE forwarding to player)
+    if pending_move is None and not is_lift:
+        if _try_execute_normal_move_from_physical_state(placed_square=field):
+            return
+
     # Check for "wrong piece lifted during forced move" on LIFT events
     # If there's a pending move (engine/Lichess) and the user lifts a piece that is NOT
     # the source of the pending move AND NOT the capture target, enter correction mode.
@@ -331,7 +396,10 @@ def process_field_event(
         #
         # Do not enter correction mode just because the opponent piece has no legal moves on this turn;
         # instead, only treat it as an error if there is no legal capture to this square.
-        skip_no_legal_moves_check = allow_bumps_without_legal_move_check
+        # If a normal move is already in progress (source lifted), tolerate bumps without
+        # forcing correction mode due to turn-dependent legal move evaluation.
+        normal_move_in_progress = getattr(ctx.move_state, "source_square", INVALID_SQUARE) != INVALID_SQUARE
+        skip_no_legal_moves_check = allow_bumps_without_legal_move_check or normal_move_in_progress
         if not skip_no_legal_moves_check and piece_color != ctx.chess_board.turn:
             has_legal_capture_to_square = any(
                 (move.to_square == field and ctx.chess_board.is_capture(move))

@@ -815,6 +815,7 @@ class GameManager:
             handle_field_event_in_correction_mode_fn=self._handle_field_event_in_correction_mode,
             handle_piece_event_without_player_fn=self._handle_piece_event_without_player,
             on_piece_event_fn=self._player_manager.on_piece_event if self._player_manager else (lambda *_: None),
+            on_player_move_fn=self._on_player_move,
             handle_king_lift_resign_fn=self._handle_king_lift_resign,
             execute_pending_move_fn=self._execute_pending_move_directly,
             get_kings_in_center_menu_active_fn=lambda: self._kings_in_center_menu_active,
