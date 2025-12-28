@@ -182,6 +182,28 @@ def process_field_event(
                 log.debug(f"[GameManager.receive_field] Pending capture {pending_move.uci()} - "
                          "waiting for event on capture square")
 
+    # Check for "wrong piece lifted during forced move" on LIFT events
+    # If there's a pending move (engine/Lichess) and the user lifts a piece that is NOT
+    # the source of the pending move, enter correction mode immediately. This prevents
+    # confusion when the user picks up the wrong piece during a forced move sequence.
+    if is_lift and pending_move is not None and piece_color is not None:
+        pending_from_square = pending_move.from_square
+        if field != pending_from_square:
+            pending_piece = ctx.chess_board.piece_at(pending_from_square)
+            pending_piece_name = chess.piece_name(pending_piece.piece_type) if pending_piece else "piece"
+            log.warning(
+                f"[GameManager.receive_field] Wrong piece lifted at {chess.square_name(field)} - "
+                f"expected {pending_piece_name} at {chess.square_name(pending_from_square)} for pending move {pending_move.uci()} - "
+                "entering correction mode"
+            )
+            ctx.board_module.beep(ctx.board_module.SOUND_WRONG_MOVE, event_type="error")
+            ctx.enter_correction_mode_fn()
+            current_state = ctx.board_module.getChessState()
+            expected_state = ctx.chess_board_to_state_fn(ctx.chess_board)
+            if current_state is not None and expected_state is not None:
+                ctx.provide_correction_guidance_fn(current_state, expected_state)
+            return
+
     # Check for "piece with no legal moves" on LIFT events
     # ANY piece lifted without valid moves should trigger correction mode - not just
     # the current player's piece. This handles:
