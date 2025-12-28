@@ -77,10 +77,47 @@ def process_field_event(
 
     is_lift = piece_event == 0
 
-    # Pending move helpers (engine/Lichess forced move)
-    pending_move = ctx.player_manager.get_current_pending_move(ctx.chess_board)
-    is_pending_capture = pending_move is not None and ctx.chess_board.is_capture(pending_move)
-    pending_capture_square = pending_move.to_square if is_pending_capture else None
+    def _pending_move_context():
+        """Build pending-move context safely.
+
+        This function centralizes all pending-move derived flags so they stay consistent
+        and avoids dereferencing ctx.player_manager when not present.
+        """
+        if not ctx.player_manager:
+            return None, False, None
+        pending = ctx.player_manager.get_current_pending_move(ctx.chess_board)
+        is_capture = pending is not None and ctx.chess_board.is_capture(pending)
+        capture_sq = pending.to_square if is_capture else None
+        return pending, is_capture, capture_sq
+
+    def _physical_matches_expected_after_pending_move(
+        *,
+        pending: chess.Move,
+        require_capture_square_event: bool,
+        capture_square: int | None,
+    ) -> bool:
+        """Return True if the physical board matches the expected post-move state.
+
+        For captures, this can be gated on whether we've seen any event (LIFT or PLACE)
+        on the capture square.
+        """
+        if require_capture_square_event:
+            if capture_square is None:
+                return False
+            if not ctx.move_state.has_seen_capture_square_event(capture_square):
+                return False
+
+        expected_board_after = ctx.chess_board.copy()
+        expected_board_after.push(pending)
+        expected_state_after = ctx.chess_board_to_state_fn(expected_board_after)
+        current_physical_state = ctx.board_module.getChessState()
+        return (
+            expected_state_after is not None
+            and current_physical_state is not None
+            and ChessGameState.states_match(current_physical_state, expected_state_after)
+        )
+
+    pending_move, is_pending_capture, pending_capture_square = _pending_move_context()
 
     # When a resign menu is active (kings-in-center or king-lift), check for:
     # 1. Board corrected (pieces returned to position) → cancel menu
@@ -143,14 +180,10 @@ def process_field_event(
                 pending_capture_square is not None
                 and ctx.move_state.has_seen_capture_square_event(pending_capture_square)
             ):
-                expected_board_after = ctx.chess_board.copy()
-                expected_board_after.push(pending_move)
-                expected_state_after = ctx.chess_board_to_state_fn(expected_board_after)
-                current_physical_state = ctx.board_module.getChessState()
-                if (
-                    expected_state_after is not None
-                    and current_physical_state is not None
-                    and ChessGameState.states_match(current_physical_state, expected_state_after)
+                if _physical_matches_expected_after_pending_move(
+                    pending=pending_move,
+                    require_capture_square_event=is_pending_capture,
+                    capture_square=pending_capture_square,
                 ):
                     log.info(
                         f"[GameManager.receive_field] (correction_mode) Physical board matches expected state after "
@@ -196,16 +229,11 @@ def process_field_event(
             can_use_shortcut = not is_capture or ctx.move_state.has_seen_capture_square_event(capture_square)
             
             if can_use_shortcut:
-                # Create expected board state after the pending move
-                expected_board_after = ctx.chess_board.copy()
-                expected_board_after.push(pending_move)
-                expected_state_after = ctx.chess_board_to_state_fn(expected_board_after)
-                
-                # Get current physical state
-                current_physical_state = ctx.board_module.getChessState()
-                
-                if expected_state_after is not None and current_physical_state is not None:
-                    if ChessGameState.states_match(current_physical_state, expected_state_after):
+                if _physical_matches_expected_after_pending_move(
+                    pending=pending_move,
+                    require_capture_square_event=is_capture,
+                    capture_square=capture_square,
+                ):
                         log.info(
                             f"[GameManager.receive_field] Physical board matches expected state after {pending_move.uci()} - "
                             "executing pending move directly"
