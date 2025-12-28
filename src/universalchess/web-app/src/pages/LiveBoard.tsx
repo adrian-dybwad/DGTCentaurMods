@@ -144,12 +144,21 @@ export function LiveBoard() {
   const result = gameState?.result;
   const gameOver = gameState?.game_over;
   
-  // Pending move from engine/Lichess - convert UCI to from/to format
-  const pendingMove = useMemo(() => {
-    const uci = gameState?.pending_move;
-    if (!uci || uci.length < 4) return null;
-    return { from: uci.slice(0, 2), to: uci.slice(2, 4) };
-  }, [gameState?.pending_move]);
+  // Blue arrow: pending move (engine waiting) or last move (just executed)
+  // Shows "what just happened or needs to happen" on the physical board
+  const blueArrowMove = useMemo(() => {
+    // Prefer pending move if available (engine/Lichess move waiting to be executed)
+    const pendingUci = gameState?.pending_move;
+    if (pendingUci && pendingUci.length >= 4) {
+      return { from: pendingUci.slice(0, 2), to: pendingUci.slice(2, 4) };
+    }
+    // Fall back to last move (move that was just executed)
+    const lastUci = gameState?.last_move;
+    if (lastUci && lastUci.length >= 4) {
+      return { from: lastUci.slice(0, 2), to: lastUci.slice(2, 4) };
+    }
+    return null;
+  }, [gameState?.pending_move, gameState?.last_move]);
 
   return (
     <div className="columns">
@@ -160,7 +169,7 @@ export function LiveBoard() {
           maxBoardWidth={700} 
           showBestMove={isAtLatestMove ? (showBestMoveEnabled ? delayedBestMove : null) : delayedBestMove} 
           showPlayedMove={delayedPlayedMove}
-          showPendingMove={isAtLatestMove ? pendingMove : null}
+          showPendingMove={isAtLatestMove ? blueArrowMove : null}
         />
       </div>
 

@@ -13,6 +13,8 @@ export interface GameState {
   result: string | null;
   game_id: number | null;
   game_over: boolean;
+  /** Last move executed in UCI format (e.g., 'e2e4') */
+  last_move: string | null;
   /** Move pending on the physical board (engine/Lichess move waiting to be executed) */
   pending_move: string | null;
 }
