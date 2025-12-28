@@ -7,7 +7,7 @@ from universalchess.managers.menu import is_break_result, is_refresh_result
 
 
 def handle_display_settings(
-    game_settings: Dict[str, Any],
+    get_game_settings: Callable[[], Dict[str, Any]],
     show_menu: Callable[[List[IconMenuEntry]], str],
     save_game_setting: Callable[[str, Any], None],
     log,
@@ -19,7 +19,7 @@ def handle_display_settings(
     and LED brightness setting.
 
     Args:
-        game_settings: Dict with current game settings (show_board, show_clock, led_brightness, etc.)
+        get_game_settings: Callback to get game settings (called each iteration for fresh values)
         show_menu: Callback to show menu and get result
         save_game_setting: Callback to save a game setting
         log: Logger instance
@@ -29,6 +29,8 @@ def handle_display_settings(
         Break result if user triggered a break action, None otherwise
     """
     while True:
+        # Fetch fresh settings each iteration (supports hot reload from web app)
+        game_settings = get_game_settings()
         # Get current LED brightness (default 5)
         led_brightness = game_settings.get("led_brightness", 5)
         

@@ -142,7 +142,7 @@ def build_player2_menu_entries(player2_settings: Dict[str, str]) -> List[IconMen
 
 def handle_player1_menu(
     ctx,
-    player1_settings: Dict[str, str],
+    get_player1_settings: Callable[[], Dict[str, str]],
     show_menu,
     find_entry_index,
     is_break_result,
@@ -159,6 +159,8 @@ def handle_player1_menu(
 ) -> str:
     """Handle Player 1 configuration submenu."""
     while True:
+        # Fetch fresh settings each iteration (supports hot reload from web app)
+        player1_settings = get_player1_settings()
         entries = build_player1_menu_entries(player1_settings)
 
         result = show_menu(entries, initial_index=ctx.current_index())
@@ -227,8 +229,8 @@ def handle_player1_menu(
 
 def handle_players_menu(
     get_menu_context: Callable,
-    player1_settings: Dict[str, str],
-    player2_settings: Dict[str, str],
+    get_player1_settings: Callable[[], Dict[str, str]],
+    get_player2_settings: Callable[[], Dict[str, str]],
     show_menu: Callable,
     find_entry_index: Callable,
     handle_player1_menu: Callable,
@@ -242,8 +244,8 @@ def handle_players_menu(
 
     Args:
         get_menu_context: Callback to get menu context
-        player1_settings: Dict with player 1 settings
-        player2_settings: Dict with player 2 settings
+        get_player1_settings: Callback to get player 1 settings (called each iteration for fresh values)
+        get_player2_settings: Callback to get player 2 settings (called each iteration for fresh values)
         show_menu: Callback to show menu and get result
         find_entry_index: Callback to find entry index
         handle_player1_menu: Callback to handle player 1 menu
@@ -262,6 +264,10 @@ def handle_players_menu(
         return _player_type_label(player_type)
 
     while True:
+        # Fetch fresh settings each iteration (supports hot reload from web app)
+        player1_settings = get_player1_settings()
+        player2_settings = get_player2_settings()
+        
         p1_color = player1_settings["color"].capitalize()
         p1_type = get_player_type_label(player1_settings["type"])
         p2_type = get_player_type_label(player2_settings["type"])
@@ -549,7 +555,7 @@ def handle_name_input(
 
 def handle_player2_menu(
     ctx,
-    player2_settings: Dict[str, str],
+    get_player2_settings: Callable[[], Dict[str, str]],
     show_menu,
     find_entry_index,
     is_break_result,
@@ -565,6 +571,8 @@ def handle_player2_menu(
 ) -> str:
     """Handle Player 2 configuration submenu."""
     while True:
+        # Fetch fresh settings each iteration (supports hot reload from web app)
+        player2_settings = get_player2_settings()
         entries = build_player2_menu_entries(player2_settings)
 
         result = show_menu(entries, initial_index=ctx.current_index())

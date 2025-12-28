@@ -1838,8 +1838,8 @@ def _handle_players_menu():
     """Handle the Players submenu."""
     return handle_players_menu(
         get_menu_context=_get_menu_context,
-        player1_settings=_player1_settings_dict(),
-        player2_settings=_player2_settings_dict(),
+        get_player1_settings=_player1_settings_dict,
+        get_player2_settings=_player2_settings_dict,
         show_menu=_show_menu,
         find_entry_index=find_entry_index,
         handle_player1_menu=_handle_player1_menu,
@@ -1853,7 +1853,7 @@ def _handle_player1_menu():
     """Handle Player 1 configuration submenu."""
     return handle_player1_menu(
         ctx=_get_menu_context(),
-        player1_settings=_player1_settings_dict(),
+        get_player1_settings=_player1_settings_dict,
         show_menu=_show_menu,
         find_entry_index=find_entry_index,
         is_break_result=is_break_result,
@@ -1874,7 +1874,7 @@ def _handle_player2_menu():
     """Handle Player 2 configuration submenu."""
     return handle_player2_menu(
         ctx=_get_menu_context(),
-        player2_settings=_player2_settings_dict(),
+        get_player2_settings=_player2_settings_dict,
         show_menu=_show_menu,
         find_entry_index=find_entry_index,
         is_break_result=is_break_result,
@@ -2072,7 +2072,7 @@ def _handle_system_menu():
         menu_manager=_menu_manager,
         create_entries=lambda: create_system_entries(board, _game_settings_dict()),
         handle_display_settings=lambda: handle_display_settings(
-            game_settings=_game_settings_dict(),
+            get_game_settings=_game_settings_dict,
             show_menu=_show_menu,
             save_game_setting=_save_game_setting,
             log=log,
@@ -3556,7 +3556,7 @@ def main():
                     _pending_display_settings = False
                     log.info("[App] Showing display settings menu from game mode")
                     handle_display_settings(
-                        game_settings=_game_settings_dict(),
+                        get_game_settings=_game_settings_dict,
                         show_menu=_show_menu,
                         save_game_setting=_save_game_setting,
                         log=log,
