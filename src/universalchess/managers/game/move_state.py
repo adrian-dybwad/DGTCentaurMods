@@ -70,6 +70,10 @@ class MoveState:
         self.king_lifted_square = INVALID_SQUARE
         self.king_lifted_color = None
         self.king_lift_timer: Optional[threading.Timer] = None
+        
+        # Capture square event tracking for pending moves
+        # Tracks which capture squares have had events (LIFT or PLACE)
+        self._capture_square_events: set = set()
 
     def reset(self):
         """Reset all move state variables.
@@ -88,6 +92,7 @@ class MoveState:
         self._cancel_king_lift_timer()
         self.king_lifted_square = INVALID_SQUARE
         self.king_lifted_color = None
+        self._capture_square_events = set()
         
         # Clear pending move from web broadcast
         from universalchess.services.game_broadcast import set_pending_move
@@ -135,6 +140,33 @@ class MoveState:
         if self.king_lift_timer is not None:
             self.king_lift_timer.cancel()
             self.king_lift_timer = None
+    
+    def has_seen_capture_square_event(self, square: int) -> bool:
+        """Check if we've seen any event (LIFT or PLACE) on a capture square.
+        
+        For pending capture moves, we require at least one event on the capture
+        square before using the board state shortcut. This ensures the user has
+        interacted with the captured piece.
+        
+        Args:
+            square: The capture destination square to check.
+            
+        Returns:
+            True if an event has been recorded for this square.
+        """
+        return square in self._capture_square_events
+    
+    def record_capture_square_event(self, square: int) -> None:
+        """Record that an event occurred on a capture square.
+        
+        Args:
+            square: The square where the event occurred.
+        """
+        self._capture_square_events.add(square)
+    
+    def clear_capture_square_events(self) -> None:
+        """Clear all recorded capture square events."""
+        self._capture_square_events.clear()
 
 
 __all__ = [

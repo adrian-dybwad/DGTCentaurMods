@@ -140,25 +140,47 @@ def process_field_event(
     # 
     # This check MUST happen before on_piece_event_fn() because otherwise the player
     # may form an incorrect move from a noisy event sequence and report an error.
-    if not is_lift:
-        pending_move = ctx.player_manager.get_current_pending_move(ctx.chess_board)
-        if pending_move is not None:
-            # Create expected board state after the pending move
-            expected_board_after = ctx.chess_board.copy()
-            expected_board_after.push(pending_move)
-            expected_state_after = ctx.chess_board_to_state_fn(expected_board_after)
+    #
+    # For captures: require at least one event (LIFT or PLACE) on the capture square
+    # before using the board state shortcut. This ensures the user has interacted with
+    # the captured piece (even if some events were missed/fumbled).
+    pending_move = ctx.player_manager.get_current_pending_move(ctx.chess_board)
+    if pending_move is not None:
+        is_capture = ctx.chess_board.is_capture(pending_move)
+        capture_square = pending_move.to_square if is_capture else None
+        
+        # For captures, record any event on the capture square (LIFT or PLACE)
+        if is_capture and field == capture_square:
+            if not ctx.move_state.has_seen_capture_square_event(capture_square):
+                ctx.move_state.record_capture_square_event(capture_square)
+                log.debug(f"[GameManager.receive_field] Recorded {'LIFT' if is_lift else 'PLACE'} event on "
+                         f"capture square {chess.square_name(capture_square)}")
+        
+        # Board state check only on PLACE events (not LIFT)
+        if not is_lift:
+            # For captures: only use shortcut if we've seen an event on the capture square
+            can_use_shortcut = not is_capture or ctx.move_state.has_seen_capture_square_event(capture_square)
             
-            # Get current physical state
-            current_physical_state = ctx.board_module.getChessState()
-            
-            if expected_state_after is not None and current_physical_state is not None:
-                if ChessGameState.states_match(current_physical_state, expected_state_after):
-                    log.info(
-                        f"[GameManager.receive_field] Physical board matches expected state after {pending_move.uci()} - "
-                        "executing pending move directly"
-                    )
-                    ctx.execute_pending_move_fn(pending_move)
-                    return
+            if can_use_shortcut:
+                # Create expected board state after the pending move
+                expected_board_after = ctx.chess_board.copy()
+                expected_board_after.push(pending_move)
+                expected_state_after = ctx.chess_board_to_state_fn(expected_board_after)
+                
+                # Get current physical state
+                current_physical_state = ctx.board_module.getChessState()
+                
+                if expected_state_after is not None and current_physical_state is not None:
+                    if ChessGameState.states_match(current_physical_state, expected_state_after):
+                        log.info(
+                            f"[GameManager.receive_field] Physical board matches expected state after {pending_move.uci()} - "
+                            "executing pending move directly"
+                        )
+                        ctx.execute_pending_move_fn(pending_move)
+                        return
+            elif is_capture:
+                log.debug(f"[GameManager.receive_field] Pending capture {pending_move.uci()} - "
+                         "waiting for event on capture square")
 
     # Forward to player manager (after board state validation to avoid incorrect move formation)
     ctx.on_piece_event_fn("lift" if is_lift else "place", field, ctx.chess_board)
