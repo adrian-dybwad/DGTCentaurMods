@@ -39,6 +39,7 @@ from universalchess.board.logging import log
 from universalchess.state import get_chess_game
 from universalchess.state.chess_game import ChessGameState
 from universalchess.services import get_chess_clock_service
+from universalchess.services.game_broadcast import set_pending_move
 
 from .correction_mode import CorrectionMode
 from universalchess.utils.led import LedCallbacks
@@ -1119,6 +1120,7 @@ class GameManager:
         Called when a non-human player has computed/received a move
         that needs to be executed on the physical board.
         Sets up the forced move state and lights up the from/to squares as a guide.
+        Also broadcasts the pending move to the web interface.
         
         Args:
             move: The pending move to display.
@@ -1127,6 +1129,11 @@ class GameManager:
         
         # Set up forced move state so correction mode can restore LEDs
         self.move_state.set_computer_move(move.uci(), forced=True)
+        
+        # Broadcast pending move to web interface (shown as blue arrow)
+        set_pending_move(move.uci())
+        # Trigger a position update to send the pending move to clients
+        self._game_state.notify_position_change()
         
         try:
             log.debug(f"[GameManager._on_pending_move] Calling ledFromTo({move.from_square}, {move.to_square})")

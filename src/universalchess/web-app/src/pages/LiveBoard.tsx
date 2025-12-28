@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { ChessBoard } from '../components/ChessBoard';
 import { Analysis } from '../components/Analysis';
 import { useGameStore } from '../stores/gameStore';
@@ -143,6 +143,13 @@ export function LiveBoard() {
   const moveNum = gameState?.move_number || 1;
   const result = gameState?.result;
   const gameOver = gameState?.game_over;
+  
+  // Pending move from engine/Lichess - convert UCI to from/to format
+  const pendingMove = useMemo(() => {
+    const uci = gameState?.pending_move;
+    if (!uci || uci.length < 4) return null;
+    return { from: uci.slice(0, 2), to: uci.slice(2, 4) };
+  }, [gameState?.pending_move]);
 
   return (
     <div className="columns">
@@ -153,6 +160,7 @@ export function LiveBoard() {
           maxBoardWidth={700} 
           showBestMove={isAtLatestMove ? (showBestMoveEnabled ? delayedBestMove : null) : delayedBestMove} 
           showPlayedMove={delayedPlayedMove}
+          showPendingMove={isAtLatestMove ? pendingMove : null}
         />
       </div>
 

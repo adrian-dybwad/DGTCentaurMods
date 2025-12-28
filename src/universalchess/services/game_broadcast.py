@@ -78,6 +78,9 @@ class GameState:
     white: str = "White"
     black: str = "Black"
     timestamp: float = 0.0
+    # Pending move: a move in progress on the physical board (from-to in UCI format)
+    # Set when a piece is lifted (from square known) and optionally to square
+    pending_move: Optional[str] = None
     
     def __post_init__(self):
         if self.timestamp == 0.0:
@@ -347,6 +350,29 @@ def get_subscriber() -> GameSubscriber:
     return _subscriber
 
 
+# Global pending move state - shared between broadcast functions
+_pending_move: Optional[str] = None
+
+
+def set_pending_move(pending_move: Optional[str]) -> None:
+    """Set the pending move (piece lifted, awaiting destination).
+    
+    This updates the global pending move state which is included in
+    all subsequent game state broadcasts.
+    
+    Args:
+        pending_move: Move in progress in UCI format (e.g., 'e2' for from-only,
+                      'e2e4' for from-to), or None to clear.
+    """
+    global _pending_move
+    _pending_move = pending_move
+
+
+def get_pending_move() -> Optional[str]:
+    """Get the current pending move."""
+    return _pending_move
+
+
 def broadcast_game_state(
     fen: str,
     pgn: str = "",
@@ -357,6 +383,7 @@ def broadcast_game_state(
     result: Optional[str] = None,
     white: str = "White",
     black: str = "Black",
+    pending_move: Optional[str] = None,
 ) -> bool:
     """Convenience function to broadcast game state.
     
@@ -370,10 +397,14 @@ def broadcast_game_state(
         result: Game result if over ('1-0', '0-1', '1/2-1/2').
         white: White player name.
         black: Black player name.
+        pending_move: Move in progress (from-to in UCI format, e.g., 'e2e4').
         
     Returns:
         True if broadcast succeeded, False otherwise.
     """
+    # Use provided pending_move or fall back to global state
+    effective_pending_move = pending_move if pending_move is not None else _pending_move
+    
     state = GameState(
         fen=fen,
         pgn=pgn,
@@ -384,6 +415,7 @@ def broadcast_game_state(
         result=result,
         white=white,
         black=black,
+        pending_move=effective_pending_move,
     )
     return get_broadcaster().broadcast(state)
 

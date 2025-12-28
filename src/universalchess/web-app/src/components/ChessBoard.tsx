@@ -9,6 +9,8 @@ interface ChessBoardProps {
   showBestMove?: { from: string; to: string } | null;
   /** The actual move played (shown in red if different from best move) */
   showPlayedMove?: { from: string; to: string } | null;
+  /** Pending move from engine/Lichess waiting to be executed (shown in blue) */
+  showPendingMove?: { from: string; to: string } | null;
   boardOrientation?: 'white' | 'black';
 }
 
@@ -21,6 +23,7 @@ export function ChessBoard({
   maxBoardWidth = 600,
   showBestMove = null,
   showPlayedMove = null,
+  showPendingMove = null,
   boardOrientation = 'white',
 }: ChessBoardProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -56,9 +59,20 @@ export function ChessBoard({
     return fen?.split(' ')[0] || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
   }, [fen]);
 
-  // Build custom arrows for best move (green) and played move (red if different)
+  // Build custom arrows for pending move (blue), best move (green), and played move (red)
   const customArrows: Arrow[] = useMemo(() => {
     const arrows: Arrow[] = [];
+    
+    // Pending move arrow (blue) - engine/Lichess move waiting to be executed
+    // Takes priority and is shown alone (not combined with analysis arrows)
+    if (showPendingMove) {
+      arrows.push({
+        startSquare: showPendingMove.from,
+        endSquare: showPendingMove.to,
+        color: 'rgba(0, 120, 215, 0.9)',  // Blue for pending move
+      });
+      return arrows;  // Only show pending move, not analysis arrows
+    }
     
     // Best move arrow (green) - always show if available
     if (showBestMove) {
@@ -86,7 +100,7 @@ export function ChessBoard({
     }
     
     return arrows;
-  }, [showBestMove, showPlayedMove]);
+  }, [showBestMove, showPlayedMove, showPendingMove]);
 
   // Custom square styles for DGT board colors
   const darkSquareStyle = { backgroundColor: '#b2b2b2' };

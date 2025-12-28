@@ -72,7 +72,10 @@ class MoveState:
         self.king_lift_timer: Optional[threading.Timer] = None
 
     def reset(self):
-        """Reset all move state variables."""
+        """Reset all move state variables.
+        
+        Also clears any pending move broadcast to the web interface.
+        """
         self.source_square = INVALID_SQUARE
         self.opponent_source_square = INVALID_SQUARE
         self.legal_destination_squares = []
@@ -85,6 +88,10 @@ class MoveState:
         self._cancel_king_lift_timer()
         self.king_lifted_square = INVALID_SQUARE
         self.king_lifted_color = None
+        
+        # Clear pending move from web broadcast
+        from universalchess.services.game_broadcast import set_pending_move
+        set_pending_move(None)
 
     def is_rook_castling_square(self, square: int) -> bool:
         """Check if a square is a rook's starting position for castling."""
