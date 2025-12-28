@@ -764,11 +764,8 @@ export function Settings() {
           <span className="changes-text">Unsaved changes</span>
           <div className="apply-settings-buttons">
             <Button variant="secondary" onClick={discardChanges}>Discard</Button>
-            <Button variant="primary" onClick={saveSettings} disabled={saving}>
-              {saving ? 'Saving...' : 'Save Changes'}
-            </Button>
             <Button variant="success" onClick={saveAndApply} disabled={saving}>
-              Save & Apply
+              {saving ? 'Saving...' : 'Save & Apply'}
             </Button>
           </div>
         </div>
