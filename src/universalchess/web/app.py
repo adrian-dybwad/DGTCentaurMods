@@ -384,7 +384,10 @@ def requires_auth(f):
     """Decorator to require HTTP Basic Auth for API endpoints.
     
     Uses the same authentication mechanism as WebDAV (Linux system users).
-    Returns 401 with WWW-Authenticate header if not authenticated.
+    Returns 401 if not authenticated.
+    
+    Note: Uses 'xBasic' instead of 'Basic' to prevent browser from showing
+    its native login dialog. The React app handles authentication UI instead.
     """
     from functools import wraps
     
@@ -397,7 +400,9 @@ def requires_auth(f):
                 mimetype='application/json',
                 status=401
             )
-            response.headers['WWW-Authenticate'] = 'Basic realm="Universal Chess"'
+            # Use 'xBasic' to suppress browser's native auth dialog
+            # The frontend React app shows its own LoginDialog instead
+            response.headers['WWW-Authenticate'] = 'xBasic realm="Universal Chess"'
             return response
         return f(*args, **kwargs)
     return decorated
