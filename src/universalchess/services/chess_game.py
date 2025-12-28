@@ -260,14 +260,23 @@ class ChessGameService:
         except Exception as e:
             log.debug(f"[ChessGameService] Error writing FEN log: {e}")
         
-        # Broadcast full game state to web clients
+        # Broadcast to web clients
+        self.broadcast_state()
+    
+    def broadcast_state(self) -> None:
+        """Broadcast current game state to web clients.
+        
+        Called after position changes and also after game end events
+        (resignation, draw, flag) that don't change the position but
+        do change the game_over/result status.
+        """
         try:
             players = get_players_state()
             move_stack = self._state.move_stack
             last_move = move_stack[-1].uci() if move_stack else None
             
             broadcast_game_state(
-                fen=fen,
+                fen=self._state.fen,
                 pgn=self.get_pgn(),
                 turn="w" if self._state.turn == chess.WHITE else "b",
                 move_number=(len(move_stack) // 2) + 1,

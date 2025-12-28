@@ -325,6 +325,19 @@ class GameManager:
         if self.event_callback is not None:
             self.event_callback(termination)
     
+    def _broadcast_game_state(self) -> None:
+        """Broadcast current game state to web clients.
+        
+        Called after game end events (resignation, draw, flag) to ensure
+        the web frontend is notified of the game over status.
+        """
+        try:
+            from universalchess.services.chess_game import get_chess_game_service
+            service = get_chess_game_service()
+            service.broadcast_state()
+        except Exception as e:
+            log.debug(f"[GameManager._broadcast_game_state] Error broadcasting: {e}")
+    
     def _handle_promotion(self, target_square: int, piece_name: str, is_forced: bool) -> str:
         """Handle pawn promotion by requesting piece choice via callback.
         
@@ -1180,6 +1193,9 @@ class GameManager:
         # Update database with result
         self._update_game_result(result, "Termination.RESIGN", "handle_resign")
         
+        # Broadcast game over state to web clients
+        self._broadcast_game_state()
+        
         # Play sound and turn off LEDs
         board.beep(board.SOUND_GENERAL, event_type='game_event')
         self.led.off()
@@ -1211,6 +1227,9 @@ class GameManager:
         # Update database with result
         self._update_game_result(result, "Termination.DRAW", "handle_draw")
         
+        # Broadcast game over state to web clients
+        self._broadcast_game_state()
+        
         # Play sound and turn off LEDs
         board.beep(board.SOUND_GENERAL, event_type='game_event')
         self.led.off()
@@ -1233,6 +1252,9 @@ class GameManager:
 
         # Update database with result
         self._update_game_result(result, "Termination.TIME_FORFEIT", "handle_flag")
+
+        # Broadcast game over state to web clients
+        self._broadcast_game_state()
 
         # Play sound and turn off LEDs
         board.beep(board.SOUND_GENERAL, event_type='game_event')
