@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button, Card, CardHeader, Input, Select, Toggle, Badge } from '../components/ui';
+import { LoginDialog } from '../components/LoginDialog';
 import type { EngineDefinition } from '../types/game';
-import { apiFetch, buildApiUrl } from '../utils/api';
+import { apiFetch, buildApiUrl, getStoredCredentials } from '../utils/api';
 import './Settings.css';
 
 interface SettingsData {
@@ -165,6 +166,9 @@ export function Settings() {
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
   const [installingEngine, setInstallingEngine] = useState<string | null>(null);
+  const [loginDialogOpen, setLoginDialogOpen] = useState(false);
+  const [loginError, setLoginError] = useState<string | undefined>();
+  const [pendingAction, setPendingAction] = useState<'save' | 'apply' | null>(null);
   const hasChangesRef = useRef(hasChanges);
 
   // Keep ref in sync with state (for use in SSE callback)
@@ -260,7 +264,7 @@ export function Settings() {
     setHasChanges(true);
   };
 
-  const saveSettings = async () => {
+  const saveSettings = async (): Promise<boolean> => {
     setSaving(true);
     try {
       const payload = {
@@ -282,27 +286,76 @@ export function Settings() {
         DATABASE: { database_uri: formSettings.system.database_uri },
       };
 
-      await apiFetch('/api/settings', {
+      const response = await apiFetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        requiresAuth: true,
       });
+      
+      if (response.status === 401) {
+        // Authentication required - show login dialog
+        setLoginError(getStoredCredentials() ? 'Invalid credentials. Please try again.' : undefined);
+        setPendingAction('save');
+        setLoginDialogOpen(true);
+        return false;
+      }
+      
+      if (!response.ok) {
+        const error = await response.json();
+        console.error('Failed to save settings:', error);
+        return false;
+      }
       
       setOriginalSettings(formSettings);
       setHasChanges(false);
+      return true;
     } catch (e) {
       console.error('Failed to save settings:', e);
+      return false;
     } finally {
       setSaving(false);
     }
   };
 
   const saveAndApply = async () => {
-    await saveSettings();
+    const saved = await saveSettings();
+    if (!saved) {
+      // saveSettings will have shown login dialog if needed
+      // Set pending action so we apply after successful login
+      if (pendingAction === 'save') {
+        setPendingAction('apply');
+      }
+      return;
+    }
+    
     try {
-      await apiFetch('/api/settings/apply', { method: 'POST' });
+      const response = await apiFetch('/api/settings/apply', { 
+        method: 'POST',
+        requiresAuth: true,
+      });
+      
+      if (response.status === 401) {
+        setLoginError(getStoredCredentials() ? 'Invalid credentials. Please try again.' : undefined);
+        setPendingAction('apply');
+        setLoginDialogOpen(true);
+      }
     } catch (e) {
       console.error('Failed to apply settings:', e);
+    }
+  };
+  
+  // Handle successful login - retry the pending action
+  const handleLoginSuccess = async () => {
+    setLoginDialogOpen(false);
+    setLoginError(undefined);
+    
+    if (pendingAction === 'save') {
+      setPendingAction(null);
+      await saveSettings();
+    } else if (pendingAction === 'apply') {
+      setPendingAction(null);
+      await saveAndApply();
     }
   };
 
@@ -378,8 +431,19 @@ export function Settings() {
   };
 
   return (
-    <div className="settings-layout">
-      <aside className="settings-sidebar">
+    <>
+      <LoginDialog
+        isOpen={loginDialogOpen}
+        onClose={() => {
+          setLoginDialogOpen(false);
+          setPendingAction(null);
+        }}
+        onSuccess={handleLoginSuccess}
+        errorMessage={loginError}
+      />
+      
+      <div className="settings-layout">
+        <aside className="settings-sidebar">
         {tabs.map((tab) => (
           <button
             key={tab.id}
@@ -811,7 +875,8 @@ export function Settings() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }
 

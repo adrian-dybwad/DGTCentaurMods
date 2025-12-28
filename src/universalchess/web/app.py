@@ -379,6 +379,30 @@ def require_webdav_authentication():
         return response
     return None
 
+
+def requires_auth(f):
+    """Decorator to require HTTP Basic Auth for API endpoints.
+    
+    Uses the same authentication mechanism as WebDAV (Linux system users).
+    Returns 401 with WWW-Authenticate header if not authenticated.
+    """
+    from functools import wraps
+    
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        is_authenticated, username = verify_webdav_authentication()
+        if not is_authenticated:
+            response = Response(
+                json.dumps({"error": "Authentication required"}),
+                mimetype='application/json',
+                status=401
+            )
+            response.headers['WWW-Authenticate'] = 'Basic realm="Universal Chess"'
+            return response
+        return f(*args, **kwargs)
+    return decorated
+
+
 def sanitize_path(request_path):
     """
     Sanitizes and validates a request path to prevent path traversal attacks.
@@ -1766,8 +1790,9 @@ def api_get_settings():
 
 
 @app.route("/api/settings", methods=["POST"])
+@requires_auth
 def api_save_settings():
-    """Save settings to centaur.ini from JSON body."""
+    """Save settings to centaur.ini from JSON body. Requires authentication."""
     try:
         settings = request.get_json()
         if not settings:
@@ -1780,9 +1805,9 @@ def api_save_settings():
 
 
 @app.route("/api/settings/apply", methods=["POST"])
+@requires_auth
 def api_apply_settings():
-    """
-    Apply settings to the running chess board.
+    """Apply settings to the running chess board. Requires authentication.
     
     This sends a signal to the main process to reload settings.
     For now, it just restarts the service.

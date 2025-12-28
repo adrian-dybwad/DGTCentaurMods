@@ -122,17 +122,68 @@ export function isCrossOriginApi(): boolean {
   return getApiUrl() !== window.location.origin;
 }
 
+const AUTH_CREDENTIALS_KEY = 'universal-chess-auth';
+
+/**
+ * Get stored Basic Auth credentials.
+ * Returns base64-encoded "username:password" or null if not stored.
+ */
+export function getStoredCredentials(): string | null {
+  return localStorage.getItem(AUTH_CREDENTIALS_KEY);
+}
+
+/**
+ * Store Basic Auth credentials.
+ * Credentials should be base64-encoded "username:password".
+ */
+export function storeCredentials(base64Credentials: string): void {
+  localStorage.setItem(AUTH_CREDENTIALS_KEY, base64Credentials);
+}
+
+/**
+ * Clear stored credentials.
+ */
+export function clearCredentials(): void {
+  localStorage.removeItem(AUTH_CREDENTIALS_KEY);
+}
+
+/**
+ * Encode username and password for Basic Auth.
+ */
+export function encodeBasicAuth(username: string, password: string): string {
+  return btoa(`${username}:${password}`);
+}
+
 /**
  * Fetch wrapper that automatically uses the correct API URL.
- * Handles cross-origin requests appropriately.
+ * Handles cross-origin requests and authentication appropriately.
+ * 
+ * For authenticated requests, set `requiresAuth: true` in the options.
+ * Credentials are stored in localStorage and sent via Authorization header.
  */
-export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+export async function apiFetch(
+  path: string, 
+  init?: RequestInit & { requiresAuth?: boolean }
+): Promise<Response> {
   const url = buildApiUrl(path);
-  const options: RequestInit = { ...init };
+  const { requiresAuth, ...fetchInit } = init || {};
+  const options: RequestInit = { ...fetchInit };
   
   // Add CORS mode for cross-origin requests
   if (isCrossOriginApi()) {
     options.mode = 'cors';
+    options.credentials = 'include';
+  }
+  
+  // Add stored credentials for authenticated requests
+  if (requiresAuth) {
+    const credentials = getStoredCredentials();
+    if (credentials) {
+      options.headers = {
+        ...options.headers,
+        'Authorization': `Basic ${credentials}`,
+      };
+    }
   }
   
   return fetch(url, options);
