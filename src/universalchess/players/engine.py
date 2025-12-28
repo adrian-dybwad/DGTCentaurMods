@@ -330,12 +330,20 @@ class EnginePlayer(Player):
     def on_new_game(self) -> None:
         """Notification that a new game is starting.
         
-        Resets engine state for the new game.
+        Resets engine state for the new game. If the engine failed to initialize
+        previously (ERROR state), attempts to re-initialize it.
         """
         log.info(f"[EnginePlayer] New game - resetting {self.engine_name}")
         self._pending_move = None
         self._lifted_squares = []
         self._thinking = False
+        
+        # If engine is in error state, attempt to re-initialize
+        if self._state == PlayerState.ERROR:
+            log.info(f"[EnginePlayer] Engine was in ERROR state, attempting to re-initialize")
+            self._set_state(PlayerState.UNINITIALIZED)
+            self._error_message = None
+            self.start()
         # The chess.engine library handles ucinewgame automatically
     
     def on_takeback(self, board: chess.Board) -> None:
