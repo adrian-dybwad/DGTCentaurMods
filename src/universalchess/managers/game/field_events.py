@@ -191,11 +191,12 @@ def process_field_event(
     # - The piece that needs to move (pending_move.from_square)
     # - The piece being captured (pending_move.to_square, if it's a capture)
     #
-    # IMPORTANT: Skip this check if a move is already in progress (source_square is set).
-    # When the user has already lifted the correct piece and is now bumping/adjusting
-    # another piece (e.g., removing the captured piece), we should not trigger an error.
-    move_already_in_progress = ctx.move_state.source_square != INVALID_SQUARE
-    if is_lift and pending_move is not None and piece_color is not None and not move_already_in_progress:
+    # IMPORTANT: Skip this check if the user has already lifted the correct piece for
+    # the pending move. When the forced move source has been lifted and the user is now
+    # bumping/adjusting another piece (e.g., removing the captured piece), we should
+    # not trigger an error.
+    pending_move_in_progress = ctx.move_state.pending_move_source_lifted != INVALID_SQUARE
+    if is_lift and pending_move is not None and piece_color is not None and not pending_move_in_progress:
         pending_from_square = pending_move.from_square
         pending_to_square = pending_move.to_square
         is_pending_capture = ctx.chess_board.is_capture(pending_move)
@@ -203,6 +204,12 @@ def process_field_event(
         # Allow lifting from: source square OR capture target square
         is_valid_lift = (field == pending_from_square or 
                          (is_pending_capture and field == pending_to_square))
+        
+        # Track when the correct source piece is lifted for the pending move
+        if is_valid_lift and field == pending_from_square:
+            ctx.move_state.pending_move_source_lifted = pending_from_square
+            log.debug(f"[GameManager.receive_field] Pending move source {chess.square_name(pending_from_square)} lifted - "
+                     "subsequent bumps/adjustments allowed")
         
         if not is_valid_lift:
             pending_piece = ctx.chess_board.piece_at(pending_from_square)

@@ -989,6 +989,9 @@ class GameManager:
                 # Clear lifted squares (protected access, but necessary here)
                 current_player._lifted_squares = []
         
+        # Clear pending move source tracking
+        self.move_state.pending_move_source_lifted = -1
+        
         # Execute the move
         self._execute_complete_move(move)
 

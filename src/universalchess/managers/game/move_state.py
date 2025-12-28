@@ -74,6 +74,11 @@ class MoveState:
         # Capture square event tracking for pending moves
         # Tracks which capture squares have had events (LIFT or PLACE)
         self._capture_square_events: set = set()
+        
+        # Pending move source lifted tracking
+        # Set to the source square when the correct piece is lifted for a pending move.
+        # This allows subsequent bumps/adjustments without triggering "wrong piece" errors.
+        self.pending_move_source_lifted: int = INVALID_SQUARE
 
     def reset(self):
         """Reset all move state variables.
@@ -93,6 +98,7 @@ class MoveState:
         self.king_lifted_square = INVALID_SQUARE
         self.king_lifted_color = None
         self._capture_square_events = set()
+        self.pending_move_source_lifted = INVALID_SQUARE
         
         # Clear pending move from web broadcast
         from universalchess.services.game_broadcast import set_pending_move
