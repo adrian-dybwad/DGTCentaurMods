@@ -17,8 +17,7 @@
 }
 
 .dialog {
-  /* Use chess board dark square color as background */
-  background: var(--color-square-dark, #b2b2b2);
+  background: #ffffff;
   border-radius: 12px;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
   max-width: 480px;
