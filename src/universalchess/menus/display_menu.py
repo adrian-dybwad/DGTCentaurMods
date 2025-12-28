@@ -3,7 +3,7 @@
 from typing import Any, Callable, Dict, Optional, List, Union
 
 from universalchess.epaper.icon_menu import IconMenuEntry
-from universalchess.managers.menu import is_break_result
+from universalchess.managers.menu import is_break_result, is_refresh_result
 
 
 def handle_display_settings(
@@ -66,6 +66,9 @@ def handle_display_settings(
         ]
 
         result = show_menu(entries)
+
+        if is_refresh_result(result):
+            continue
 
         if is_break_result(result):
             return result

@@ -423,6 +423,7 @@ try:
         MenuManager,
         MenuSelection,
         is_break_result,
+        is_refresh_result,
         find_entry_index,
         ConnectionManager,
     )
@@ -1707,6 +1708,10 @@ def _handle_settings(initial_selection: str = None):
             last_selected = find_entry_index(entries, result)
             ctx.update_index(last_selected)
         
+        # Handle settings refresh - rebuild entries with updated values
+        if is_refresh_result(result):
+            continue
+
         # Handle special results that should break out of all menus
         if is_break_result(result):
             ctx.clear()
@@ -3102,17 +3107,6 @@ def main():
         log.error(f"[Main] Failed to load game settings: {e}", exc_info=True)
         # Continue anyway - settings are not critical
 
-    # Start settings subscriber for hot reload from web app
-    try:
-        from universalchess.services.game_broadcast import get_settings_subscriber
-        settings_subscriber = get_settings_subscriber()
-        settings_subscriber.add_callback(_load_game_settings)
-        settings_subscriber.start()
-        log.info("[Main] Settings subscriber started (hot reload enabled)")
-    except Exception as e:
-        log.warning(f"[Main] Failed to start settings subscriber: {e}")
-        # Continue anyway - hot reload is optional
-
     try:
         log.info("[Main] Initializing MenuManager...")
         _menu_manager = MenuManager.get_instance()
@@ -3122,6 +3116,26 @@ def main():
     except Exception as e:
         log.error(f"[Main] Failed to initialize MenuManager: {e}", exc_info=True)
         raise
+
+    # Start settings subscriber for hot reload from web app
+    # Must be after MenuManager init so we can refresh menus
+    def _on_settings_changed():
+        """Callback when settings are changed from web app."""
+        log.info("[Main] Settings changed from web app, reloading...")
+        _load_game_settings()
+        # Refresh the current menu if one is active (so it shows updated values)
+        if _menu_manager is not None:
+            _menu_manager.refresh_menu()
+    
+    try:
+        from universalchess.services.game_broadcast import get_settings_subscriber
+        settings_subscriber = get_settings_subscriber()
+        settings_subscriber.add_callback(_on_settings_changed)
+        settings_subscriber.start()
+        log.info("[Main] Settings subscriber started (hot reload enabled)")
+    except Exception as e:
+        log.warning(f"[Main] Failed to start settings subscriber: {e}")
+        # Continue anyway - hot reload is optional
     
     try:
         log.info("[Main] Initializing ConnectionManager...")

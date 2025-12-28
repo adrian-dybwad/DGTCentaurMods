@@ -3,7 +3,7 @@
 from typing import Callable, Dict, List, Optional
 
 from universalchess.epaper.icon_menu import IconMenuEntry
-from universalchess.managers.menu import is_break_result
+from universalchess.managers.menu import is_break_result, is_refresh_result
 from universalchess.menus.hand_brain_menu import build_hand_brain_mode_toggle_entry, build_hand_brain_mode_entries
 
 
@@ -164,6 +164,9 @@ def handle_player1_menu(
         result = show_menu(entries, initial_index=ctx.current_index())
         ctx.update_index(find_entry_index(entries, result))
 
+        if is_refresh_result(result):
+            continue
+
         if is_break_result(result):
             return result
 
@@ -297,6 +300,10 @@ def handle_players_menu(
 
         result = show_menu(entries, initial_index=ctx.current_index())
         ctx.update_index(find_entry_index(entries, result))
+
+        # Handle settings refresh - rebuild entries with updated values
+        if is_refresh_result(result):
+            continue
 
         if is_break_result(result):
             return result
@@ -562,6 +569,9 @@ def handle_player2_menu(
 
         result = show_menu(entries, initial_index=ctx.current_index())
         ctx.update_index(find_entry_index(entries, result))
+
+        if is_refresh_result(result):
+            continue
 
         if is_break_result(result):
             return result

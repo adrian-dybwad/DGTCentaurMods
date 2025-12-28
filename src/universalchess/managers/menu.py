@@ -204,6 +204,18 @@ class MenuManager:
             log.info(f"[MenuManager] Cancelling menu with result: {result}")
             self._active_widget.cancel_selection(result)
     
+    def refresh_menu(self):
+        """Signal the current menu to refresh (rebuild entries with updated settings).
+        
+        Used when settings change from an external source (web app) and the
+        currently displayed menu should update to reflect the new values.
+        
+        The menu loop will see the REFRESH result and rebuild entries.
+        """
+        if self._active_widget is not None:
+            log.info("[MenuManager] Refreshing menu due to settings change")
+            self._active_widget.cancel_selection("REFRESH")
+    
     def show_menu(
         self,
         entries: List[IconMenuEntry],
@@ -319,6 +331,10 @@ class MenuManager:
             entries = build_entries()
             result = self.show_menu(entries, initial_index=last_index)
             
+            # Handle settings refresh - rebuild entries with updated values
+            if result.key == "REFRESH":
+                continue
+            
             # Always propagate break results
             if result.is_break:
                 return result
@@ -368,6 +384,26 @@ def is_break_result(result: Union[str, MenuSelection, None]) -> bool:
     if isinstance(result, MenuSelection):
         return result.is_break
     return result in {"CLIENT_CONNECTED", "PIECE_MOVED"}
+
+
+def is_refresh_result(result: Union[str, MenuSelection, None]) -> bool:
+    """Check if a result indicates the menu should refresh.
+    
+    When settings change from an external source (web app), menus receive
+    a REFRESH result. The menu loop should continue to rebuild entries
+    with updated settings.
+    
+    Args:
+        result: String key, MenuSelection, or None
+        
+    Returns:
+        True if this is a refresh result, False otherwise
+    """
+    if result is None:
+        return False
+    if isinstance(result, MenuSelection):
+        return result.result_type == MenuResult.BACK and result.key == "REFRESH"
+    return result == "REFRESH"
 
 
 def find_entry_index(entries: List[IconMenuEntry], key: str) -> int:

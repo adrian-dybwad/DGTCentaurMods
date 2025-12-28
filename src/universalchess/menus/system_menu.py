@@ -3,7 +3,7 @@
 from typing import Dict, List, Callable, Optional
 
 from universalchess.epaper.icon_menu import IconMenuEntry
-from universalchess.managers.menu import MenuSelection, is_break_result
+from universalchess.managers.menu import MenuSelection, is_break_result, is_refresh_result
 from universalchess.utils.led import LED_SPEED_NORMAL, LED_INTENSITY_DEFAULT
 
 
