@@ -326,7 +326,21 @@ def process_field_event(
                     )
                 )
 
-        if not allow_bumps_without_legal_move_check:
+        # If the lifted piece is the opponent's piece, this is often the first step of a legal capture
+        # (players frequently lift the captured piece before moving their own piece).
+        #
+        # Do not enter correction mode just because the opponent piece has no legal moves on this turn;
+        # instead, only treat it as an error if there is no legal capture to this square.
+        skip_no_legal_moves_check = allow_bumps_without_legal_move_check
+        if not skip_no_legal_moves_check and piece_color != ctx.chess_board.turn:
+            has_legal_capture_to_square = any(
+                (move.to_square == field and ctx.chess_board.is_capture(move))
+                for move in ctx.chess_board.legal_moves
+            )
+            if has_legal_capture_to_square:
+                skip_no_legal_moves_check = True
+
+        if not skip_no_legal_moves_check:
             # Check if this piece has any legal moves from this square (turn-dependent).
             has_legal_moves = any(move.from_square == field for move in ctx.chess_board.legal_moves)
             if not has_legal_moves:

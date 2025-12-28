@@ -14,7 +14,7 @@ def _piece_presence_state(board: chess.Board) -> bytearray:
 
 
 class _PlayerManagerStub:
-    def __init__(self, pending_move: chess.Move):
+    def __init__(self, pending_move: chess.Move | None):
         self._pending_move = pending_move
 
     def get_current_pending_move(self, _board: chess.Board):
@@ -168,5 +168,93 @@ def test_pending_capture_allows_lifting_capture_square_first_without_correction_
 
     assert move_state.has_seen_capture_square_event(chess.D4)
     enter_correction_mode_fn.assert_not_called()
+
+
+def test_lifting_capturable_opponent_piece_does_not_trigger_correction_mode() -> None:
+    # Expected failure message if broken: "enter_correction_mode_fn called when lifting capturable opponent piece"
+    # Why: In normal play (no pending move), players lift the captured piece first. This must be allowed when capture is legal.
+    chess_board = chess.Board("rnbqkbnr/pppp1ppp/8/8/3pP3/8/PPP2PPP/RNBQKBNR w KQkq - 0 3")
+
+    move_state = MoveState()
+    correction_mode = CorrectionMode()
+
+    board_module = Mock()
+    board_module.getChessState.return_value = None
+    board_module.beep = Mock()
+    board_module.SOUND_WRONG_MOVE = 0
+
+    enter_correction_mode_fn = Mock()
+
+    ctx = FieldEventContext(
+        chess_board=chess_board,
+        move_state=move_state,
+        correction_mode=correction_mode,
+        player_manager=_PlayerManagerStub(None),
+        board_module=board_module,
+        event_callback=None,
+        enter_correction_mode_fn=enter_correction_mode_fn,
+        provide_correction_guidance_fn=Mock(),
+        handle_field_event_in_correction_mode_fn=Mock(),
+        handle_piece_event_without_player_fn=Mock(),
+        on_piece_event_fn=Mock(),
+        handle_king_lift_resign_fn=Mock(),
+        execute_pending_move_fn=Mock(),
+        get_kings_in_center_menu_active_fn=lambda: False,
+        set_kings_in_center_menu_active_fn=lambda _v: None,
+        on_kings_in_center_cancel_fn=None,
+        get_king_lift_resign_menu_active_fn=lambda: False,
+        set_king_lift_resign_menu_active_fn=lambda _v: None,
+        on_king_lift_resign_cancel_fn=None,
+        chess_board_to_state_fn=lambda _b: None,
+    )
+
+    # d4 contains a black pawn. White can legally capture it (e.g., Qxd4).
+    process_field_event(ctx, piece_event=0, field=chess.D4, time_in_seconds=0.0)
+
+    enter_correction_mode_fn.assert_not_called()
+
+
+def test_lifting_non_capturable_opponent_piece_enters_correction_mode() -> None:
+    # Expected failure message if broken: "enter_correction_mode_fn not called when lifting non-capturable opponent piece"
+    # Why: If an opponent piece is lifted and no legal capture exists to that square, it is an illegal interaction and should trigger correction mode.
+    chess_board = chess.Board()
+
+    move_state = MoveState()
+    correction_mode = CorrectionMode()
+
+    board_module = Mock()
+    board_module.getChessState.return_value = None
+    board_module.beep = Mock()
+    board_module.SOUND_WRONG_MOVE = 0
+
+    enter_correction_mode_fn = Mock()
+
+    ctx = FieldEventContext(
+        chess_board=chess_board,
+        move_state=move_state,
+        correction_mode=correction_mode,
+        player_manager=_PlayerManagerStub(None),
+        board_module=board_module,
+        event_callback=None,
+        enter_correction_mode_fn=enter_correction_mode_fn,
+        provide_correction_guidance_fn=Mock(),
+        handle_field_event_in_correction_mode_fn=Mock(),
+        handle_piece_event_without_player_fn=Mock(),
+        on_piece_event_fn=Mock(),
+        handle_king_lift_resign_fn=Mock(),
+        execute_pending_move_fn=Mock(),
+        get_kings_in_center_menu_active_fn=lambda: False,
+        set_kings_in_center_menu_active_fn=lambda _v: None,
+        on_kings_in_center_cancel_fn=None,
+        get_king_lift_resign_menu_active_fn=lambda: False,
+        set_king_lift_resign_menu_active_fn=lambda _v: None,
+        on_king_lift_resign_cancel_fn=None,
+        chess_board_to_state_fn=lambda _b: None,
+    )
+
+    # Start position: white to move; a7 is a black pawn and is not capturable by any legal move.
+    process_field_event(ctx, piece_event=0, field=chess.A7, time_in_seconds=0.0)
+
+    enter_correction_mode_fn.assert_called_once()
 
 
