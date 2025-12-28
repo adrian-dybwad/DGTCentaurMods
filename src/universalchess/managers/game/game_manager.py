@@ -72,7 +72,6 @@ from .post_move import handle_game_end, validate_physical_board_after_move
 from .correction_flow import handle_field_event_in_correction_mode
 from .starting_position import is_starting_position_state
 from .castling import detect_late_castling, execute_late_castling, execute_rook_first_castling
-from .piece_events import PieceEventContext, handle_piece_lift, handle_piece_place
 from .field_events import FieldEventContext, process_field_event
 from .move_execution import MoveExecutionContext, execute_move
 from .player_moves import (
@@ -633,50 +632,6 @@ class GameManager:
                 self.move_state.king_lift_timer.daemon = True
                 self.move_state.king_lift_timer.start()
                 log.debug(f"[GameManager._handle_king_lift_resign] King lifted from {chess.square_name(field)}, started 3-second resign timer")
-    
-    def _handle_piece_lift(self, field: int, piece_color):
-        ctx = PieceEventContext(
-            chess_board=self.chess_board,
-            game_state=self._game_state,
-            move_state=self.move_state,
-            correction_mode=self.correction_mode,
-            player_manager=self._player_manager,
-            board_module=board,
-            led=self.led,
-            get_expected_state_fn=lambda: self._chess_board_to_state(self.chess_board),
-            enter_correction_mode_fn=self._enter_correction_mode,
-            provide_correction_guidance_fn=self._provide_correction_guidance,
-            check_takeback_fn=self._check_takeback,
-            execute_move_fn=self._execute_move,
-            execute_late_castling_fn=self._execute_late_castling,
-            get_king_lift_resign_menu_active_fn=lambda: self._king_lift_resign_menu_active,
-            set_king_lift_resign_menu_active_fn=lambda v: setattr(self, "_king_lift_resign_menu_active", v),
-            on_king_lift_resign_fn=self.on_king_lift_resign,
-            on_king_lift_resign_cancel_fn=self.on_king_lift_resign_cancel,
-        )
-        handle_piece_lift(ctx, field, piece_color)
-
-    def _handle_piece_place(self, field: int, piece_color):
-        ctx = PieceEventContext(
-            chess_board=self.chess_board,
-            game_state=self._game_state,
-            move_state=self.move_state,
-            correction_mode=self.correction_mode,
-            player_manager=self._player_manager,
-            board_module=board,
-            led=self.led,
-            get_expected_state_fn=lambda: self._chess_board_to_state(self.chess_board),
-            enter_correction_mode_fn=self._enter_correction_mode,
-            provide_correction_guidance_fn=self._provide_correction_guidance,
-            check_takeback_fn=self._check_takeback,
-            execute_move_fn=self._execute_move,
-            execute_late_castling_fn=self._execute_late_castling,
-            get_king_lift_resign_menu_active_fn=lambda: self._king_lift_resign_menu_active,
-            set_king_lift_resign_menu_active_fn=lambda v: setattr(self, "_king_lift_resign_menu_active", v),
-            on_king_lift_resign_fn=self.on_king_lift_resign,
-            on_king_lift_resign_cancel_fn=self.on_king_lift_resign_cancel,
-        )
-        handle_piece_place(ctx, field, piece_color)
     
     def _execute_castling_move(self, rook_source: int):
         """Execute a castling move when the rook was moved first."""

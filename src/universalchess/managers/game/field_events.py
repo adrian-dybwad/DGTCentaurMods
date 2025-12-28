@@ -182,6 +182,28 @@ def process_field_event(
                 log.debug(f"[GameManager.receive_field] Pending capture {pending_move.uci()} - "
                          "waiting for event on capture square")
 
+    # Check for "piece with no legal moves" on LIFT events
+    # ANY piece lifted without valid moves should trigger correction mode - not just
+    # the current player's piece. This handles:
+    # - Current player lifting a blocked/pinned piece
+    # - Player lifting opponent's piece (which has no legal moves since it's not their turn)
+    # - Lifting an empty square (piece_color is None, handled separately)
+    if is_lift and piece_color is not None:
+        # Check if this piece has any legal moves from this square
+        has_legal_moves = any(move.from_square == field for move in ctx.chess_board.legal_moves)
+        if not has_legal_moves:
+            log.warning(
+                f"[GameManager.receive_field] Piece at {chess.square_name(field)} has no legal moves - "
+                "entering correction mode"
+            )
+            ctx.board_module.beep(ctx.board_module.SOUND_WRONG_MOVE, event_type="error")
+            ctx.enter_correction_mode_fn()
+            current_state = ctx.board_module.getChessState()
+            expected_state = ctx.chess_board_to_state_fn(ctx.chess_board)
+            if current_state is not None and expected_state is not None:
+                ctx.provide_correction_guidance_fn(current_state, expected_state)
+            return
+
     # Forward to player manager (after board state validation to avoid incorrect move formation)
     ctx.on_piece_event_fn("lift" if is_lift else "place", field, ctx.chess_board)
 
