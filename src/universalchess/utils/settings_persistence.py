@@ -92,13 +92,14 @@ def load_section(section: str, defaults: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-def save_setting(section: str, key: str, value: Any) -> bool:
+def save_setting(section: str, key: str, value: Any, *, broadcast: bool = True) -> bool:
     """Save a single setting to centaur.ini.
 
     Args:
         section: Section name in config file
         key: Setting key
         value: Setting value (string, bool, or int)
+        broadcast: If True, broadcast settings_changed event to web clients
 
     Returns:
         True if saved successfully, False otherwise
@@ -110,6 +111,14 @@ def save_setting(section: str, key: str, value: Any) -> bool:
         else:
             str_value = str(value)
         Settings.write(section, key, str_value)
+        
+        if broadcast:
+            try:
+                from universalchess.services.game_broadcast import broadcast_settings_changed
+                broadcast_settings_changed()
+            except Exception:
+                pass  # Broadcast is optional enhancement
+        
         return True
     except Exception:
         return False

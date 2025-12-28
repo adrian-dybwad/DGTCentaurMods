@@ -2051,11 +2051,30 @@ def _on_game_state_update(state: GameState) -> None:
                 pass  # Client is too slow, skip this update
 
 
+def _on_raw_message(parsed: dict) -> None:
+    """Callback for raw messages from main app (including generic events).
+    
+    Forwards non-game-state events to SSE clients.
+    Game state events are handled by _on_game_state_update.
+    """
+    event_type = parsed.get("type")
+    if event_type and event_type != "game_state":
+        # Forward generic events (like settings_changed) to SSE clients
+        message = json.dumps(parsed)
+        with _sse_clients_lock:
+            for client_queue in _sse_clients:
+                try:
+                    client_queue.put_nowait(message)
+                except queue.Full:
+                    pass
+
+
 def _init_game_subscriber():
     """Initialize the game state subscriber (called once on app startup)."""
     try:
         subscriber = get_subscriber()
         subscriber.add_callback(_on_game_state_update)
+        subscriber.add_raw_callback(_on_raw_message)
         subscriber.start()
     except Exception as e:
         # Log but don't crash - SSE is optional enhancement

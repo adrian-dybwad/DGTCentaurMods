@@ -179,6 +179,37 @@ class GameBroadcaster:
             log.debug(f"[GameBroadcaster] Send failed: {e}")
             self._connected = False
             return False
+
+    def broadcast_event(self, event_type: str, data: Optional[dict] = None) -> bool:
+        """Broadcast a generic event to subscribers.
+        
+        Args:
+            event_type: Type of event (e.g., 'settings_changed').
+            data: Optional additional data payload.
+            
+        Returns:
+            True if sent successfully, False otherwise.
+        """
+        if not self._connected:
+            if not self.connect():
+                return False
+        
+        try:
+            socket_path = get_socket_path()
+            message_dict = {"type": event_type}
+            if data:
+                message_dict.update(data)
+            message = json.dumps(message_dict).encode("utf-8")
+            self._socket.sendto(message, str(socket_path))
+            log.debug(f"[GameBroadcaster] Sent event: {event_type}")
+            return True
+        except FileNotFoundError:
+            log.debug("[GameBroadcaster] No subscriber listening")
+            return False
+        except Exception as e:
+            log.debug(f"[GameBroadcaster] Send failed: {e}")
+            self._connected = False
+            return False
     
     def close(self) -> None:
         """Close the socket."""
@@ -198,6 +229,7 @@ class GameSubscriber:
     
     Used by the web application to receive moves from the main app.
     Callbacks are invoked when new game state arrives.
+    Also supports raw message callbacks for generic events.
     """
     
     def __init__(self):
@@ -205,6 +237,7 @@ class GameSubscriber:
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._callbacks: List[Callable[[GameState], None]] = []
+        self._raw_callbacks: List[Callable[[dict], None]] = []
         self._lock = threading.Lock()
         self._last_state: Optional[GameState] = None
     
@@ -238,6 +271,18 @@ class GameSubscriber:
         """
         with self._lock:
             self._callbacks.append(callback)
+    
+    def add_raw_callback(self, callback: Callable[[dict], None]) -> None:
+        """Register a callback for raw message updates.
+        
+        Raw callbacks receive all messages as parsed JSON dicts,
+        including both game state and generic events.
+        
+        Args:
+            callback: Function to call with parsed message dict.
+        """
+        with self._lock:
+            self._raw_callbacks.append(callback)
     
     def remove_callback(self, callback: Callable[[GameState], None]) -> None:
         """Unregister a callback.
@@ -304,18 +349,31 @@ class GameSubscriber:
             try:
                 data, _ = self._socket.recvfrom(65536)
                 message = data.decode("utf-8")
-                state = GameState.from_json(message)
-                self._last_state = state
+                parsed = json.loads(message)
                 
-                # Notify all callbacks
+                # Notify raw callbacks for all message types
                 with self._lock:
-                    callbacks = list(self._callbacks)
-                
-                for callback in callbacks:
+                    raw_callbacks = list(self._raw_callbacks)
+                for callback in raw_callbacks:
                     try:
-                        callback(state)
+                        callback(parsed)
                     except Exception as e:
-                        log.error(f"[GameSubscriber] Callback error: {e}")
+                        log.error(f"[GameSubscriber] Raw callback error: {e}")
+                
+                # Only process as GameState if it's a game_state message
+                if parsed.get("type") == "game_state":
+                    state = GameState.from_json(message)
+                    self._last_state = state
+                    
+                    # Notify game state callbacks
+                    with self._lock:
+                        callbacks = list(self._callbacks)
+                    
+                    for callback in callbacks:
+                        try:
+                            callback(state)
+                        except Exception as e:
+                            log.error(f"[GameSubscriber] Callback error: {e}")
                 
             except socket.timeout:
                 # Normal timeout, check if we should continue
@@ -418,4 +476,16 @@ def broadcast_game_state(
         pending_move=effective_pending_move,
     )
     return get_broadcaster().broadcast(state)
+
+
+def broadcast_settings_changed() -> bool:
+    """Broadcast a settings_changed event to subscribers.
+    
+    Called when settings are saved from the main process (menu).
+    The web app will forward this to SSE clients so React can refetch.
+    
+    Returns:
+        True if broadcast succeeded, False otherwise.
+    """
+    return get_broadcaster().broadcast_event("settings_changed")
 
