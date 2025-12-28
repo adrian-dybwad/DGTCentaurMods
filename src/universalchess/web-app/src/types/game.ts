@@ -11,6 +11,8 @@ export interface GameState {
   white: string;
   black: string;
   result: string | null;
+  /** How the game ended: 'checkmate', 'stalemate', 'resignation', 'time_forfeit', etc. */
+  termination: string | null;
   game_id: number | null;
   game_over: boolean;
   /** Last move executed in UCI format (e.g., 'e2e4') */

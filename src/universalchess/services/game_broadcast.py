@@ -84,6 +84,8 @@ class GameState:
     last_move: Optional[str] = None
     game_over: bool = False
     result: Optional[str] = None
+    # How the game ended: 'checkmate', 'stalemate', 'resignation', 'time_forfeit', etc.
+    termination: Optional[str] = None
     white: str = "White"
     black: str = "Black"
     timestamp: float = 0.0
@@ -448,6 +450,7 @@ def broadcast_game_state(
     last_move: Optional[str] = None,
     game_over: bool = False,
     result: Optional[str] = None,
+    termination: Optional[str] = None,
     white: str = "White",
     black: str = "Black",
     pending_move: Optional[str] = None,
@@ -462,6 +465,7 @@ def broadcast_game_state(
         last_move: Last move in UCI notation.
         game_over: Whether the game has ended.
         result: Game result if over ('1-0', '0-1', '1/2-1/2').
+        termination: How the game ended ('checkmate', 'resignation', etc.).
         white: White player name.
         black: Black player name.
         pending_move: Move in progress (from-to in UCI format, e.g., 'e2e4').
@@ -480,6 +484,7 @@ def broadcast_game_state(
         last_move=last_move,
         game_over=game_over,
         result=result,
+        termination=termination,
         white=white,
         black=black,
         pending_move=effective_pending_move,

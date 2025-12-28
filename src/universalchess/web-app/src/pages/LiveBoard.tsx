@@ -143,6 +143,19 @@ export function LiveBoard() {
   const moveNum = gameState?.move_number || 1;
   const result = gameState?.result;
   const gameOver = gameState?.game_over;
+  const termination = gameState?.termination;
+  
+  // Format termination reason for display
+  const formatTermination = (term: string | null | undefined): string => {
+    if (!term) return '';
+    // Convert snake_case or lowercase to Title Case with spaces
+    const formatted = term
+      .replace(/_/g, ' ')
+      .replace(/\./g, ' ')
+      .toLowerCase()
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+    return formatted;
+  };
   
   // Blue arrow: pending move (engine waiting) or last move (just executed)
   // Shows "what just happened or needs to happen" on the physical board
@@ -188,7 +201,12 @@ export function LiveBoard() {
                 <span className="text-muted"> (B)</span>
               </div>
               {gameOver && result ? (
-                <span className="tag is-info">{result}</span>
+                <div className="game-over-info">
+                  <span className="tag is-info">{result}</span>
+                  {termination && (
+                    <span className="termination-reason">{formatTermination(termination)}</span>
+                  )}
+                </div>
               ) : (
                 <span className="tag is-light">Move {moveNum} - {turn} to play</span>
               )}

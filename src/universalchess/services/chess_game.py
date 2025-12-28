@@ -283,6 +283,7 @@ class ChessGameService:
                 last_move=last_move,
                 game_over=self._state.is_game_over,
                 result=self._state.result,
+                termination=self._state.termination,
                 white=players.white_name,
                 black=players.black_name,
             )
