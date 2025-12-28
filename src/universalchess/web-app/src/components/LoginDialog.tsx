@@ -54,9 +54,10 @@ export function LoginDialog({ isOpen, onClose, onSuccess, errorMessage }: LoginD
 
     const encoded = encodeBasicAuth(username.trim(), password);
     
-    if (rememberMe) {
-      storeCredentials(encoded);
-    }
+    // Always store credentials for the API call to use.
+    // If rememberMe is true, store persistently (localStorage).
+    // If rememberMe is false, store for session only (sessionStorage, clears on tab close).
+    storeCredentials(encoded, rememberMe);
     
     onSuccess();
   };

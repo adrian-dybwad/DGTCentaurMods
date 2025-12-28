@@ -123,28 +123,42 @@ export function isCrossOriginApi(): boolean {
 }
 
 const AUTH_CREDENTIALS_KEY = 'universal-chess-auth';
+const AUTH_SESSION_KEY = 'universal-chess-auth-session';
 
 /**
  * Get stored Basic Auth credentials.
  * Returns base64-encoded "username:password" or null if not stored.
+ * Checks localStorage first (persistent), then sessionStorage (temporary).
  */
 export function getStoredCredentials(): string | null {
-  return localStorage.getItem(AUTH_CREDENTIALS_KEY);
+  return localStorage.getItem(AUTH_CREDENTIALS_KEY) || sessionStorage.getItem(AUTH_SESSION_KEY);
 }
 
 /**
  * Store Basic Auth credentials.
  * Credentials should be base64-encoded "username:password".
+ * 
+ * @param base64Credentials - The encoded credentials
+ * @param persistent - If true, store in localStorage (survives browser close).
+ *                     If false, store in sessionStorage (cleared when tab closes).
  */
-export function storeCredentials(base64Credentials: string): void {
-  localStorage.setItem(AUTH_CREDENTIALS_KEY, base64Credentials);
+export function storeCredentials(base64Credentials: string, persistent: boolean = true): void {
+  if (persistent) {
+    localStorage.setItem(AUTH_CREDENTIALS_KEY, base64Credentials);
+    // Clear session storage if we're persisting
+    sessionStorage.removeItem(AUTH_SESSION_KEY);
+  } else {
+    sessionStorage.setItem(AUTH_SESSION_KEY, base64Credentials);
+    // Don't clear localStorage - if user had persistent creds, keep them
+  }
 }
 
 /**
- * Clear stored credentials.
+ * Clear stored credentials from both storage types.
  */
 export function clearCredentials(): void {
   localStorage.removeItem(AUTH_CREDENTIALS_KEY);
+  sessionStorage.removeItem(AUTH_SESSION_KEY);
 }
 
 /**
