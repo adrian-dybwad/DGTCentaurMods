@@ -21,6 +21,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "MenuSelection": ("universalchess.managers.menu", "MenuSelection"),
     "MenuResult": ("universalchess.managers.menu", "MenuResult"),
     "is_break_result": ("universalchess.managers.menu", "is_break_result"),
+    "is_refresh_result": ("universalchess.managers.menu", "is_refresh_result"),
     "find_entry_index": ("universalchess.managers.menu", "find_entry_index"),
     # protocol / connectivity
     "ProtocolManager": ("universalchess.managers.protocol", "ProtocolManager"),
@@ -64,6 +65,7 @@ __all__ = [
     'MenuSelection', 
     'MenuResult',
     'is_break_result',
+    'is_refresh_result',
     'find_entry_index',
     'ProtocolManager',
     'BleManager',
