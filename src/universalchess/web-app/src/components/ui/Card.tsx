@@ -33,14 +33,17 @@ interface CardHeaderProps {
 }
 
 /**
- * Card header with title and optional action.
+ * Card header with title, optional action, and horizontal rule.
  */
 export function CardHeader({ title, action }: CardHeaderProps) {
   return (
-    <div className="card-header">
-      <h3 className="card-title">{title}</h3>
-      {action}
-    </div>
+    <>
+      <div className="card-header">
+        <h3 className="card-title">{title}</h3>
+        {action}
+      </div>
+      <hr className="card-divider" />
+    </>
   );
 }
 

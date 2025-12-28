@@ -501,13 +501,12 @@ export function Settings() {
         {/* PLAYERS TAB */}
         {activeTab === 'players' && (
           <section>
-            <Card>
-              <h2 className="page-title">Player Settings</h2>
-              <p className="text-muted mb-6">Configure player names, types, and engine preferences</p>
+            <h2 className="page-title">Player Settings</h2>
+            <p className="text-muted mb-6">Configure player names, types, and engine preferences</p>
 
-              {/* Player 1 */}
-              <div className="settings-group">
-                <h3 className="settings-group-title">Player 1 (White by default)</h3>
+            {/* Player 1 */}
+            <Card className="mb-6">
+              <CardHeader title="Player 1 (White by default)" />
                 
                 <FormRow label="Player Type" help="Human, Engine, Hand+Brain, or Lichess">
                   <Select
@@ -564,11 +563,11 @@ export function Settings() {
                     Hints will use <strong>{getEngineDisplayName(formSettings.game.analysis_engine || 'stockfish')}</strong> (configured in Game Settings → Analysis Engine)
                   </p>
                 )}
-              </div>
+            </Card>
 
-              {/* Player 2 */}
-              <div className="settings-group mt-8">
-                <h3 className="settings-group-title">Player 2 (Black by default)</h3>
+            {/* Player 2 */}
+            <Card className="mb-6">
+              <CardHeader title="Player 2 (Black by default)" />
                 
                 <FormRow label="Player Type" help="Human, Engine, Hand+Brain, or Lichess">
                   <Select
@@ -625,7 +624,6 @@ export function Settings() {
                     Hints will use <strong>{getEngineDisplayName(formSettings.game.analysis_engine || 'stockfish')}</strong> (configured in Game Settings → Analysis Engine)
                   </p>
                 )}
-              </div>
             </Card>
 
             {/* Hand+Brain Explanation */}
@@ -662,37 +660,35 @@ export function Settings() {
         {/* GAME TAB */}
         {activeTab === 'game' && (
           <section>
-            <Card>
-              <h2 className="page-title">Game Settings</h2>
-              <p className="text-muted mb-6">Time controls and game behavior</p>
+            <h2 className="page-title">Game Settings</h2>
+            <p className="text-muted mb-6">Time controls and game behavior</p>
 
-              <div className="settings-group">
-                <h3 className="settings-group-title">Time Control</h3>
-                <FormRow label="Time per Player" help="Minutes per player (0 = untimed)">
-                  <Select
-                    value={formSettings.game.time_control}
-                    options={timeControlOptions}
-                    onChange={(e) => updateFormSettings('game', { time_control: e.target.value })}
-                  />
-                </FormRow>
-              </div>
-
-              <div className="settings-group mt-8">
-                <h3 className="settings-group-title">Analysis</h3>
-                <Toggle
-                  label="Live Analysis"
-                  help="Show engine evaluation during play"
-                  checked={formSettings.game.analysis_mode}
-                  onChange={(v) => updateFormSettings('game', { analysis_mode: v })}
+            <Card className="mb-6">
+              <CardHeader title="Time Control" />
+              <FormRow label="Time per Player" help="Minutes per player (0 = untimed)">
+                <Select
+                  value={formSettings.game.time_control}
+                  options={timeControlOptions}
+                  onChange={(e) => updateFormSettings('game', { time_control: e.target.value })}
                 />
-                <FormRow label="Analysis Engine" help="Engine used for position analysis">
-                  <Select
-                    value={formSettings.game.analysis_engine}
-                    options={engineOptions}
-                    onChange={(e) => updateFormSettings('game', { analysis_engine: e.target.value })}
-                  />
-                </FormRow>
-              </div>
+              </FormRow>
+            </Card>
+
+            <Card className="mb-6">
+              <CardHeader title="Analysis" />
+              <Toggle
+                label="Live Analysis"
+                help="Show engine evaluation during play"
+                checked={formSettings.game.analysis_mode}
+                onChange={(v) => updateFormSettings('game', { analysis_mode: v })}
+              />
+              <FormRow label="Analysis Engine" help="Engine used for position analysis">
+                <Select
+                  value={formSettings.game.analysis_engine}
+                  options={engineOptions}
+                  onChange={(e) => updateFormSettings('game', { analysis_engine: e.target.value })}
+                />
+              </FormRow>
             </Card>
           </section>
         )}
@@ -700,51 +696,49 @@ export function Settings() {
         {/* DISPLAY TAB */}
         {activeTab === 'display' && (
           <section>
-            <Card>
-              <h2 className="page-title">Display Settings</h2>
-              <p className="text-muted mb-6">Control what appears on the e-paper display and LEDs</p>
+            <h2 className="page-title">Display Settings</h2>
+            <p className="text-muted mb-6">Control what appears on the e-paper display and LEDs</p>
 
-              <div className="settings-group">
-                <h3 className="settings-group-title">E-Paper Display</h3>
-                <Toggle
-                  label="Show Board"
-                  help="Display chess board on screen"
-                  checked={formSettings.game.show_board}
-                  onChange={(v) => updateFormSettings('game', { show_board: v })}
-                />
-                <Toggle
-                  label="Show Clock"
-                  help="Display game clock and turn indicator"
-                  checked={formSettings.game.show_clock}
-                  onChange={(v) => updateFormSettings('game', { show_clock: v })}
-                />
-                <Toggle
-                  label="Show Analysis"
-                  help="Display engine analysis widget"
-                  checked={formSettings.game.show_analysis}
-                  onChange={(v) => updateFormSettings('game', { show_analysis: v })}
-                />
-                <Toggle
-                  label="Show Evaluation Graph"
-                  help="Display evaluation history graph"
-                  checked={formSettings.game.show_graph}
-                  onChange={(v) => updateFormSettings('game', { show_graph: v })}
-                />
-              </div>
+            <Card className="mb-6">
+              <CardHeader title="E-Paper Display" />
+              <Toggle
+                label="Show Board"
+                help="Display chess board on screen"
+                checked={formSettings.game.show_board}
+                onChange={(v) => updateFormSettings('game', { show_board: v })}
+              />
+              <Toggle
+                label="Show Clock"
+                help="Display game clock and turn indicator"
+                checked={formSettings.game.show_clock}
+                onChange={(v) => updateFormSettings('game', { show_clock: v })}
+              />
+              <Toggle
+                label="Show Analysis"
+                help="Display engine analysis widget"
+                checked={formSettings.game.show_analysis}
+                onChange={(v) => updateFormSettings('game', { show_analysis: v })}
+              />
+              <Toggle
+                label="Show Evaluation Graph"
+                help="Display evaluation history graph"
+                checked={formSettings.game.show_graph}
+                onChange={(v) => updateFormSettings('game', { show_graph: v })}
+              />
+            </Card>
 
-              <div className="settings-group mt-8">
-                <h3 className="settings-group-title">LEDs</h3>
-                <FormRow label="LED Brightness" help={`Level: ${formSettings.game.led_brightness}`}>
-                  <input
-                    type="range"
-                    className="range-slider"
-                    min="1"
-                    max="10"
-                    value={formSettings.game.led_brightness}
-                    onChange={(e) => updateFormSettings('game', { led_brightness: parseInt(e.target.value) })}
-                  />
-                </FormRow>
-              </div>
+            <Card className="mb-6">
+              <CardHeader title="LEDs" />
+              <FormRow label="LED Brightness" help={`Level: ${formSettings.game.led_brightness}`}>
+                <input
+                  type="range"
+                  className="range-slider"
+                  min="1"
+                  max="10"
+                  value={formSettings.game.led_brightness}
+                  onChange={(e) => updateFormSettings('game', { led_brightness: parseInt(e.target.value) })}
+                />
+              </FormRow>
             </Card>
           </section>
         )}
@@ -816,10 +810,11 @@ export function Settings() {
         {/* SOUND TAB */}
         {activeTab === 'sound' && (
           <section>
-            <Card>
-              <h2 className="page-title">Sound Settings</h2>
-              <p className="text-muted mb-6">Audio feedback configuration</p>
+            <h2 className="page-title">Sound Settings</h2>
+            <p className="text-muted mb-6">Audio feedback configuration</p>
 
+            <Card className="mb-6">
+              <CardHeader title="Audio Feedback" />
               <Toggle
                 label="Sound Enabled"
                 help="Master switch for all sound effects"
@@ -857,47 +852,45 @@ export function Settings() {
         {/* SYSTEM TAB */}
         {activeTab === 'system' && (
           <section>
-            <Card>
-              <h2 className="page-title">System Settings</h2>
-              <p className="text-muted mb-6">Advanced configuration for developers and power users</p>
+            <h2 className="page-title">System Settings</h2>
+            <p className="text-muted mb-6">Advanced configuration for developers and power users</p>
 
-              <div className="settings-group">
-                <h3 className="settings-group-title">Developer Mode</h3>
-                <Toggle
-                  label="Enable Developer Mode"
-                  help={
-                    <>
-                      Enables verbose debug logging. View logs with:{' '}
-                      <code>journalctl -u universal-chess -f</code>
-                    </>
-                  }
-                  checked={formSettings.system.developer_mode}
-                  onChange={(v) => updateFormSettings('system', { developer_mode: v })}
+            <Card className="mb-6">
+              <CardHeader title="Developer Mode" />
+              <Toggle
+                label="Enable Developer Mode"
+                help={
+                  <>
+                    Enables verbose debug logging. View logs with:{' '}
+                    <code>journalctl -u universal-chess -f</code>
+                  </>
+                }
+                checked={formSettings.system.developer_mode}
+                onChange={(v) => updateFormSettings('system', { developer_mode: v })}
+              />
+            </Card>
+
+            <Card className="mb-6">
+              <CardHeader title="Game Database" />
+              <p className="text-muted mb-4">
+                Universal Chess stores all your games in a database. By default, it uses SQLite at{' '}
+                <code>/opt/universalchess/db/centaur.db</code>.
+              </p>
+              <FormRow label="Database URI" help="Leave empty for default SQLite. Supports any SQLAlchemy-compatible URI.">
+                <Input
+                  value={formSettings.system.database_uri}
+                  placeholder="(default SQLite)"
+                  onChange={(e) => updateFormSettings('system', { database_uri: e.target.value })}
                 />
-              </div>
-
-              <div className="settings-group mt-8">
-                <h3 className="settings-group-title">Game Database</h3>
-                <p className="text-muted mb-4">
-                  Universal Chess stores all your games in a database. By default, it uses SQLite at{' '}
-                  <code>/opt/universalchess/db/centaur.db</code>.
-                </p>
-                <FormRow label="Database URI" help="Leave empty for default SQLite. Supports any SQLAlchemy-compatible URI.">
-                  <Input
-                    value={formSettings.system.database_uri}
-                    placeholder="(default SQLite)"
-                    onChange={(e) => updateFormSettings('system', { database_uri: e.target.value })}
-                  />
-                </FormRow>
-                <Card variant="muted" className="mt-4">
-                  <strong>Supported Database URIs:</strong>
-                  <ul className="mt-2 ml-4 list-disc text-muted">
-                    <li><code>sqlite:///path/to/games.db</code> - Local SQLite file</li>
-                    <li><code>postgresql://user:pass@host:5432/dbname</code> - PostgreSQL</li>
-                    <li><code>mysql://user:pass@host:3306/dbname</code> - MySQL/MariaDB</li>
-                  </ul>
-                </Card>
-              </div>
+              </FormRow>
+              <Card variant="muted" className="mt-4">
+                <strong>Supported Database URIs:</strong>
+                <ul className="mt-2 ml-4 list-disc text-muted">
+                  <li><code>sqlite:///path/to/games.db</code> - Local SQLite file</li>
+                  <li><code>postgresql://user:pass@host:5432/dbname</code> - PostgreSQL</li>
+                  <li><code>mysql://user:pass@host:3306/dbname</code> - MySQL/MariaDB</li>
+                </ul>
+              </Card>
             </Card>
           </section>
         )}
@@ -974,7 +967,7 @@ function EnginesList({
         if (tier.engines.length === 0) return null;
         return (
           <Card key={tier.title} className="mb-6">
-            <h3 className="settings-group-title">{tier.title}</h3>
+            <CardHeader title={tier.title} />
             <div className="engines-grid">
               {tier.engines.map((engine) => (
                 <EngineCard

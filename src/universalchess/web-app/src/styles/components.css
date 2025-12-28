@@ -67,6 +67,12 @@
   margin: 0;
 }
 
+.card-divider {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: 0 0 var(--space-4) 0;
+}
+
 /* ============================================
    Buttons
    ============================================ */
