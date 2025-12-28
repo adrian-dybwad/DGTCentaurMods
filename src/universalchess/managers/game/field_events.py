@@ -306,17 +306,26 @@ def process_field_event(
         # Example: black forced move is pending, user lifts black source piece, then bumps a
         # white pawn. That pawn has no legal moves because it's not White's turn, but this
         # should not force correction mode mid-sequence.
-        allow_bumps_without_legal_move_check = (
-            pending_move is not None
-            and ctx.move_state.pending_move_source_lifted != INVALID_SQUARE
-            and (
-                not is_pending_capture
-                or (
-                    pending_capture_square is not None
-                    and ctx.move_state.has_seen_capture_square_event(pending_capture_square)
+        #
+        # IMPORTANT: For pending CAPTURES, lifting the capture square first (to remove the captured piece)
+        # is a normal/valid sequence. Do not treat that as "no legal moves" just because it's the
+        # opponent's piece on the opponent's turn.
+        allow_bumps_without_legal_move_check = False
+        if pending_move is not None:
+            if is_pending_capture and pending_capture_square is not None and field == pending_capture_square:
+                allow_bumps_without_legal_move_check = True
+            else:
+                allow_bumps_without_legal_move_check = (
+                    ctx.move_state.pending_move_source_lifted != INVALID_SQUARE
+                    and (
+                        (not is_pending_capture)
+                        or (
+                            pending_capture_square is not None
+                            and ctx.move_state.has_seen_capture_square_event(pending_capture_square)
+                        )
+                    )
                 )
-            )
-        )
+
         if not allow_bumps_without_legal_move_check:
             # Check if this piece has any legal moves from this square (turn-dependent).
             has_legal_moves = any(move.from_square == field for move in ctx.chess_board.legal_moves)

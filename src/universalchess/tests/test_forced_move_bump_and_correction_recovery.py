@@ -122,3 +122,51 @@ def test_pending_move_executes_even_if_correction_mode_active_when_board_matches
     handle_field_event_in_correction_mode_fn.assert_not_called()
 
 
+def test_pending_capture_allows_lifting_capture_square_first_without_correction_mode() -> None:
+    # Expected failure message if broken: "enter_correction_mode_fn called when lifting capture square for pending capture"
+    # Why: For a pending capture, players often lift/remove the captured piece first. This must not trigger correction mode.
+    chess_board = chess.Board("rnbqkbnr/pppp1ppp/8/4p3/3PP3/8/PPP2PPP/RNBQKBNR b KQkq - 0 2")
+    pending_move = chess.Move.from_uci("e5d4")  # capture on d4
+
+    move_state = MoveState()
+    correction_mode = CorrectionMode()
+
+    board_module = Mock()
+    board_module.getChessState.return_value = None
+    board_module.beep = Mock()
+    board_module.SOUND_WRONG_MOVE = 0
+
+    enter_correction_mode_fn = Mock()
+    provide_correction_guidance_fn = Mock()
+    on_piece_event_fn = Mock()
+
+    ctx = FieldEventContext(
+        chess_board=chess_board,
+        move_state=move_state,
+        correction_mode=correction_mode,
+        player_manager=_PlayerManagerStub(pending_move),
+        board_module=board_module,
+        event_callback=None,
+        enter_correction_mode_fn=enter_correction_mode_fn,
+        provide_correction_guidance_fn=provide_correction_guidance_fn,
+        handle_field_event_in_correction_mode_fn=Mock(),
+        handle_piece_event_without_player_fn=Mock(),
+        on_piece_event_fn=on_piece_event_fn,
+        handle_king_lift_resign_fn=Mock(),
+        execute_pending_move_fn=Mock(),
+        get_kings_in_center_menu_active_fn=lambda: False,
+        set_kings_in_center_menu_active_fn=lambda _v: None,
+        on_kings_in_center_cancel_fn=None,
+        get_king_lift_resign_menu_active_fn=lambda: False,
+        set_king_lift_resign_menu_active_fn=lambda _v: None,
+        on_king_lift_resign_cancel_fn=None,
+        chess_board_to_state_fn=lambda _b: None,
+    )
+
+    # Lift the capture square first (d4) - must NOT enter correction mode.
+    process_field_event(ctx, piece_event=0, field=chess.D4, time_in_seconds=0.0)
+
+    assert move_state.has_seen_capture_square_event(chess.D4)
+    enter_correction_mode_fn.assert_not_called()
+
+
