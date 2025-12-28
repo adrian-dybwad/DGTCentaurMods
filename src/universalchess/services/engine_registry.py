@@ -12,7 +12,9 @@
 
 from __future__ import annotations
 
+import os
 import pathlib
+import shutil
 import threading
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Callable
@@ -116,6 +118,36 @@ class EngineRegistry:
                     cls._instance = EngineRegistry()
         return cls._instance
     
+    def _canonicalize_path(self, engine_path: str) -> str:
+        """Canonicalize an engine path to ensure identical binaries share instances.
+        
+        This resolves symlinks and normalizes paths so that different paths
+        pointing to the same binary (e.g., /usr/games/stockfish and
+        /opt/universalchess/engines/stockfish if symlinked) use the same
+        engine instance.
+        
+        Args:
+            engine_path: Path to engine executable
+            
+        Returns:
+            Canonical absolute path to the engine binary
+        """
+        path = pathlib.Path(engine_path)
+        
+        # If path exists, resolve all symlinks to get the real binary path
+        if path.exists():
+            return os.path.realpath(str(path))
+        
+        # Path doesn't exist - try to find it via PATH lookup
+        # This handles cases like "stockfish" without full path
+        basename = path.name
+        which_path = shutil.which(basename)
+        if which_path:
+            return os.path.realpath(which_path)
+        
+        # Last resort: just resolve what we can
+        return str(path.resolve())
+    
     def acquire(
         self,
         engine_path: str,
@@ -133,7 +165,7 @@ class EngineRegistry:
         Returns:
             EngineHandle for the engine, or None on failure
         """
-        resolved = str(pathlib.Path(engine_path).resolve())
+        resolved = self._canonicalize_path(engine_path)
         
         with self._lock:
             if resolved in self._engines:
