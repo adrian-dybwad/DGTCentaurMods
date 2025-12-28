@@ -78,6 +78,28 @@ def process_field_event(
 
     is_lift = piece_event == 0
 
+    # ===========================================================================
+    # KING LIFT RESIGN: Always handle this gesture, even during correction mode
+    # or Hand+Brain mode. This is a board-level safety mechanism.
+    # ===========================================================================
+    if is_lift:
+        # Check if a king was lifted - triggers resign timer
+        ctx.handle_king_lift_resign_fn(field, piece_color)
+    else:
+        # Cancel king-lift resign timer on any piece placement
+        if ctx.move_state.king_lift_timer is not None:
+            ctx.move_state._cancel_king_lift_timer()
+            log.debug("[process_field_event] Cancelled king-lift resign timer on PLACE")
+
+            if ctx.get_king_lift_resign_menu_active_fn():
+                log.info("[process_field_event] King placed - cancelling resign menu")
+                ctx.set_king_lift_resign_menu_active_fn(False)
+                if ctx.on_king_lift_resign_cancel_fn:
+                    ctx.on_king_lift_resign_cancel_fn()
+
+            ctx.move_state.king_lifted_square = INVALID_SQUARE
+            ctx.move_state.king_lifted_color = None
+
     def _pending_move_context():
         """Build pending-move context safely.
 
@@ -427,24 +449,8 @@ def process_field_event(
     # Forward to player manager (after board state validation to avoid incorrect move formation)
     ctx.on_piece_event_fn("lift" if is_lift else "place", field, ctx.chess_board)
 
-    # Handle king-lift resign (board-level concern)
-    if is_lift:
-        ctx.handle_king_lift_resign_fn(field, piece_color)
-        return
-
-    # Cancel king-lift resign timer on any piece placement
-    if ctx.move_state.king_lift_timer is not None:
-        ctx.move_state._cancel_king_lift_timer()
-        log.debug("[GameManager._process_field_event] Cancelled king-lift resign timer on PLACE")
-
-        if ctx.get_king_lift_resign_menu_active_fn():
-            log.info("[GameManager._process_field_event] King placed - cancelling resign menu")
-            ctx.set_king_lift_resign_menu_active_fn(False)
-            if ctx.on_king_lift_resign_cancel_fn:
-                ctx.on_king_lift_resign_cancel_fn()
-
-        ctx.move_state.king_lifted_square = INVALID_SQUARE
-        ctx.move_state.king_lifted_color = None
+    # Note: King lift resign is now handled at the start of process_field_event
+    # to ensure it works even during correction mode or Hand+Brain mode.
 
 
 __all__ = ["FieldEventContext", "process_field_event"]
