@@ -88,10 +88,10 @@ class MockEngineHandle:
     def configure(self, options):
         self.engine.configure(options)
     
-    def play(self, board, limit, options=None):
+    def play(self, board, limit, options=None, root_moves=None):
         if options:
             self.engine.configure(options)
-        return self.engine.play(board, limit)
+        return self.engine.play(board, limit, root_moves=root_moves)
     
     def analyse(self, board, limit, multipv=1):
         return self.engine.analyse(board, limit)

@@ -816,16 +816,13 @@ class HandBrainPlayer(Player):
                 # Step 1: Try root_moves constraint (faster if engine respects it)
                 log.debug(f"[HandBrain] Trying root_moves with {len(legal_moves)} moves: {[m.uci() for m in legal_moves]}")
                 
-                # Configure options and play with root_moves
-                if self._uci_options:
-                    handle.configure(self._uci_options)
-                
-                with handle.lock:
-                    result = handle.engine.play(
-                        board_copy,
-                        chess.engine.Limit(time=self._hb_config.time_limit_seconds),
-                        root_moves=legal_moves
-                    )
+                # Play with root_moves constraint
+                result = handle.play(
+                    board_copy,
+                    chess.engine.Limit(time=self._hb_config.time_limit_seconds),
+                    options=self._uci_options if self._uci_options else None,
+                    root_moves=legal_moves
+                )
                 move = result.move
                 
                 # Validate the result

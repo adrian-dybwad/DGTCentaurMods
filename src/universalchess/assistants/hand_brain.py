@@ -15,13 +15,17 @@ import os
 import pathlib
 import threading
 from dataclasses import dataclass, field
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, TYPE_CHECKING
 
 import chess
 import chess.engine
 
 from universalchess.board.logging import log
+from universalchess.services.engine_registry import get_engine_registry
 from .base import Assistant, AssistantConfig, Suggestion, SuggestionType
+
+if TYPE_CHECKING:
+    from universalchess.services.engine_registry import EngineHandle
 
 
 @dataclass
@@ -74,11 +78,10 @@ class HandBrainAssistant(Assistant):
         # Backward-compatible alias used by existing code/tests.
         self._hand_brain_config: HandBrainConfig = self._brain_config
         
-        # Engine process
-        self._engine: Optional[chess.engine.SimpleEngine] = None
+        # Engine handle from registry (replaces direct engine process)
+        self._engine_handle: Optional["EngineHandle"] = None
         
         # Threading
-        self._init_thread: Optional[threading.Thread] = None
         self._think_thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
         self._thinking = False
@@ -108,6 +111,9 @@ class HandBrainAssistant(Assistant):
     def start(self) -> bool:
         """Initialize and start the Brain (engine).
         
+        Uses the engine registry to share engine instances with other
+        consumers (game players, analysis service, etc.).
+        
         Returns:
             True if initialization started, False on immediate error.
         """
@@ -130,33 +136,31 @@ class HandBrainAssistant(Assistant):
         if uci_file_path:
             self._load_uci_options(uci_file_path)
         
-        # Start engine initialization in background
-        def _init_engine():
-            try:
-                log.info(f"[HandBrain] Starting engine: {engine_path}")
-                engine = chess.engine.SimpleEngine.popen_uci(str(engine_path), timeout=None)
-                
-                if self._uci_options:
-                    log.info(f"[HandBrain] Configuring with options: {self._uci_options}")
-                    engine.configure(self._uci_options)
-                
-                with self._lock:
-                    self._engine = engine
-                    self._active = True
-                
-                log.info(f"[HandBrain] Brain ready: {self.engine_name}")
-                self._report_status("Brain ready")
-                
-            except Exception as e:
-                log.error(f"[HandBrain] Failed to initialize: {e}")
-                self._error_message = str(e)
+        def _on_engine_ready(handle: "EngineHandle"):
+            log.info(f"[HandBrain] Engine ready from registry: {handle.path}")
+            
+            # Configure with our UCI options
+            if self._uci_options:
+                log.info(f"[HandBrain] Configuring with options: {self._uci_options}")
+                handle.configure(self._uci_options)
+            
+            with self._lock:
+                self._engine_handle = handle
+                self._active = True
+            
+            log.info(f"[HandBrain] Brain ready: {self.engine_name}")
+            self._report_status("Brain ready")
         
-        self._init_thread = threading.Thread(
-            target=_init_engine,
-            name="brain-init",
-            daemon=True
+        def _on_engine_error(e: Exception):
+            log.error(f"[HandBrain] Failed to get engine from registry: {e}")
+            self._error_message = str(e)
+        
+        log.info(f"[HandBrain] Requesting engine from registry: {engine_path}")
+        get_engine_registry().acquire_async(
+            str(engine_path),
+            on_ready=_on_engine_ready,
+            on_error=_on_engine_error
         )
-        self._init_thread.start()
         
         return True
     
@@ -164,19 +168,12 @@ class HandBrainAssistant(Assistant):
         """Stop the Brain and release resources."""
         log.info("[HandBrain] Stopping Brain")
         
-        # Wait for init thread
-        if self._init_thread and self._init_thread.is_alive():
-            self._init_thread.join(timeout=1.0)
-        
-        # Close engine
+        # Release engine handle back to registry
         with self._lock:
-            if self._engine:
-                try:
-                    self._engine.quit()
-                    log.info("[HandBrain] Engine closed")
-                except Exception as e:
-                    log.debug(f"[HandBrain] Error closing engine: {e}")
-                self._engine = None
+            if self._engine_handle:
+                log.info("[HandBrain] Releasing engine to registry")
+                get_engine_registry().release(self._engine_handle)
+                self._engine_handle = None
             self._active = False
         
         self._current_piece = None
@@ -213,7 +210,7 @@ class HandBrainAssistant(Assistant):
             return None
         
         with self._lock:
-            if not self._engine:
+            if not self._engine_handle:
                 log.debug("[HandBrain] Engine not ready")
                 return None
         
@@ -223,23 +220,22 @@ class HandBrainAssistant(Assistant):
             try:
                 log.info("[HandBrain] Brain analyzing...")
                 
-                # Re-apply UCI options
-                with self._lock:
-                    if self._engine and self._uci_options:
-                        self._engine.configure(self._uci_options)
-                
                 board_copy = board.copy()
                 time_limit = self._brain_config.time_limit_seconds
                 
                 with self._lock:
-                    if self._engine:
-                        result = self._engine.play(
-                            board_copy,
-                            chess.engine.Limit(time=time_limit)
-                        )
-                        move = result.move
-                    else:
-                        move = None
+                    handle = self._engine_handle
+                
+                if handle:
+                    # Use handle.play which acquires the engine lock
+                    result = handle.play(
+                        board_copy,
+                        chess.engine.Limit(time=time_limit),
+                        options=self._uci_options if self._uci_options else None
+                    )
+                    move = result.move
+                else:
+                    move = None
                 
                 if move:
                     # Extract piece type from the best move

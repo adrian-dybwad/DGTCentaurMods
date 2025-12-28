@@ -17,7 +17,7 @@ import pathlib
 import shutil
 import threading
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Callable
+from typing import Dict, List, Optional, Callable
 
 import chess
 import chess.engine
@@ -52,7 +52,8 @@ class EngineHandle:
         self,
         board: chess.Board,
         limit: chess.engine.Limit,
-        options: Optional[Dict[str, str]] = None
+        options: Optional[Dict[str, str]] = None,
+        root_moves: Optional[List[chess.Move]] = None
     ) -> chess.engine.PlayResult:
         """Compute best move (serialized).
         
@@ -60,6 +61,7 @@ class EngineHandle:
             board: Current position
             limit: Time/depth limit
             options: Optional UCI options to apply before this search
+            root_moves: Optional list of moves to restrict search to
             
         Returns:
             PlayResult with best move
@@ -67,7 +69,7 @@ class EngineHandle:
         with self.lock:
             if options:
                 self.engine.configure(options)
-            return self.engine.play(board, limit)
+            return self.engine.play(board, limit, root_moves=root_moves)
     
     def analyse(
         self,
@@ -107,6 +109,7 @@ class EngineRegistry:
     
     def __init__(self):
         self._engines: Dict[str, EngineHandle] = {}
+        self._loading: Dict[str, threading.Event] = {}  # Tracks engines currently being loaded
         self._lock = threading.Lock()
     
     @classmethod
@@ -158,6 +161,9 @@ class EngineRegistry:
         This is a blocking call that may take time on first load.
         For async loading, use acquire_async().
         
+        If another thread is already loading the same engine, this thread
+        will wait for that load to complete rather than starting a duplicate.
+        
         Args:
             engine_path: Path to engine executable
             on_ready: Optional callback when engine is ready (for async pattern)
@@ -166,8 +172,11 @@ class EngineRegistry:
             EngineHandle for the engine, or None on failure
         """
         resolved = self._canonicalize_path(engine_path)
+        wait_event: Optional[threading.Event] = None
+        should_load = False
         
         with self._lock:
+            # Check if already loaded
             if resolved in self._engines:
                 handle = self._engines[resolved]
                 handle.ref_count += 1
@@ -175,33 +184,52 @@ class EngineRegistry:
                 if on_ready:
                     on_ready(handle)
                 return handle
+            
+            # Check if another thread is loading this engine
+            if resolved in self._loading:
+                log.debug(f"[EngineRegistry] Waiting for another thread to load {resolved}")
+                wait_event = self._loading[resolved]
+            else:
+                # We're the first - mark as loading
+                self._loading[resolved] = threading.Event()
+                should_load = True
         
-        # Load engine outside lock to avoid blocking other paths
+        # If another thread is loading, wait for it
+        if wait_event is not None:
+            wait_event.wait(timeout=60.0)  # Wait up to 60 seconds
+            # Now check if it succeeded
+            with self._lock:
+                if resolved in self._engines:
+                    handle = self._engines[resolved]
+                    handle.ref_count += 1
+                    log.debug(f"[EngineRegistry] Got engine from other thread {resolved} (refs={handle.ref_count})")
+                    if on_ready:
+                        on_ready(handle)
+                    return handle
+                else:
+                    log.error(f"[EngineRegistry] Other thread failed to load {resolved}")
+                    return None
+        
+        # We're responsible for loading
         log.info(f"[EngineRegistry] Loading engine: {resolved}")
+        handle: Optional[EngineHandle] = None
         try:
             engine = chess.engine.SimpleEngine.popen_uci(resolved, timeout=None)
-        except Exception as e:
-            log.error(f"[EngineRegistry] Failed to load engine {resolved}: {e}")
-            return None
-        
-        handle = EngineHandle(path=resolved, engine=engine, ref_count=1)
-        
-        with self._lock:
-            # Check again in case another thread loaded it
-            if resolved in self._engines:
-                # Another thread beat us, close ours and use theirs
-                try:
-                    engine.quit()
-                except Exception:
-                    pass
-                handle = self._engines[resolved]
-                handle.ref_count += 1
-                log.debug(f"[EngineRegistry] Race: using existing engine {resolved} (refs={handle.ref_count})")
-            else:
+            handle = EngineHandle(path=resolved, engine=engine, ref_count=1)
+            
+            with self._lock:
                 self._engines[resolved] = handle
                 log.info(f"[EngineRegistry] Engine loaded: {resolved}")
+        except Exception as e:
+            log.error(f"[EngineRegistry] Failed to load engine {resolved}: {e}")
+        finally:
+            # Signal waiting threads
+            with self._lock:
+                if resolved in self._loading:
+                    self._loading[resolved].set()
+                    del self._loading[resolved]
         
-        if on_ready:
+        if handle and on_ready:
             on_ready(handle)
         return handle
     

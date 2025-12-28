@@ -147,7 +147,6 @@ class DisplayManager:
         self.chess_board_widget = None
         self.clock_widget = None
         self.analysis_widget = None
-        self.analysis_engine = None  # Backwards compat - raw engine reference
         self._analysis_engine_handle = None  # EngineHandle from registry
         self.alert_widget = None
         self.pause_widget = None
@@ -196,7 +195,6 @@ class DisplayManager:
             
             # Store handle for hints
             self._analysis_engine_handle = handle
-            self.analysis_engine = handle.engine  # For backwards compat
             
             # Set engine handle on AnalysisService
             from universalchess.services.analysis import get_analysis_service
@@ -206,7 +204,6 @@ class DisplayManager:
         
         def _on_engine_error(e: Exception):
             log.warning(f"[DisplayManager] Could not initialize analysis engine: {e}")
-            self.analysis_engine = None
             self._analysis_engine_handle = None
         
         log.info(f"[DisplayManager] Starting analysis engine initialization: {engine_path}")
@@ -997,7 +994,6 @@ class DisplayManager:
             except Exception as e:
                 log.debug(f"[DisplayManager] Error releasing analysis engine: {e}")
             self._analysis_engine_handle = None
-            self.analysis_engine = None
         else:
             log.info("[DisplayManager] No analysis engine to release")
         

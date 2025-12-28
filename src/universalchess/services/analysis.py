@@ -52,7 +52,7 @@ class AnalysisService:
         self._game_state: ChessGameState = get_chess_game()
         self._analysis_state: AnalysisState = get_analysis()
         
-        # Analysis engine handle (set via set_engine_handle)
+        # Analysis engine handle from registry
         self._engine_handle: Optional["EngineHandle"] = None
         
         # Analysis queue and worker
@@ -100,22 +100,6 @@ class AnalysisService:
         self._stop_worker()
         
         log.info("[AnalysisService] Stopped")
-    
-    def set_engine(self, engine: Optional[chess.engine.SimpleEngine]) -> None:
-        """Set the analysis engine (deprecated, use set_engine_handle).
-        
-        For backwards compatibility only.
-        
-        Args:
-            engine: Chess engine for analysis, or None to disable.
-        """
-        # Wrap in a simple handle-like object for backwards compat
-        if engine is not None:
-            from universalchess.services.engine_registry import EngineHandle
-            self._engine_handle = EngineHandle(path="<legacy>", engine=engine)
-        else:
-            self._engine_handle = None
-        log.info(f"[AnalysisService] Engine set: {engine is not None}")
     
     def set_engine_handle(self, handle: Optional["EngineHandle"]) -> None:
         """Set the analysis engine handle from registry.
