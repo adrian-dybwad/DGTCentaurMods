@@ -72,10 +72,18 @@ jobs:
             
             ## Installation
             
+            Download and install on your Raspberry Pi:
+            
             ```bash
-            sudo dpkg -i universal-chess_*_all.deb
-            sudo apt-get install -f
+            # Download the .deb file (run on the Pi)
+            wget https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag_name }}/universal-chess_${{ steps.version.outputs.version }}_all.deb
+            
+            # Install
+            sudo dpkg -i universal-chess_${{ steps.version.outputs.version }}_all.deb
+            sudo apt-get install -f  # Install any missing dependencies
             ```
+            
+            Or download the `.deb` file from the Assets section below and transfer it to your Pi.
             
             ## Switch to Stable
             
