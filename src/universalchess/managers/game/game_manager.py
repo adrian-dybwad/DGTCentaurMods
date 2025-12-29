@@ -831,6 +831,7 @@ class GameManager:
             on_player_move_fn=self._on_player_move,
             handle_king_lift_resign_fn=self._handle_king_lift_resign,
             execute_pending_move_fn=self._execute_pending_move_directly,
+            check_takeback_fn=self._check_takeback,
             get_kings_in_center_menu_active_fn=lambda: self._kings_in_center_menu_active,
             set_kings_in_center_menu_active_fn=lambda v: setattr(self, "_kings_in_center_menu_active", v),
             on_kings_in_center_cancel_fn=self.on_kings_in_center_cancel,

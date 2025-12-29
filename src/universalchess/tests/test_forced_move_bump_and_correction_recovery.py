@@ -53,6 +53,7 @@ def test_forced_move_bump_after_source_lift_does_not_enter_correction_mode() -> 
         on_player_move_fn=Mock(return_value=False),
         handle_king_lift_resign_fn=Mock(),
         execute_pending_move_fn=Mock(),
+        check_takeback_fn=Mock(return_value=False),
         get_kings_in_center_menu_active_fn=lambda: False,
         set_kings_in_center_menu_active_fn=lambda _v: None,
         on_kings_in_center_cancel_fn=None,
@@ -108,6 +109,7 @@ def test_pending_move_executes_even_if_correction_mode_active_when_board_matches
         on_player_move_fn=Mock(return_value=False),
         handle_king_lift_resign_fn=Mock(),
         execute_pending_move_fn=execute_pending_move_fn,
+        check_takeback_fn=Mock(return_value=False),
         get_kings_in_center_menu_active_fn=lambda: False,
         set_kings_in_center_menu_active_fn=lambda _v: None,
         on_kings_in_center_cancel_fn=None,
@@ -157,6 +159,7 @@ def test_pending_capture_allows_lifting_capture_square_first_without_correction_
         on_player_move_fn=Mock(return_value=False),
         handle_king_lift_resign_fn=Mock(),
         execute_pending_move_fn=Mock(),
+        check_takeback_fn=Mock(return_value=False),
         get_kings_in_center_menu_active_fn=lambda: False,
         set_kings_in_center_menu_active_fn=lambda _v: None,
         on_kings_in_center_cancel_fn=None,
@@ -203,6 +206,7 @@ def test_lifting_capturable_opponent_piece_does_not_trigger_correction_mode() ->
         on_player_move_fn=Mock(return_value=False),
         handle_king_lift_resign_fn=Mock(),
         execute_pending_move_fn=Mock(),
+        check_takeback_fn=Mock(return_value=False),
         get_kings_in_center_menu_active_fn=lambda: False,
         set_kings_in_center_menu_active_fn=lambda _v: None,
         on_kings_in_center_cancel_fn=None,
@@ -248,6 +252,7 @@ def test_lifting_non_capturable_opponent_piece_enters_correction_mode() -> None:
         on_player_move_fn=Mock(return_value=False),
         handle_king_lift_resign_fn=Mock(),
         execute_pending_move_fn=Mock(),
+        check_takeback_fn=Mock(return_value=False),
         get_kings_in_center_menu_active_fn=lambda: False,
         set_kings_in_center_menu_active_fn=lambda _v: None,
         on_kings_in_center_cancel_fn=None,
@@ -301,6 +306,7 @@ def test_normal_move_lift_bump_then_place_valid_move_is_accepted() -> None:
         on_player_move_fn=on_player_move_fn,
         handle_king_lift_resign_fn=Mock(),
         execute_pending_move_fn=Mock(),
+        check_takeback_fn=Mock(return_value=False),
         get_kings_in_center_menu_active_fn=lambda: False,
         set_kings_in_center_menu_active_fn=lambda _v: None,
         on_kings_in_center_cancel_fn=None,
@@ -319,5 +325,156 @@ def test_normal_move_lift_bump_then_place_valid_move_is_accepted() -> None:
     enter_correction_mode_fn.assert_not_called()
     on_player_move_fn.assert_called_once()
     assert on_player_move_fn.call_args[0][0].uci() == "e2e4"
+
+
+def test_takeback_detected_on_place_when_board_matches_previous_position() -> None:
+    # Expected failure message if broken: "check_takeback_fn not called or takeback not executed"
+    # Why: When a PLACE event results in a board state matching the position before the last move,
+    # the takeback should be detected and executed immediately, without forwarding to the player.
+    
+    # Start with a position after 1. e4
+    chess_board = chess.Board()
+    chess_board.push(chess.Move.from_uci("e2e4"))  # After 1. e4
+    
+    # Now the move_stack has one move, so takeback is possible
+    assert len(chess_board.move_stack) == 1
+
+    move_state = MoveState()
+    correction_mode = CorrectionMode()
+
+    board_module = Mock()
+    board_module.beep = Mock()
+    board_module.SOUND_WRONG_MOVE = 0
+
+    # check_takeback_fn returns True to indicate takeback was executed
+    check_takeback_fn = Mock(return_value=True)
+    on_piece_event_fn = Mock()
+
+    ctx = FieldEventContext(
+        chess_board=chess_board,
+        move_state=move_state,
+        correction_mode=correction_mode,
+        player_manager=_PlayerManagerStub(None),
+        board_module=board_module,
+        event_callback=None,
+        enter_correction_mode_fn=Mock(),
+        provide_correction_guidance_fn=Mock(),
+        handle_field_event_in_correction_mode_fn=Mock(),
+        handle_piece_event_without_player_fn=Mock(),
+        on_piece_event_fn=on_piece_event_fn,
+        on_player_move_fn=Mock(return_value=False),
+        handle_king_lift_resign_fn=Mock(),
+        execute_pending_move_fn=Mock(),
+        check_takeback_fn=check_takeback_fn,
+        get_kings_in_center_menu_active_fn=lambda: False,
+        set_kings_in_center_menu_active_fn=lambda _v: None,
+        on_kings_in_center_cancel_fn=None,
+        get_king_lift_resign_menu_active_fn=lambda: False,
+        set_king_lift_resign_menu_active_fn=lambda _v: None,
+        on_king_lift_resign_cancel_fn=None,
+        chess_board_to_state_fn=lambda b: _piece_presence_state(b),
+    )
+
+    # PLACE event on e2 (pawn returned to original square)
+    process_field_event(ctx, piece_event=1, field=chess.E2, time_in_seconds=0.0)
+
+    # check_takeback_fn must be called and the event handling must return early
+    check_takeback_fn.assert_called_once()
+    # on_piece_event_fn must NOT be called because the takeback was handled
+    on_piece_event_fn.assert_not_called()
+
+
+def test_takeback_not_checked_on_lift_events() -> None:
+    # Expected failure message if broken: "check_takeback_fn was called on LIFT event"
+    # Why: Takeback detection should only happen after PLACE events, not LIFT events.
+    
+    chess_board = chess.Board()
+    chess_board.push(chess.Move.from_uci("e2e4"))  # After 1. e4
+
+    move_state = MoveState()
+    correction_mode = CorrectionMode()
+
+    board_module = Mock()
+    board_module.beep = Mock()
+    board_module.SOUND_WRONG_MOVE = 0
+
+    check_takeback_fn = Mock(return_value=False)
+
+    ctx = FieldEventContext(
+        chess_board=chess_board,
+        move_state=move_state,
+        correction_mode=correction_mode,
+        player_manager=_PlayerManagerStub(None),
+        board_module=board_module,
+        event_callback=None,
+        enter_correction_mode_fn=Mock(),
+        provide_correction_guidance_fn=Mock(),
+        handle_field_event_in_correction_mode_fn=Mock(),
+        handle_piece_event_without_player_fn=Mock(),
+        on_piece_event_fn=Mock(),
+        on_player_move_fn=Mock(return_value=False),
+        handle_king_lift_resign_fn=Mock(),
+        execute_pending_move_fn=Mock(),
+        check_takeback_fn=check_takeback_fn,
+        get_kings_in_center_menu_active_fn=lambda: False,
+        set_kings_in_center_menu_active_fn=lambda _v: None,
+        on_kings_in_center_cancel_fn=None,
+        get_king_lift_resign_menu_active_fn=lambda: False,
+        set_king_lift_resign_menu_active_fn=lambda _v: None,
+        on_king_lift_resign_cancel_fn=None,
+        chess_board_to_state_fn=lambda b: _piece_presence_state(b),
+    )
+
+    # LIFT event (should NOT trigger takeback check)
+    process_field_event(ctx, piece_event=0, field=chess.E4, time_in_seconds=0.0)
+
+    check_takeback_fn.assert_not_called()
+
+
+def test_takeback_not_checked_when_no_moves_in_stack() -> None:
+    # Expected failure message if broken: "check_takeback_fn was called with empty move stack"
+    # Why: Takeback detection should be skipped when there are no moves to take back.
+    
+    chess_board = chess.Board()  # Starting position, no moves made
+    assert len(chess_board.move_stack) == 0
+
+    move_state = MoveState()
+    correction_mode = CorrectionMode()
+
+    board_module = Mock()
+    board_module.beep = Mock()
+    board_module.SOUND_WRONG_MOVE = 0
+
+    check_takeback_fn = Mock(return_value=False)
+
+    ctx = FieldEventContext(
+        chess_board=chess_board,
+        move_state=move_state,
+        correction_mode=correction_mode,
+        player_manager=_PlayerManagerStub(None),
+        board_module=board_module,
+        event_callback=None,
+        enter_correction_mode_fn=Mock(),
+        provide_correction_guidance_fn=Mock(),
+        handle_field_event_in_correction_mode_fn=Mock(),
+        handle_piece_event_without_player_fn=Mock(),
+        on_piece_event_fn=Mock(),
+        on_player_move_fn=Mock(return_value=False),
+        handle_king_lift_resign_fn=Mock(),
+        execute_pending_move_fn=Mock(),
+        check_takeback_fn=check_takeback_fn,
+        get_kings_in_center_menu_active_fn=lambda: False,
+        set_kings_in_center_menu_active_fn=lambda _v: None,
+        on_kings_in_center_cancel_fn=None,
+        get_king_lift_resign_menu_active_fn=lambda: False,
+        set_king_lift_resign_menu_active_fn=lambda _v: None,
+        on_king_lift_resign_cancel_fn=None,
+        chess_board_to_state_fn=lambda b: _piece_presence_state(b),
+    )
+
+    # PLACE event on e4 - should NOT call check_takeback_fn since move_stack is empty
+    process_field_event(ctx, piece_event=1, field=chess.E4, time_in_seconds=0.0)
+
+    check_takeback_fn.assert_not_called()
 
 

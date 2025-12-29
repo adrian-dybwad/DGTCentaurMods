@@ -36,6 +36,7 @@ class FieldEventContext:
     on_player_move_fn: Callable[[chess.Move], bool]
     handle_king_lift_resign_fn: Callable[[int, object], None]
     execute_pending_move_fn: Callable[[chess.Move], None]
+    check_takeback_fn: Callable[[], bool]
 
     # Menu state and callbacks
     get_kings_in_center_menu_active_fn: Callable[[], bool]
@@ -99,6 +100,16 @@ def process_field_event(
 
             ctx.move_state.king_lifted_square = INVALID_SQUARE
             ctx.move_state.king_lifted_color = None
+
+    # ===========================================================================
+    # TAKEBACK DETECTION: After every PLACE event, check if the physical board
+    # matches the position before the last move. This catches takebacks regardless
+    # of how the pieces were moved (any order, with or without preceding LIFTs).
+    # ===========================================================================
+    if not is_lift and len(ctx.chess_board.move_stack) > 0:
+        if ctx.check_takeback_fn():
+            log.info("[process_field_event] Takeback detected and executed")
+            return
 
     def _pending_move_context():
         """Build pending-move context safely.
