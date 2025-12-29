@@ -213,11 +213,14 @@ class ChessGameService:
                 self._pgn_node = self._pgn_node.add_variation(move)
         
         elif current_move_count < self._last_move_count:
-            # Takeback - navigate back in tree
+            # Takeback - navigate back in tree AND remove the taken-back moves
             moves_to_pop = self._last_move_count - current_move_count
             for _ in range(moves_to_pop):
                 parent = self._pgn_node.parent
                 if parent is not None:
+                    # Remove the current node from its parent's variations
+                    # This ensures the PGN export reflects the takeback
+                    parent.remove_variation(self._pgn_node)
                     self._pgn_node = parent
                 else:
                     # Already at root, can't go further back
