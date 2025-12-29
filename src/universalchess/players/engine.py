@@ -355,9 +355,15 @@ class EnginePlayer(Player):
     def on_takeback(self, board: chess.Board) -> None:
         """Notification that a takeback occurred.
         
-        Engine handles this automatically via the board state.
+        Clear any pending move since the position has changed and the
+        computed move is no longer valid.
         """
-        log.debug("[EnginePlayer] Takeback - engine will use new position")
+        if self._pending_move is not None:
+            log.info(f"[EnginePlayer] Takeback - clearing pending move {self._pending_move.uci()}")
+            self._pending_move = None
+            self._lifted_squares = []
+        else:
+            log.debug("[EnginePlayer] Takeback - no pending move to clear")
     
     def get_info(self) -> dict:
         """Get information about this engine for display."""

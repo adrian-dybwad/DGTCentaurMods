@@ -417,8 +417,8 @@ class GameManager:
             log.info("[GameManager._check_takeback] Takeback detected - board state matches previous state")
             self.led.off()
             
-            # Preserve forced move info before callback (which may reset move state)
-            forced_move_uci = self.move_state.computer_move_uci if self.move_state.is_forced_move else None
+            # Clear any pending move state - takeback invalidates the computed move
+            self.move_state.reset()
             
             # Remove last move from database
             if self.database_session is not None:
@@ -430,29 +430,9 @@ class GameManager:
             self._game_state.pop_move()  # Notifies observers automatically
             board.beep(board.SOUND_GENERAL, event_type='game_event')
             
+            # The takeback_callback notifies players (via on_takeback), which clears
+            # their pending moves. This is the correct flow since the position changed.
             self.takeback_callback()
-            
-            # If there was a forced move, restore it and reapply LEDs after takeback
-            if forced_move_uci is not None:
-                # Check if the forced move is still valid at the new position
-                try:
-                    move = chess.Move.from_uci(forced_move_uci)
-                    if move in self.chess_board.legal_moves:
-                        # Restore the forced move state
-                        self.move_state.set_computer_move(forced_move_uci, forced=True)
-                        # Reapply LEDs for the forced move
-                        from_sq, to_sq = self._uci_to_squares(forced_move_uci)
-                        if from_sq is not None and to_sq is not None:
-                            self.led.from_to(from_sq, to_sq, repeat=0)
-                            log.info(f"[GameManager._check_takeback] Reapplied LEDs for forced move {forced_move_uci} after takeback")
-                        else:
-                            log.warning(f"[GameManager._check_takeback] Could not convert forced move {forced_move_uci} to squares")
-                    else:
-                        log.info(f"[GameManager._check_takeback] Forced move {forced_move_uci} is no longer legal at position after takeback")
-                except (ValueError, AttributeError) as e:
-                    log.warning(f"[GameManager._check_takeback] Could not reapply forced move LEDs after takeback: {e}")
-            else:
-                log.debug("[GameManager._check_takeback] No forced move to restore after takeback")
             
             # Post-takeback validation uses low-priority queue to avoid blocking polling.
             # If the queue is busy, validation is skipped - the takeback was already

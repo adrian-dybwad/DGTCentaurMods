@@ -389,6 +389,19 @@ class LichessPlayer(Player):
             # Last move was ours (remote player's) - came from server, don't echo
             log.debug(f"[LichessPlayer] Our move executed: {move.uci()}")
     
+    def on_takeback(self, board: chess.Board) -> None:
+        """Notification that a takeback occurred.
+        
+        Clear any pending move since the position has changed and the
+        server's move is no longer valid.
+        """
+        if self._pending_move is not None:
+            log.info(f"[LichessPlayer] Takeback - clearing pending move {self._pending_move.uci()}")
+            self._pending_move = None
+            self._lifted_squares = []
+        else:
+            log.debug("[LichessPlayer] Takeback - no pending move to clear")
+    
     def _send_move_to_server(self, move: chess.Move) -> None:
         """Send a move to the Lichess server.
         
