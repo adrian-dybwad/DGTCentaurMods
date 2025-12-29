@@ -2832,6 +2832,9 @@ def key_callback(key_id):
         running = False
         kill = 1
         _reset_unhandled_key_count()
+        # Cancel any active menu so the main loop can check the shutdown flag
+        if _menu_manager is not None and _menu_manager.active_widget is not None:
+            _menu_manager.cancel_selection("SHUTDOWN")
         return
     
     # Priority 1: Active about widget - any key dismisses it
