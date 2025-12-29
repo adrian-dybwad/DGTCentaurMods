@@ -211,6 +211,8 @@ function buildReactApp {
         echo "::: Installing npm dependencies..."
         npm ci --silent 2>/dev/null || npm install --silent
         echo "::: Building React app for production..."
+        # Before the npm run build command
+        export NODE_OPTIONS="--max-old-space-size=512"
         npm run build
     )
     
