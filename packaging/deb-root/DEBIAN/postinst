@@ -2,10 +2,10 @@
 
 set -euo pipefail
 
-# Configure needrestart to automatic mode (suppress blue screen prompts)
+# Configure needrestart to suppress all blue screen prompts
 # This prevents interactive dialogs during package updates/kernel upgrades
 if [ -f /etc/needrestart/needrestart.conf ]; then
-    # Set restart mode to automatic (no prompts)
+    # Set restart mode to automatic (no prompts for service restarts)
     if grep -q '^\$nrconf{restart}' /etc/needrestart/needrestart.conf; then
         sed -i "s/^\$nrconf{restart}.*$/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
     elif grep -q "^#.*\$nrconf{restart}" /etc/needrestart/needrestart.conf; then
@@ -13,6 +13,16 @@ if [ -f /etc/needrestart/needrestart.conf ]; then
     else
         echo "\$nrconf{restart} = 'a';" >> /etc/needrestart/needrestart.conf
     fi
+    
+    # Disable kernel upgrade check (prevents "pending kernel upgrade" blue screen)
+    if grep -q '^\$nrconf{kernelhints}' /etc/needrestart/needrestart.conf; then
+        sed -i "s/^\$nrconf{kernelhints}.*$/\$nrconf{kernelhints} = 0;/" /etc/needrestart/needrestart.conf
+    elif grep -q "^#.*\$nrconf{kernelhints}" /etc/needrestart/needrestart.conf; then
+        sed -i "s/^#.*\$nrconf{kernelhints}.*$/\$nrconf{kernelhints} = 0;/" /etc/needrestart/needrestart.conf
+    else
+        echo "\$nrconf{kernelhints} = 0;" >> /etc/needrestart/needrestart.conf
+    fi
+    
     echo "::: Configured needrestart for automatic mode (no prompts)"
 fi
 
