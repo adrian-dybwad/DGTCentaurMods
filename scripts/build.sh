@@ -189,6 +189,8 @@ function buildReactApp {
     
     local web_app_dir="${REPO_ROOT}/src/universalchess/web-app"
     local react_dist="${STAGE_DIR}${INSTALLDIR}/web/react-app"
+    local swap_created=false
+    local swapfile="/tmp/buildswap"
     
     if [ ! -d "${web_app_dir}" ]; then
         echo "WARNING: React app directory not found: ${web_app_dir}" >&2
@@ -201,20 +203,51 @@ function buildReactApp {
         return 0
     fi
     
+    # On low-memory systems (< 1GB free), create temporary swap for the build
+    # This prevents OOM during Vite bundling on Raspberry Pi
+    local free_mem_mb
+    free_mem_mb=$(awk '/MemAvailable/{printf "%.0f", $2/1024}' /proc/meminfo 2>/dev/null || echo "2048")
+    if [ "$free_mem_mb" -lt 1024 ] && [ -w /tmp ]; then
+        echo "::: Low memory detected (${free_mem_mb}MB free), creating temporary swap..."
+        if sudo fallocate -l 1G "$swapfile" 2>/dev/null && \
+           sudo chmod 600 "$swapfile" && \
+           sudo mkswap "$swapfile" >/dev/null 2>&1 && \
+           sudo swapon "$swapfile" 2>/dev/null; then
+            swap_created=true
+            echo "::: Temporary 1GB swap enabled at $swapfile"
+        else
+            echo "::: Warning: Could not create swap, build may fail on low memory"
+        fi
+    fi
+    
     # Generate build timestamp for cache busting
     local build_timestamp
     build_timestamp="$(date +%s)"
     
     # Install dependencies and build
+    local build_status=0
     (
         cd "${web_app_dir}"
         echo "::: Installing npm dependencies..."
         npm ci --silent 2>/dev/null || npm install --silent
         echo "::: Building React app for production..."
-        # Before the npm run build command
+        # Limit Node.js heap size for low-memory devices (e.g., Raspberry Pi)
         export NODE_OPTIONS="--max-old-space-size=512"
         npm run build
-    )
+    ) || build_status=$?
+    
+    # Clean up temporary swap
+    if [ "$swap_created" = true ]; then
+        echo "::: Removing temporary swap..."
+        sudo swapoff "$swapfile" 2>/dev/null || true
+        sudo rm -f "$swapfile" 2>/dev/null || true
+    fi
+    
+    # Exit if build failed
+    if [ "$build_status" -ne 0 ]; then
+        echo "ERROR: React build failed" >&2
+        return "$build_status"
+    fi
     
     # Copy the built React app to the staging directory
     if [ -d "${web_app_dir}/dist" ]; then

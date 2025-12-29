@@ -16,6 +16,30 @@ if [ -f /etc/needrestart/needrestart.conf ]; then
     echo "::: Configured needrestart for automatic mode (no prompts)"
 fi
 
+# Install correct kernel meta-package for the architecture to prevent
+# "pending kernel upgrade" messages (32-bit OS running on 64-bit capable Pi)
+# This ensures the kernel meta-package matches the running kernel architecture
+# Note: apt-get is deferred to background to avoid dpkg lock issues during install
+DPKG_ARCH=$(dpkg --print-architecture)
+if [ "$DPKG_ARCH" = "armhf" ]; then
+    KERNEL_PKG="linux-image-rpi-v7"
+elif [ "$DPKG_ARCH" = "arm64" ]; then
+    KERNEL_PKG="linux-image-rpi-v8"
+else
+    KERNEL_PKG=""
+fi
+
+if [ -n "$KERNEL_PKG" ]; then
+    # Check if package is already installed
+    if dpkg -s "$KERNEL_PKG" >/dev/null 2>&1; then
+        echo "::: Kernel meta-package $KERNEL_PKG already installed"
+    else
+        echo "::: Scheduling kernel meta-package install ($KERNEL_PKG)..."
+        # Run in background after dpkg releases lock (60 second delay)
+        nohup sh -c "sleep 60; apt-get update -qq && apt-get install -y $KERNEL_PKG" >/dev/null 2>&1 &
+    fi
+fi
+
 DEFAULT_HOSTNAME="raspberrypi"
 ARCH=`uname -m`
 NEW_HOSTNAME="dgtcentaur"
