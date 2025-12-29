@@ -160,6 +160,10 @@ def process_field_event(
         It exists to make move acceptance robust against noisy event sequences:
         if the physical board matches the expected state after a legal move from the lifted
         source square, accept the move even if other pieces were bumped and replaced.
+        
+        IMPORTANT: Moves to the placed_square are checked first to avoid ambiguity
+        when piece presence alone cannot distinguish between moves (e.g., g5f7 vs g5h7
+        when both result in the same presence pattern due to sensor timing).
         """
         source_square = getattr(ctx.move_state, "source_square", INVALID_SQUARE)
         if source_square == INVALID_SQUARE:
@@ -178,23 +182,43 @@ def process_field_event(
             return False
 
         candidate_moves = [m for m in ctx.chess_board.legal_moves if m.from_square == source_square]
+        
+        # Prioritize moves to the placed_square - this is the most likely intended move.
+        # Sort so moves to placed_square come first, then others.
+        candidate_moves.sort(key=lambda m: (0 if m.to_square == placed_square else 1))
+        
+        # Only consider moves to the placed_square - this is the destination the user chose.
+        # This prevents selecting a wrong move that happens to match the board state by coincidence
+        # (e.g., g5h7 selected when user placed on f7, just because both result in similar presence patterns).
+        move_to_placed = chess.Move(source_square, placed_square)
+        
+        # Check if there's a legal move to the placed square (with any promotion)
+        candidate = None
         for move in candidate_moves:
-            expected_board_after = ctx.chess_board.copy()
-            expected_board_after.push(move)
-            expected_state_after = ctx.chess_board_to_state_fn(expected_board_after)
-            if expected_state_after is None:
-                continue
-            if ChessGameState.states_match(current_physical_state, expected_state_after):
-                log.info(
-                    f"[GameManager.receive_field] Physical board matches expected state after {move.uci()} - "
-                    "accepting normal move directly"
-                )
-                accepted = bool(ctx.on_player_move_fn(move))
-                # Defensive: clear the source square on acceptance so subsequent PLACE events
-                # during a noisy sequence don't attempt to "re-accept" the same move.
-                if accepted:
-                    ctx.move_state.source_square = INVALID_SQUARE
-                return accepted
+            if move.to_square == placed_square:
+                candidate = move
+                break
+        
+        if candidate is None:
+            return False
+        
+        expected_board_after = ctx.chess_board.copy()
+        expected_board_after.push(candidate)
+        expected_state_after = ctx.chess_board_to_state_fn(expected_board_after)
+        if expected_state_after is None:
+            return False
+        
+        if ChessGameState.states_match(current_physical_state, expected_state_after):
+            log.info(
+                f"[GameManager.receive_field] Physical board matches expected state after {candidate.uci()} - "
+                "accepting normal move directly"
+            )
+            accepted = bool(ctx.on_player_move_fn(candidate))
+            # Defensive: clear the source square on acceptance so subsequent PLACE events
+            # during a noisy sequence don't attempt to "re-accept" the same move.
+            if accepted:
+                ctx.move_state.source_square = INVALID_SQUARE
+            return accepted
 
         return False
 
