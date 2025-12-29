@@ -1,3 +1,5 @@
+from typing import Optional
+
 import chess
 from unittest.mock import Mock
 
@@ -14,7 +16,7 @@ def _piece_presence_state(board: chess.Board) -> bytearray:
 
 
 class _PlayerManagerStub:
-    def __init__(self, pending_move: chess.Move | None):
+    def __init__(self, pending_move: Optional[chess.Move]):
         self._pending_move = pending_move
 
     def get_current_pending_move(self, _board: chess.Board):
