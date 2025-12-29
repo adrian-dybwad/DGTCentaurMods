@@ -191,6 +191,10 @@ echo -e "::: Setup services"
     # The main service disables this on startup and re-enables on non-shutdown exit
     systemctl enable universal-chess-stop-controller.service
 
+    echo -e "::: Starting services"
+    systemctl start universal-chess-web.service || true
+    systemctl start universal-chess.service || true
+
 #    systemctl enable ntp
     systemctl enable var-run-sdp.path
     systemctl enable var-run-sdp.service
