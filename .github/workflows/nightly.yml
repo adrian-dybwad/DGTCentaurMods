@@ -29,9 +29,12 @@ jobs:
         id: version
         run: |
           BASE_VERSION=$(grep -E "^Version:" packaging/deb-root/DEBIAN/control | cut -d' ' -f2)
+          DATE_TAG=$(date +%Y-%m-%d)
           NIGHTLY_VERSION="${BASE_VERSION}-nightly.$(date +%Y%m%d).${GITHUB_SHA::7}"
           echo "version=$NIGHTLY_VERSION" >> $GITHUB_OUTPUT
           echo "base_version=$BASE_VERSION" >> $GITHUB_OUTPUT
+          echo "date_tag=$DATE_TAG" >> $GITHUB_OUTPUT
+          echo "tag_name=nightly-${DATE_TAG}" >> $GITHUB_OUTPUT
           
           # Update control file with nightly version
           sed -i "s/^Version: .*/Version: ${NIGHTLY_VERSION}/" packaging/deb-root/DEBIAN/control
@@ -47,17 +50,17 @@ jobs:
           cd scripts/releases
           sha256sum *.deb > SHA256SUMS.txt
       
-      - name: Update nightly release
+      - name: Create dated nightly release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: nightly
-          name: Nightly Build
+          tag_name: ${{ steps.version.outputs.tag_name }}
+          name: "Nightly Build - ${{ steps.version.outputs.date_tag }}"
           prerelease: true
           files: |
             scripts/releases/*.deb
             scripts/releases/SHA256SUMS.txt
           body: |
-            ## Nightly Build
+            ## Nightly Build - ${{ steps.version.outputs.date_tag }}
             
             **This is an automated build from the latest development branch.**
             **Not recommended for production use.**
@@ -80,4 +83,13 @@ jobs:
             ```bash
             sudo apt-get install --reinstall universal-chess
             ```
+      
+      - name: Delete old nightly releases
+        uses: dev-drprasad/delete-older-releases@v0.3.4
+        with:
+          keep_latest: 7
+          delete_tag_pattern: nightly-
+          delete_tags: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
