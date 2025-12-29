@@ -3,7 +3,7 @@ name: Nightly
 
 on:
   push:
-    branches: [main, UniversalChess]
+    branches: [main]
   schedule:
     # Run at 2 AM UTC daily
     - cron: '0 2 * * *'
