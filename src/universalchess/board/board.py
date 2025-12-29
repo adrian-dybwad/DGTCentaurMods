@@ -382,9 +382,14 @@ def shutdown_countdown(countdown_seconds: int = 3) -> bool:
     countdown_splash = None
     try:
         if display_manager is not None:
-            # U+25C0 is left-pointing triangle for BACK button
             countdown_splash = SplashScreen(display_manager.update, message=f"Shutdown in\n  {countdown_seconds}")
-            display_manager.add_widget(countdown_splash)
+            future = display_manager.add_widget(countdown_splash)
+            # Wait for initial render so splash is visible immediately
+            if future:
+                try:
+                    future.result(timeout=2.0)
+                except Exception:
+                    pass
     except Exception as e:
         log.debug(f"Failed to show countdown splash: {e}")
     
@@ -927,7 +932,13 @@ def eventsThread(keycallback, fieldcallback, tout):
                         inactivity_countdown_splash = SplashScreen(
                             display_manager.update, message=f"Inactivity\nShutdown in\n{remaining_int} seconds..."
                         )
-                        display_manager.add_widget(inactivity_countdown_splash)
+                        future = display_manager.add_widget(inactivity_countdown_splash)
+                        # Wait for initial render so splash is visible immediately
+                        if future:
+                            try:
+                                future.result(timeout=2.0)
+                            except Exception:
+                                pass
                         inactivity_countdown_shown = True
                         inactivity_last_displayed_seconds = remaining_int
                     except Exception as e:
