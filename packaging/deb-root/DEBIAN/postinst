@@ -386,8 +386,29 @@ case $1 in
                 ;;
         esac       
     echo -e "::: Finalizing install..."
+    
+    # Restore migrated database from old package if present (before copyDefaults)
+    MIGRATION_DIR="/tmp/dgtcm-migration"
+    if [ -f "$MIGRATION_DIR/centaur.db" ]; then
+        echo -e "::: Restoring game database from old package migration"
+        mkdir -p "${DGTCM_PATH}/db"
+        cp -f "$MIGRATION_DIR/centaur.db" "${DGTCM_PATH}/db/" 2>/dev/null || true
+    fi
+    
     #Copy over all defaults from /defaults
     copyDefaults
+    
+    # Restore Lichess API token after copyDefaults (so it doesn't get overwritten)
+    if [ -f "$MIGRATION_DIR/lichess-token" ]; then
+        TOKEN=$(cat "$MIGRATION_DIR/lichess-token")
+        if [ -n "$TOKEN" ]; then
+            echo -e "::: Restoring Lichess API token from old package migration"
+            sed -i "s/^api_token\s*=.*/api_token = $TOKEN/" "${DGTCM_PATH}/config/centaur.ini" 2>/dev/null || true
+        fi
+    fi
+    
+    # Clean up migration directory
+    rm -rf "$MIGRATION_DIR"
 
     # Setup nginx proxy for web service
     echo -e "::: Setting up nginx proxy"

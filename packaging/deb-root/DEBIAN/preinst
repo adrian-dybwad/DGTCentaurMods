@@ -3,6 +3,8 @@
 PACKAGE="DGTCentaurMods"
 DGTCM_PATH="/opt/${PACKAGE}"
 DATABASE="${DGTCM_PATH}/db/centaur.db"
+OLD_PACKAGE="dgtcentaurmods"
+MIGRATION_DIR="/tmp/dgtcm-migration"
 
 function saveOldBeta {
     echo -e "::: Saving old beta configurations"
@@ -17,11 +19,46 @@ function saveOldBeta {
     cp /home/pi/DGTCentaurMods/engines/rodentIV.uci ${DGTCM_PATH}/engines
 }
 
+function migrateFromOldPackage {
+    # Check if old package (dgtcentaurmods) is installed and remove it
+    if dpkg -s "$OLD_PACKAGE" >/dev/null 2>&1; then
+        echo -e "::: Migrating from old package ($OLD_PACKAGE)"
+        mkdir -p "$MIGRATION_DIR"
+        
+        # Extract Lichess API token (the only setting worth preserving)
+        if [ -f "/opt/DGTCentaurMods/config/centaur.ini" ]; then
+            TOKEN=$(grep -E "^api_token\s*=" /opt/DGTCentaurMods/config/centaur.ini 2>/dev/null | cut -d= -f2- | xargs)
+            if [ -n "$TOKEN" ]; then
+                echo "$TOKEN" > "$MIGRATION_DIR/lichess-token"
+                echo -e "::: Saved Lichess API token for migration"
+            fi
+        fi
+        
+        # Save database (game history) - schema will auto-migrate on first run
+        if [ -f "/opt/DGTCentaurMods/db/centaur.db" ]; then
+            cp -f /opt/DGTCentaurMods/db/centaur.db "$MIGRATION_DIR/" 2>/dev/null || true
+            echo -e "::: Saved game database for migration"
+        fi
+        
+        # Stop old services
+        systemctl stop dgtcentaurmods.service 2>/dev/null || true
+        systemctl stop dgtcentaurmods-web.service 2>/dev/null || true
+        
+        # Remove old package (purge removes config files too)
+        echo -e "::: Removing old package ($OLD_PACKAGE)"
+        dpkg --purge "$OLD_PACKAGE" 2>/dev/null || apt-get -y purge "$OLD_PACKAGE" 2>/dev/null || true
+    fi
+}
+
 case $1 in
-    upgrade )
+    install|upgrade )
+        # Always check for old package migration on install or upgrade
+        migrateFromOldPackage
+        
         case $2 in
             1.0-beta|1.0.1-beta)
                 saveOldBeta
                 ;;
         esac
+        ;;
 esac
