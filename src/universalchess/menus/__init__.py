@@ -45,8 +45,7 @@ from .analysis_menu import handle_analysis_mode_menu, handle_analysis_engine_sel
 from .update_menu import (
     handle_update_menu,
     handle_local_deb_install,
-    check_and_download_update,
-    install_deb_update,
+    find_local_deb_files,
 )
 from universalchess.services.lichess_service import (
     get_lichess_client,
@@ -76,8 +75,7 @@ __all__ = [
     "mask_token",
     "handle_update_menu",
     "handle_local_deb_install",
-    "check_and_download_update",
-    "install_deb_update",
+    "find_local_deb_files",
     "get_lichess_client",
     "build_lichess_menu_entries",
     "show_lichess_error",
