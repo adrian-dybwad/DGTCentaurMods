@@ -30,15 +30,20 @@ jobs:
         run: |
           BASE_VERSION=$(grep -E "^Version:" packaging/deb-root/DEBIAN/control | cut -d' ' -f2)
           DATE_TAG=$(date +%Y-%m-%d)
-          NIGHTLY_VERSION="${BASE_VERSION}-nightly.$(date +%Y%m%d).${GITHUB_SHA::7}"
+          SHORT_SHA=${GITHUB_SHA::7}
+          # Simple version for filename, full version for metadata
+          NIGHTLY_VERSION="${BASE_VERSION}-nightly"
+          FULL_VERSION="${BASE_VERSION}-nightly.$(date +%Y%m%d).${SHORT_SHA}"
           echo "version=$NIGHTLY_VERSION" >> $GITHUB_OUTPUT
+          echo "full_version=$FULL_VERSION" >> $GITHUB_OUTPUT
           echo "base_version=$BASE_VERSION" >> $GITHUB_OUTPUT
           echo "date_tag=$DATE_TAG" >> $GITHUB_OUTPUT
-          echo "tag_name=nightly-${DATE_TAG}" >> $GITHUB_OUTPUT
+          echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+          echo "tag_name=nightly-${DATE_TAG}-${SHORT_SHA}" >> $GITHUB_OUTPUT
           
-          # Update control file with nightly version
+          # Update control file with nightly version (simplified)
           sed -i "s/^Version: .*/Version: ${NIGHTLY_VERSION}/" packaging/deb-root/DEBIAN/control
-          echo "Building nightly version: $NIGHTLY_VERSION"
+          echo "Building nightly version: $NIGHTLY_VERSION (commit: $SHORT_SHA)"
       
       - name: Build .deb package
         run: |
@@ -49,6 +54,15 @@ jobs:
         run: |
           cd scripts/releases
           sha256sum *.deb > SHA256SUMS.txt
+      
+      - name: Delete existing releases for today
+        uses: dev-drprasad/delete-older-releases@v0.3.4
+        with:
+          keep_latest: 0
+          delete_tag_pattern: nightly-${{ steps.version.outputs.date_tag }}
+          delete_tags: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Create dated nightly release
         uses: softprops/action-gh-release@v2
@@ -66,7 +80,6 @@ jobs:
             **Not recommended for production use.**
             
             - Base version: ${{ steps.version.outputs.base_version }}
-            - Build version: ${{ steps.version.outputs.version }}
             - Commit: ${{ github.sha }}
             - Built: ${{ github.event.head_commit.timestamp }}
             
