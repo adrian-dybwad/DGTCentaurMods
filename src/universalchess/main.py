@@ -1815,7 +1815,6 @@ def _handle_settings(initial_selection: str = None):
                 log=log,
                 get_installed_version=_get_installed_version,
                 get_resource_path=get_resource_path,
-                update_system=centaur.UpdateSystem(),
                 handle_update_menu=handle_update_menu,
                 show_menu=_show_menu,
                 find_entry_index=find_entry_index,
@@ -2620,9 +2619,11 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
         # For SIGINT/normal exit, we don't shutdown the controller.
         if system_shutdown and not reboot:
             # Check for pending update - if present, install it instead of shutdown
-            update_package = '/tmp/dgtcentaurmods_armhf.deb'
-            if os.path.exists(update_package):
-                log.info('[Cleanup] Update package found - installing instead of shutdown')
+            from universalchess.services.update_service import get_update_service
+            update_service = get_update_service()
+            
+            if update_service.has_pending_update():
+                log.info('[Cleanup] Pending update found - installing instead of shutdown')
                 board.beep(board.SOUND_POWER_OFF)
                 
                 # Display update splash
@@ -2645,10 +2646,12 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
                 
                 import time
                 time.sleep(2)
-                from universalchess.board import centaur
-                update = centaur.UpdateSystem()
-                update.updateInstall()
-                # updateInstall() will handle system restart, so we return here
+                
+                if update_service.install_pending_update():
+                    log.info("[Cleanup] Update installed - restarting service")
+                    os.system("sudo systemctl restart universal-chess.service")
+                else:
+                    log.error("[Cleanup] Update installation failed")
                 return
             
             # Display shutdown splash screen
@@ -3109,6 +3112,17 @@ def main():
     except Exception as e:
         log.error(f"[Main] Failed to load game settings: {e}", exc_info=True)
         # Continue anyway - settings are not critical
+
+    # Check for pending update from previous download
+    try:
+        from universalchess.services.update_service import get_update_service
+        update_service = get_update_service()
+        if update_service.has_pending_update():
+            log.info("[Main] Pending update detected - will install on shutdown")
+            # We don't install on startup to avoid interrupting boot
+            # Instead, show a status indicator and install on next shutdown
+    except Exception as e:
+        log.debug(f"[Main] Update service check failed: {e}")
 
     try:
         log.info("[Main] Initializing MenuManager...")

@@ -856,6 +856,11 @@ export function Settings() {
             <p className="text-muted mb-6">Advanced configuration for developers and power users</p>
 
             <Card className="mb-6">
+              <CardHeader title="Software Updates" />
+              <UpdateManager />
+            </Card>
+
+            <Card className="mb-6">
               <CardHeader title="Developer Mode" />
               <Toggle
                 label="Enable Developer Mode"
@@ -1029,5 +1034,270 @@ function EngineCard({
         </Button>
       )}
     </div>
+  );
+}
+
+
+// ============================================================================
+// Update Manager Component
+// ============================================================================
+
+interface UpdateStatus {
+  channel: string;
+  auto_update: boolean;
+  current_version: string;
+  available_version: string | null;
+  has_pending_update: boolean;
+  last_check: string | null;
+  is_checking: boolean;
+  is_downloading: boolean;
+  is_installing: boolean;
+}
+
+function UpdateManager() {
+  const [status, setStatus] = useState<UpdateStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [installing, setInstalling] = useState(false);
+  const [showLoginDialog, setShowLoginDialog] = useState(false);
+  const pendingActionRef = useRef<(() => Promise<void>) | null>(null);
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const response = await fetch(buildApiUrl('/api/updates/status'));
+      if (response.ok) {
+        const data = await response.json();
+        setStatus(data);
+        setError(null);
+      }
+    } catch (e) {
+      console.error('Failed to fetch update status:', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 10000); // Poll every 10 seconds
+    return () => clearInterval(interval);
+  }, [fetchStatus]);
+
+  const handleAuthRequired = (action: () => Promise<void>) => {
+    pendingActionRef.current = action;
+    setShowLoginDialog(true);
+  };
+
+  const handleLoginSuccess = async () => {
+    setShowLoginDialog(false);
+    if (pendingActionRef.current) {
+      await pendingActionRef.current();
+      pendingActionRef.current = null;
+    }
+  };
+
+  const checkForUpdates = async () => {
+    setChecking(true);
+    setError(null);
+    try {
+      const response = await apiFetch('/api/updates/check', { method: 'POST' });
+      if (response.status === 401) {
+        handleAuthRequired(checkForUpdates);
+        return;
+      }
+      if (!response.ok) {
+        const data = await response.json();
+        setError(data.error || 'Check failed');
+      }
+      await fetchStatus();
+    } catch (e) {
+      setError('Network error');
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const downloadUpdate = async () => {
+    setDownloading(true);
+    setError(null);
+    try {
+      const response = await apiFetch('/api/updates/download', { method: 'POST' });
+      if (response.status === 401) {
+        handleAuthRequired(downloadUpdate);
+        return;
+      }
+      if (!response.ok) {
+        const data = await response.json();
+        setError(data.error || 'Download failed');
+      }
+      await fetchStatus();
+    } catch (e) {
+      setError('Network error');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const installUpdate = async () => {
+    if (!confirm('Install update? The service will restart.')) return;
+    
+    setInstalling(true);
+    setError(null);
+    try {
+      const response = await apiFetch('/api/updates/install', { method: 'POST' });
+      if (response.status === 401) {
+        handleAuthRequired(installUpdate);
+        return;
+      }
+      if (!response.ok) {
+        const data = await response.json();
+        setError(data.error || 'Install failed');
+      } else {
+        // Service will restart - show message
+        setError('Update installed. Service restarting...');
+      }
+    } catch (e) {
+      setError('Network error');
+    } finally {
+      setInstalling(false);
+    }
+  };
+
+  const setChannel = async (channel: string) => {
+    try {
+      const response = await apiFetch('/api/updates/channel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel }),
+      });
+      if (response.status === 401) {
+        handleAuthRequired(() => setChannel(channel));
+        return;
+      }
+      await fetchStatus();
+    } catch (e) {
+      setError('Failed to set channel');
+    }
+  };
+
+  const setAutoUpdate = async (enabled: boolean) => {
+    try {
+      const response = await apiFetch('/api/updates/auto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      if (response.status === 401) {
+        handleAuthRequired(() => setAutoUpdate(enabled));
+        return;
+      }
+      await fetchStatus();
+    } catch (e) {
+      setError('Failed to set auto-update');
+    }
+  };
+
+  if (!status) {
+    return <p className="text-muted">Loading update status...</p>;
+  }
+
+  const isLoading = checking || downloading || installing || status.is_checking || status.is_downloading || status.is_installing;
+
+  return (
+    <>
+      {showLoginDialog && (
+        <LoginDialog
+          onSuccess={handleLoginSuccess}
+          onCancel={() => setShowLoginDialog(false)}
+        />
+      )}
+      
+      <div className="update-manager">
+        {/* Current Version */}
+        <div className="update-version-info mb-4">
+          <div className="update-version">
+            <strong>Current Version:</strong>{' '}
+            <code>{status.current_version || 'Unknown'}</code>
+          </div>
+          {status.last_check && (
+            <div className="update-last-check text-muted">
+              Last checked: {new Date(status.last_check).toLocaleString()}
+            </div>
+          )}
+        </div>
+
+        {/* Update Status */}
+        {status.has_pending_update && (
+          <Card variant="primary" className="mb-4">
+            <strong>Update Ready to Install!</strong>
+            <p className="text-muted mt-2">
+              A new version has been downloaded and is ready to install.
+            </p>
+            <Button
+              variant="success"
+              onClick={installUpdate}
+              disabled={isLoading}
+              className="mt-2"
+            >
+              {installing ? 'Installing...' : 'Install Now'}
+            </Button>
+          </Card>
+        )}
+
+        {status.available_version && !status.has_pending_update && (
+          <Card variant="muted" className="mb-4">
+            <strong>Update Available: v{status.available_version}</strong>
+            <Button
+              variant="primary"
+              onClick={downloadUpdate}
+              disabled={isLoading}
+              className="mt-2 ml-4"
+            >
+              {downloading ? 'Downloading...' : 'Download Update'}
+            </Button>
+          </Card>
+        )}
+
+        {error && (
+          <Card variant="danger" className="mb-4">
+            <strong>Error:</strong> {error}
+          </Card>
+        )}
+
+        {/* Channel Selection */}
+        <FormRow
+          label="Update Channel"
+          help="Stable releases are recommended. Nightly builds may contain bugs."
+        >
+          <Select
+            value={status.channel}
+            onChange={(e) => setChannel(e.target.value)}
+            disabled={isLoading}
+          >
+            <option value="stable">Stable (Recommended)</option>
+            <option value="nightly">Nightly (Development)</option>
+          </Select>
+        </FormRow>
+
+        {/* Auto Update Toggle */}
+        <Toggle
+          label="Auto-Update"
+          help="Automatically download updates when available"
+          checked={status.auto_update}
+          onChange={(v) => setAutoUpdate(v)}
+          disabled={isLoading}
+        />
+
+        {/* Check Button */}
+        <div className="mt-4">
+          <Button
+            variant="secondary"
+            onClick={checkForUpdates}
+            disabled={isLoading}
+          >
+            {checking ? 'Checking...' : 'Check for Updates'}
+          </Button>
+        </div>
+      </div>
+    </>
   );
 }

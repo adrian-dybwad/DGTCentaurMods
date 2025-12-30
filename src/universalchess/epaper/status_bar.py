@@ -10,6 +10,7 @@ from .bluetooth_status import BluetoothStatusWidget
 from .battery import BatteryWidget
 from .chromecast_status import ChromecastStatusWidget
 from .install_status import InstallStatusWidget
+from .update_status import UpdateStatusWidget
 import os
 from typing import List
 
@@ -49,7 +50,8 @@ class StatusBarWidget(Widget):
     BLUETOOTH_X = 96    # 12px wide
     WIFI_X = 80         # 16px wide
     CHROMECAST_X = 64   # 16px wide (only when streaming)
-    INSTALL_X = 44      # 16px wide, in gap between clock and chromecast
+    UPDATE_X = 48       # 16px wide, for update indicator
+    INSTALL_X = 44      # 16px wide, in gap between clock and chromecast (overlaps when both visible)
     
     def __init__(self, x: int, y: int, update_callback):
         """Initialize status bar widget.
@@ -74,6 +76,9 @@ class StatusBarWidget(Widget):
         # Install status widget (shows during engine installation)
         self._install_widget = InstallStatusWidget(self.INSTALL_X, 0, 16, update_callback)
         
+        # Update status widget (shows when update is available)
+        self._update_widget = UpdateStatusWidget(self.UPDATE_X, 0, 16, update_callback)
+        
         # Chromecast status widget (observes the ChromecastService singleton)
         self._chromecast_widget = ChromecastStatusWidget(self.CHROMECAST_X, 0, 16, update_callback)
         
@@ -86,6 +91,7 @@ class StatusBarWidget(Widget):
         self._child_widgets: List[Widget] = [
             self._clock_widget,
             self._install_widget,
+            self._update_widget,
             self._chromecast_widget,
             self._wifi_widget,
             self._bluetooth_widget,

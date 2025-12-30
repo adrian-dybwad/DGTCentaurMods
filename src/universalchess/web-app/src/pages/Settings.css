@@ -387,3 +387,28 @@
     gap: var(--space-3);
   }
 }
+
+/* ============================================================================
+   Update Manager Styles
+   ============================================================================ */
+
+.update-manager {
+  padding: var(--space-2) 0;
+}
+
+.update-version-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.update-version code {
+  background: var(--color-square-dark);
+  padding: 0.2em 0.5em;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}
+
+.update-last-check {
+  font-size: var(--text-xs);
+}

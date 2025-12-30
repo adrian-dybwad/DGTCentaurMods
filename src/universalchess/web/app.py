@@ -2044,6 +2044,190 @@ def api_engine_status():
 
 
 # -----------------------------------------------------------------------------
+# Update System API
+# -----------------------------------------------------------------------------
+
+@app.route("/api/updates/status", methods=["GET"])
+def api_update_status():
+    """Get current update system status.
+    
+    Returns:
+        JSON with channel, versions, pending update status, etc.
+    """
+    try:
+        from universalchess.services.update_service import get_update_service
+        service = get_update_service()
+        return json.dumps(service.get_status_dict())
+    except Exception as e:
+        return json.dumps({"error": str(e)}), 500
+
+
+@app.route("/api/updates/check", methods=["POST"])
+@requires_auth
+def api_update_check():
+    """Check for available updates.
+    
+    Returns:
+        JSON with update availability and version info
+    """
+    try:
+        from universalchess.services.update_service import get_update_service
+        service = get_update_service()
+        release = service.check_for_updates()
+        
+        if release:
+            return json.dumps({
+                "update_available": True,
+                "version": release.version,
+                "tag": release.tag,
+                "name": release.name,
+                "published_at": release.published_at,
+                "is_nightly": release.is_nightly,
+                "download_size": release.download_size,
+                "body": release.body,
+            })
+        else:
+            return json.dumps({
+                "update_available": False,
+                "current_version": service.get_current_version(),
+            })
+    except Exception as e:
+        return json.dumps({"error": str(e)}), 500
+
+
+@app.route("/api/updates/download", methods=["POST"])
+@requires_auth
+def api_update_download():
+    """Download the available update.
+    
+    Returns:
+        JSON with success status and download path
+    """
+    try:
+        from universalchess.services.update_service import get_update_service
+        service = get_update_service()
+        
+        deb_path = service.download_update()
+        if deb_path:
+            return json.dumps({
+                "success": True,
+                "path": str(deb_path),
+            })
+        else:
+            return json.dumps({
+                "success": False,
+                "error": "Download failed",
+            }), 500
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/updates/install", methods=["POST"])
+@requires_auth
+def api_update_install():
+    """Install the pending update.
+    
+    Returns:
+        JSON with success status
+    """
+    try:
+        from universalchess.services.update_service import get_update_service
+        service = get_update_service()
+        
+        if service.install_pending_update():
+            return json.dumps({
+                "success": True,
+                "message": "Update installed. Service will restart.",
+            })
+        else:
+            return json.dumps({
+                "success": False,
+                "error": "Installation failed",
+            }), 500
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/updates/channel", methods=["GET"])
+def api_update_channel_get():
+    """Get current update channel."""
+    try:
+        from universalchess.services.update_service import get_update_service
+        service = get_update_service()
+        return json.dumps({
+            "channel": service.get_channel().value,
+        })
+    except Exception as e:
+        return json.dumps({"error": str(e)}), 500
+
+
+@app.route("/api/updates/channel", methods=["POST"])
+@requires_auth
+def api_update_channel_set():
+    """Set update channel.
+    
+    Body:
+        {"channel": "stable" | "nightly"}
+    """
+    try:
+        from universalchess.services.update_service import get_update_service, UpdateChannel
+        service = get_update_service()
+        
+        data = request.get_json(force=True)
+        channel_str = data.get("channel", "stable")
+        
+        try:
+            channel = UpdateChannel(channel_str)
+        except ValueError:
+            return json.dumps({"error": f"Invalid channel: {channel_str}"}), 400
+        
+        service.set_channel(channel)
+        return json.dumps({
+            "success": True,
+            "channel": channel.value,
+        })
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/updates/auto", methods=["GET"])
+def api_update_auto_get():
+    """Get auto-update setting."""
+    try:
+        from universalchess.services.update_service import get_update_service
+        service = get_update_service()
+        return json.dumps({
+            "auto_update": service.is_auto_update_enabled(),
+        })
+    except Exception as e:
+        return json.dumps({"error": str(e)}), 500
+
+
+@app.route("/api/updates/auto", methods=["POST"])
+@requires_auth
+def api_update_auto_set():
+    """Set auto-update setting.
+    
+    Body:
+        {"enabled": true | false}
+    """
+    try:
+        from universalchess.services.update_service import get_update_service
+        service = get_update_service()
+        
+        data = request.get_json(force=True)
+        enabled = data.get("enabled", False)
+        
+        service.set_auto_update(bool(enabled))
+        return json.dumps({
+            "success": True,
+            "auto_update": service.is_auto_update_enabled(),
+        })
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)}), 500
+
+
+# -----------------------------------------------------------------------------
 # Server-Sent Events for real-time game state updates
 # -----------------------------------------------------------------------------
 

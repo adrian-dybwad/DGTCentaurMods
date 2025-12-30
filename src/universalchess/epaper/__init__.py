@@ -30,6 +30,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "WiFiStatusWidget": ("universalchess.epaper.wifi_status", "WiFiStatusWidget"),
     "BluetoothStatusWidget": ("universalchess.epaper.bluetooth_status", "BluetoothStatusWidget"),
     "ChromecastStatusWidget": ("universalchess.epaper.chromecast_status", "ChromecastStatusWidget"),
+    "UpdateStatusWidget": ("universalchess.epaper.update_status", "UpdateStatusWidget"),
     "GameOverWidget": ("universalchess.epaper.game_over", "GameOverWidget"),
     "IconButtonWidget": ("universalchess.epaper.icon_button", "IconButtonWidget"),
     "IconMenuWidget": ("universalchess.epaper.icon_menu", "IconMenuWidget"),
