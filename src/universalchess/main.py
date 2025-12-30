@@ -2033,10 +2033,10 @@ def _handle_wifi_scan():
 
 
 def _get_installed_version() -> str:
-    """Get the installed DGTCentaurMods version from dpkg.
+    """Get the installed Universal Chess version from dpkg.
     
     Returns:
-        Version string (e.g., "1.2.3") or empty string if not found.
+        Version string (e.g., "2.0.0") or empty string if not found.
     """
     import subprocess
     try:
@@ -2048,7 +2048,7 @@ def _get_installed_version() -> str:
         )
         if result.returncode == 0:
             for line in result.stdout.split('\n'):
-                if 'dgtcentaurmods' in line:
+                if 'universal-chess' in line:
                     parts = line.split()
                     if len(parts) >= 3:
                         return parts[2].strip()
