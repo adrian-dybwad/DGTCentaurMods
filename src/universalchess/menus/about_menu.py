@@ -150,7 +150,10 @@ def handle_about_menu(
         return build_about_entries(get_installed_version)
 
     def handle_selection(result: MenuSelection):
-        if result.key == "Support":
+        if result.key == "Version":
+            # Version is display-only, not selectable
+            return None
+        elif result.key == "Support":
             ctx.enter_menu("Support", 0)
             show_support_qr(
                 board=board,
