@@ -151,19 +151,19 @@ class UpdateStatusWidget(Widget):
         
         self._animation_frame += 1
     
-    def render(self) -> Image.Image:
-        """Render the update status icon."""
-        img = Image.new("1", (self._size, self._size), 255)
+    def render(self, sprite: Image.Image) -> None:
+        """Render the update status icon onto the sprite.
         
+        Args:
+            sprite: Pre-sized image to draw onto
+        """
         if not self.visible:
-            return img
+            return
         
-        draw = ImageDraw.Draw(img)
+        draw = ImageDraw.Draw(sprite)
         
         if self._is_downloading:
             self._draw_downloading_animation(draw)
         else:
             self._draw_download_icon(draw)
-        
-        return img
 
