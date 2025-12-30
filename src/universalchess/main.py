@@ -1806,19 +1806,15 @@ def _handle_settings(initial_selection: str = None):
         
         elif result == "About":
             ctx.enter_menu("About", 0)
-            from universalchess.paths import get_resource_path
             about_result = handle_about_menu(
                 ctx=ctx,
                 menu_manager=_menu_manager,
                 board=board,
                 log=log,
                 get_installed_version=_get_installed_version,
-                get_resource_path=get_resource_path,
                 handle_update_menu=handle_update_menu,
                 show_menu=_show_menu,
                 find_entry_index=find_entry_index,
-                set_active_about_widget=lambda w: globals().__setitem__('_active_about_widget', w),
-                clear_active_about_widget=lambda: globals().__setitem__('_active_about_widget', None),
             )
             ctx.leave_menu()
             if is_break_result(about_result):

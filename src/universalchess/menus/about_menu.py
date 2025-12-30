@@ -47,12 +47,6 @@ def build_about_entries(
             selectable=False,
         ),
         IconMenuEntry(
-            key="Support",
-            label="Support\nQR Code",
-            icon_name="universal_logo",
-            enabled=True,
-        ),
-        IconMenuEntry(
             key="Updates",
             label=update_label,
             icon_name=update_icon,
@@ -61,72 +55,15 @@ def build_about_entries(
     ]
 
 
-def show_support_qr(
-    board,
-    log,
-    get_installed_version: Callable[[], str],
-    get_resource_path: Callable[[str], Optional[str]],
-    set_active_about_widget: Callable,
-    clear_active_about_widget: Callable,
-):
-    """Show support QR code on the e-paper display.
-    
-    Args:
-        board: Board instance
-        log: Logger instance
-        get_installed_version: Function returning installed version
-        get_resource_path: Function to resolve resource paths
-        set_active_about_widget: Callback to set active widget
-        clear_active_about_widget: Callback to clear active widget
-    """
-    from universalchess.epaper.about_widget import AboutWidget
-    
-    version = get_installed_version()
-    qr_path = get_resource_path("qr.png")
-    
-    if not qr_path:
-        log.warning("[About] QR code image not found")
-        return
-    
-    try:
-        board.display_manager.clear_widgets()
-        widget = AboutWidget(
-            update_callback=board.display_manager.update,
-            version=version,
-            qr_image_path=qr_path,
-        )
-        set_active_about_widget(widget)
-        promise = board.display_manager.add_widget(widget)
-        if promise:
-            try:
-                promise.result(timeout=2.0)
-            except Exception:
-                pass
-        
-        # Wait for user to press back
-        import time
-        while True:
-            time.sleep(0.1)
-            # The widget will be dismissed by the menu system
-            if not board.display_manager.has_widget(widget):
-                break
-    
-    finally:
-        clear_active_about_widget()
-
-
 def handle_about_menu(
     ctx,
     menu_manager,
     board,
     log,
     get_installed_version: Callable[[], str],
-    get_resource_path: Callable[[str], Optional[str]],
     handle_update_menu: Callable,
     show_menu: Callable,
     find_entry_index: Callable,
-    set_active_about_widget: Callable,
-    clear_active_about_widget: Callable,
 ) -> Optional[MenuSelection]:
     """Handle About menu - show version info and update options.
     
@@ -136,12 +73,9 @@ def handle_about_menu(
         board: Board instance
         log: Logger instance
         get_installed_version: Function returning installed version
-        get_resource_path: Function to resolve resource paths
         handle_update_menu: Function to handle update submenu
         show_menu: Function to display menu
         find_entry_index: Function to find entry index
-        set_active_about_widget: Callback to set active widget
-        clear_active_about_widget: Callback to clear active widget
         
     Returns:
         MenuSelection if breaking out, None otherwise
@@ -153,17 +87,6 @@ def handle_about_menu(
         if result.key == "Version":
             # Version is display-only, not selectable
             return None
-        elif result.key == "Support":
-            ctx.enter_menu("Support", 0)
-            show_support_qr(
-                board=board,
-                log=log,
-                get_installed_version=get_installed_version,
-                get_resource_path=get_resource_path,
-                set_active_about_widget=set_active_about_widget,
-                clear_active_about_widget=clear_active_about_widget,
-            )
-            ctx.leave_menu()
         elif result.key == "Updates":
             ctx.enter_menu("Updates", 0)
             sub_result = handle_update_menu(
