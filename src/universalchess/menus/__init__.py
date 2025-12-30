@@ -32,7 +32,7 @@ from .wifi_menu import handle_wifi_settings_menu
 from .wifi_menu import handle_wifi_scan_menu
 from .bluetooth_menu import handle_bluetooth_menu
 from .accounts_menu import handle_accounts_menu, mask_token
-from .about_menu import handle_about_menu, show_support_qr
+from .about_menu import handle_about_menu
 from .engine_manager_menu import (
     handle_engine_manager_menu,
     handle_engine_detail_menu,
@@ -101,7 +101,6 @@ __all__ = [
     "build_hand_brain_mode_toggle_entry",
     "toggle_hand_brain_mode",
     "handle_about_menu",
-    "show_support_qr",
     "handle_engine_manager_menu",
     "handle_engine_detail_menu",
     "show_engine_install_progress",
